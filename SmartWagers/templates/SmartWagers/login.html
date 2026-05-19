@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Login</title>
+  <link rel="stylesheet" href="{% static 'SmartWagers/login.css' %}">
+</head>
+<body>
+  <div class="login-container">
+    <h2>Welcome Back</h2>
+    <form method="post">
+      {% csrf_token %}
+      <label for="username">Username</label>
+      <input type="text" name="username" id="username" required>
+
+      <label for="password">Password</label>
+      <input type="password" name="password" id="password" required>
+
+
+      <button type="submit">Login</button>
+        
+      {% if form.errors %}
+        <div class="error-message">
+          <p>Invalid username or password. Please try again.</p>
+        </div>
+      {% endif %}
+    </form>
+  </div>
+</body>
+</html>

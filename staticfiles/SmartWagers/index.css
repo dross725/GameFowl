@@ -1,0 +1,92 @@
+/* ── Index / Display Board ───────────────────────────────── */
+/* Full-screen two-column pot display — no background images  */
+
+#pot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+  gap: 3px;
+  min-height: 0;
+}
+
+/* ── MERON pot panel ─────────────────────────────────────── */
+#M_pot {
+  background-color: #4a0c08;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 30%),
+    linear-gradient(180deg, #c0392b 0%, #4a0c08 60%, #220605 100%);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 35px 25px; /* pot card padding — was 28px 20px (+25%) */
+  box-shadow:
+    -6px 8px 32px rgba(192, 57, 43, 0.22),
+    0 12px 40px rgba(0, 0, 0, 0.50),
+    inset 0 2px 14px rgba(0, 0, 0, 0.30);
+  border-left:   1px solid rgba(224, 52, 40, 0.35);
+  border-right:  1px solid rgba(224, 52, 40, 0.12);
+  border-bottom: 1px solid rgba(192, 57, 43, 0.28);
+}
+
+/* ── WALA pot panel ──────────────────────────────────────── */
+#W_pot {
+  background-color: #061b33;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 30%),
+    linear-gradient(180deg, #1a6bc0 0%, #061b33 60%, #030c1a 100%);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 35px 25px; /* pot card padding — was 28px 20px (+25%) */
+  box-shadow:
+    6px 8px 32px rgba(26, 107, 192, 0.22),
+    0 12px 40px rgba(0, 0, 0, 0.50),
+    inset 0 2px 14px rgba(0, 0, 0, 0.30);
+  border-right:  1px solid rgba(30, 126, 212, 0.35);
+  border-left:   1px solid rgba(30, 126, 212, 0.12);
+  border-bottom: 1px solid rgba(26, 107, 192, 0.28);
+}
+
+/* ── Total bet amount (big number) ───────────────────────── */
+#M_total_bet,
+#W_total_bet {
+  text-align: center;
+  font-size: clamp(75px, 15vw, 180px); /* total bet — was clamp(60px, 12vw, 144px) (+25%) */
+  font-weight: 900;
+  color: white;
+  text-shadow: 0 4px 28px rgba(0, 0, 0, 0.65), 0 0 60px rgba(255,255,255,0.08);
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  line-height: 1;
+  letter-spacing: -1px;
+  margin-bottom: 35px;
+  background: none;
+  height: auto;
+  margin-top: 0;
+}
+
+/* ── Payout multiplier ───────────────────────────────────── */
+#M_payout,
+#W_payout {
+  text-align: center;
+  font-size: clamp(35px, 6.875vw, 90px); /* payout — was clamp(28px, 5.5vw, 72px) (+25%) */
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(0, 0, 0, 0.30);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  padding: 13px 55px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  min-width: 275px;
+  height: auto;
+  margin-top: 0;
+}
+
+/* ── Betting status (hidden on display board) ────────────── */
+#meron-betting-status h1,
+#wala-betting-status h1 {
+  display: none;
+}

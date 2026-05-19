@@ -1,0 +1,330 @@
+/* ── User / Teller Panel ─────────────────────────────────── */
+/* Pot strip at top, wager inputs below — no background image */
+
+/* Override #wagers_section from app.css for this page */
+#wagers_section {
+  display: flex;
+  flex-direction: column;
+  background-image: none !important;
+  gap: 5px;
+}
+
+/* ── Pot totals strip ────────────────────────────────────── */
+#pot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex-shrink: 0;
+  gap: 3px;
+}
+
+#M_pot {
+  background-color: #4a0c08;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 40%),
+    linear-gradient(180deg, #c0392b 0%, #4a0c08 70%, #220605 100%);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 15px; /* pot strip padding — was 10px 12px (+25%) */
+  box-shadow:
+    -4px 6px 20px rgba(192, 57, 43, 0.18),
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    inset 0 2px 10px rgba(0, 0, 0, 0.25);
+  border-left:   1px solid rgba(224, 52, 40, 0.35);
+  border-right:  1px solid rgba(224, 52, 40, 0.12);
+  border-bottom: 1px solid rgba(192, 57, 43, 0.25);
+}
+
+#W_pot {
+  background-color: #061b33;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 40%),
+    linear-gradient(180deg, #1a6bc0 0%, #061b33 70%, #030c1a 100%);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 13px 15px; /* pot strip padding — was 10px 12px (+25%) */
+  box-shadow:
+    4px 6px 20px rgba(26, 107, 192, 0.18),
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    inset 0 2px 10px rgba(0, 0, 0, 0.25);
+  border-right:  1px solid rgba(30, 126, 212, 0.35);
+  border-left:   1px solid rgba(30, 126, 212, 0.12);
+  border-bottom: 1px solid rgba(26, 107, 192, 0.25);
+}
+
+#M_total_bet,
+#W_total_bet {
+  text-align: center;
+  font-size: clamp(35px, 7.5vw, 95px); /* total bet — was clamp(28px, 6vw, 76px) (+25%) */
+  font-weight: 900;
+  color: white;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  line-height: 1;
+  background: none;
+  height: auto;
+  margin: 0;
+  padding: 0;
+}
+
+#M_payout,
+#W_payout {
+  text-align: center;
+  font-size: clamp(20px, 3.75vw, 50px); /* payout — was clamp(16px, 3vw, 40px) (+25%) */
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 4px 23px;
+  height: auto;
+  margin: 6px 0 0;
+}
+
+#meron-betting-status h1,
+#wala-betting-status h1 {
+  font-size: 14px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 3px;
+}
+
+/* ── Wager input section ─────────────────────────────────── */
+#content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+#wagers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Side panels (cards) ─────────────────────────────────── */
+#meron-wagers {
+  background-color: #2a0604;
+  background-image: linear-gradient(180deg, rgba(192, 57, 43, 0.14) 0%, rgba(80, 10, 8, 0.55) 100%);
+  border-radius: 10px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(192, 57, 43, 0.32);
+  box-shadow:
+    -3px 4px 18px rgba(192, 57, 43, 0.14),
+    0 4px 16px rgba(0, 0, 0, 0.40);
+  overflow: hidden;
+}
+
+#wala-wagers {
+  background-color: #040c2a;
+  background-image: linear-gradient(180deg, rgba(26, 107, 192, 0.14) 0%, rgba(8, 28, 70, 0.55) 100%);
+  border-radius: 10px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(26, 107, 192, 0.32);
+  box-shadow:
+    3px 4px 18px rgba(26, 107, 192, 0.14),
+    0 4px 16px rgba(0, 0, 0, 0.40);
+  overflow: hidden;
+}
+
+/* ── Bet amount input ────────────────────────────────────── */
+#meron-text-input,
+#wala-text-input {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 0;
+}
+
+#meron_textinput,
+#wala_textinput {
+  width: 80%;
+  max-width: 280px;
+  height: 34px;
+  resize: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  font-size: 20px;
+  font-weight: 700;
+  text-align: right;
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
+  padding: 0 10px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#meron_textinput:focus {
+  border-color: rgba(192, 57, 43, 0.70);
+  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.15);
+}
+
+#wala_textinput:focus {
+  border-color: rgba(26, 107, 192, 0.70);
+  box-shadow: 0 0 0 2px rgba(26, 107, 192, 0.15);
+}
+
+/* ── Chip button rows ────────────────────────────────────── */
+#meron-bet-buttons,
+#wala-bet-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  align-items: center;
+}
+
+#buttons_section1,
+#buttons_section2 {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+}
+
+/* ── Generic button ──────────────────────────────────────── */
+.button {
+  height: 30px;
+  min-width: 62px;
+  color: white;
+  padding: 0 11px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.14s, transform 0.1s, box-shadow 0.14s;
+  user-select: none;
+  letter-spacing: 0.2px;
+}
+
+.button:hover {
+  background: rgba(255, 255, 255, 0.20);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* ── Submit / Reset row ──────────────────────────────────── */
+#meron-submitreset-button,
+#wala-submitreset-button {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  width: 100%;
+}
+
+#Musersubmit,
+#M_SubmitButton {
+  background: linear-gradient(135deg, #c0392b, #8e1a12);
+  border-color: rgba(192, 57, 43, 0.55);
+  min-width: 90px;
+}
+
+#Musersubmit:hover,
+#M_SubmitButton:hover {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+#Wusersubmit,
+#W_SubmitButton {
+  background: linear-gradient(135deg, #1a6bc0, #0d3c6e);
+  border-color: rgba(26, 107, 192, 0.55);
+  min-width: 90px;
+}
+
+#Wusersubmit:hover,
+#W_SubmitButton:hover {
+  background: linear-gradient(135deg, #2980b9, #1a6bc0);
+}
+
+/* ── Payout / Cancel Bet row card ────────────────────────── */
+#content > section:last-child {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.30);
+  flex-shrink: 0;
+}
+
+/* ── Payout / Cancel Bet buttons ─────────────────────────── */
+#payout_button {
+  background: linear-gradient(135deg, #27ae60, #1a7a42);
+  border-color: rgba(39, 174, 96, 0.55);
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 160px;
+  height: 36px;
+  text-align: center;
+  width: auto;
+  margin: 0 auto;
+  justify-content: center;
+}
+
+#payout_button:hover {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+}
+
+#cancel_bet {
+  background: linear-gradient(135deg, #e67e22, #a85709);
+  border-color: rgba(230, 126, 34, 0.55);
+  font-weight: 700;
+  min-width: 140px;
+  height: 36px;
+  text-align: center;
+  width: auto;
+  margin: 0 auto;
+  justify-content: center;
+}
+
+#cancel_bet:hover {
+  background: linear-gradient(135deg, #f39c12, #e67e22);
+}
+
+#payout_barcode {
+  width: 200px;
+  height: 30px;
+  resize: none;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 6px;
+  font-size: 18px;
+  text-align: right;
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
+  padding: 0 8px;
+  outline: none;
+}

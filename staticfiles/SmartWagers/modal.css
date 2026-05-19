@@ -1,0 +1,182 @@
+/* ── Modals — Dark Theme ─────────────────────────────────── */
+
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  justify-content: center;
+  align-items: center;
+}
+
+/* Show via JS by setting display:flex */
+.modal[style*="display: flex"],
+.modal[style*="display:flex"] {
+  display: flex !important;
+}
+
+/* ── Dialog box ──────────────────────────────────────────── */
+.modal-content {
+  background: #1b1e27;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 14px;
+  padding: 28px 32px 24px;
+  width: 360px;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  color: #edf0f5;
+}
+
+.modal-content h2 {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  color: white;
+}
+
+.modal-content p {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.modal-content input {
+  width: 80%;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 8px;
+  font-size: 17px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
+  padding: 0 10px;
+  outline: none;
+  margin: 10px 0 4px;
+  transition: border-color 0.2s;
+}
+
+.modal-content input:focus {
+  border-color: rgba(255, 255, 255, 0.40);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+/* ── Modal buttons (base) ────────────────────────────────── */
+.modal-content button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 20px;
+  margin: 8px 4px 0;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.09);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.14s, transform 0.1s, box-shadow 0.14s;
+  user-select: none;
+  min-width: 80px;
+}
+
+.modal-content button:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.modal-content button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* ── Confirm / primary action ────────────────────────────── */
+#submitvalue,
+#payout_yes,
+#cancelbet_yes,
+#cm-yes-button,
+#confirmopen,
+#payout_success_button,
+#payout_error_button {
+  background: linear-gradient(135deg, #27ae60, #1a7a42);
+  border-color: rgba(39, 174, 96, 0.50);
+}
+
+#submitvalue:hover,
+#payout_yes:hover,
+#cancelbet_yes:hover,
+#cm-yes-button:hover,
+#confirmopen:hover,
+#payout_success_button:hover,
+#payout_error_button:hover {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+}
+
+/* ── MERON winner button ─────────────────────────────────── */
+#meron_winner {
+  background: linear-gradient(135deg, #c0392b, #8e1a12);
+  border-color: rgba(192, 57, 43, 0.50);
+}
+
+#meron_winner:hover {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+/* ── WALA winner button ──────────────────────────────────── */
+#wala_winner {
+  background: linear-gradient(135deg, #1a6bc0, #0d3c6e);
+  border-color: rgba(26, 107, 192, 0.50);
+}
+
+#wala_winner:hover {
+  background: linear-gradient(135deg, #2980b9, #1a6bc0);
+}
+
+/* ── Draw button ─────────────────────────────────────────── */
+#draw {
+  background: linear-gradient(135deg, #7d3c98, #5b2c6f);
+  border-color: rgba(125, 60, 152, 0.50);
+}
+
+#draw:hover {
+  background: linear-gradient(135deg, #9b59b6, #7d3c98);
+}
+
+/* ── Cancel / dismiss buttons ────────────────────────────── */
+#payout_no,
+#cancelbet_no,
+#cm-no-button {
+  background: rgba(192, 57, 43, 0.18);
+  border-color: rgba(192, 57, 43, 0.30);
+}
+
+#payout_no:hover,
+#cancelbet_no:hover,
+#cm-no-button:hover {
+  background: rgba(192, 57, 43, 0.38);
+}
+
+/* ── Close icon ──────────────────────────────────────────── */
+.close {
+  color: rgba(255, 255, 255, 0.35);
+  float: right;
+  font-size: 22px;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.close:hover,
+.close:focus {
+  color: white;
+  text-decoration: none;
+}

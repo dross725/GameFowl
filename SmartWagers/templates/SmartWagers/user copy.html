@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block css_files %}
+    <link rel="stylesheet" href="{% static "SmartWagers/user.css" %}">
+{% endblock css_files %}
+
+{% block content %}
+    <section id="content">
+        <section id="pot">
+            <div id="M_pot">
+                <div id="M_total_bet"><h1>000,000</h1></div>
+                <div id="M_payout"><h1>PAYOUT: %%</h1></div>
+            </div>
+            <div id="W_pot">
+                <div id="W_total_bet"><h1>000,000</h1></div>
+                <div id="W_payout"><h1>PAYOUT: %%</h1></div>
+            </div>
+        </section>
+        <section id="wagers">
+            <div id="meron-wagers">
+                <h1>Meron</h1>
+                <div id="meron-text-input">
+                    <textarea id="meron_textinput">0</textarea>
+                </div>
+                <section id="meron-bet-buttons">
+                    <div class="button" onclick="meron_addValue(100)">100</div>
+                    <div class="button" onclick="meron_addValue(500)">500</div>
+                    <div class="button" onclick="meron_addValue(1000)">1,000</div>
+                    <div class="button" onclick="meron_addValue(5000)">5,000</div>
+                    <div class="button" onclick="meron_addValue(10000)">10,000</div>
+                </section>
+                <section id="meron-submitreset-button">
+                    <div class="button" onclick="openConfirmationWindow()">Submit</div>
+                    <div class="button" onclick="meron_reset()">Reset</div>
+                </section>
+            </div>
+
+            <div id="wala-wagers">
+                <h1>Wala</h1>
+                <div id="wala-text-input">
+                    <textarea id="wala_textinput">0</textarea>
+                </div>
+                <section id="wala-bet-buttons">
+                    <div class="button" onclick="wala_addValue(100)">100</div>
+                    <div class="button" onclick="wala_addValue(500)">500</div>
+                    <div class="button" onclick="wala_addValue(1000)">1,000</div>
+                    <div class="button" onclick="wala_addValue(5000)">5,000</div>
+                    <div class="button" onclick="wala_addValue(10000)">10,000</div>
+                </section>
+                <section id="wala-submitreset-button">
+                    <div class="button" onclick="openConfirmationWindow()">Submit</div>
+                    <div class="button" onclick="wala_reset()">Reset</div>
+                </section>
+            </div>
+        </section>
+    </section>
+
+    <form id="totalForm" method="POST" style="display:none;">
+        {% csrf_token %}
+        <input type="hidden" name="total_value" id="hiddenInput">
+    </form>
+
+    <script>
+        let meron_total = 0;
+        let wala_total = 0;
+        let total = 0;
+        let side = '';
+
+        function wala_addValue(value) {
+            /*make sure to clear other side to avoid stacking*/
+            meron_reset();
+            wala_total += value;
+            const walatextarea = document.getElementById("wala_textinput");
+            walatextarea.value = '';
+            walatextarea.value += wala_total; 
+        }
+
+        function wala_reset() {
+            wala_total = 0;
+            const walatextarea = document.getElementById("wala_textinput");
+            walatextarea.value = '0';
+        }
+
+        function meron_addValue(value) {
+            /*make sure to clear other side to avoid stacking*/
+            wala_reset();
+            meron_total += value;
+            const textarea = document.getElementById('meron_textinput');
+            textarea.value = ''; 
+            textarea.value += meron_total; 
+        }
+
+        function meron_reset() {
+            meron_total = 0;
+            const textarea = document.getElementById('meron_textinput');
+            textarea.value = '0';
+        }
+
+        function resetTotal() {
+           // meron_reset();
+           // wala_reset();
+            total = 0; // Reset the total variable to 0
+        }
+
+        function openConfirmationWindow() {
+            if (meron_total == 0 && wala_total != 0){ 
+                total = wala_total;
+                side = 'MERON';
+                wala_reset();
+            }
+            else if (meron_total != 0 && wala_total == 0){
+                total = meron_total;
+                side = 'WALA';
+                meron_reset();
+            }else {
+                wala_reset();
+                meron_reset();
+                pass;
+            }
+                
+            let width = 300;
+            let height = 300;
+            let left = (screen.width / 2) - (width / 2);
+            let top = (screen.height / 2) - (height / 2);
+            const summaryWindow = window.open("", "Confirm Submission", `width=${width}, height=${height}, top=${top}, left=${left}, menubar=no, toolbar=no, status=no`);
+
+            summaryWindow.document.write(`
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Confirm Submission</title>
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            padding: 20px;
+                        }
+                        button {
+                            margin-top: 20px;
+                            padding: 10px;
+                        }
+                        
+                    </style>
+                </head>
+                <body>
+                    <h2>Confirm Bet</h2>
+                    <p>Please confirm the bet value for ${side}</p>
+                    <p>Total: ${total}</p>
+                    <button onclick="window.opener.submitValue(); window.close();">Confirm</button> <!-- Confirm submission -->
+                    <button onclick="window.opener.cancelBet(); window.close(); ">Cancel</button> <!-- Close without submitting -->
+                    
+
+                </body>
+                </html>
+            `);
+            summaryWindow.document.close(); // Close the document to render the content
+            summaryWindow.focus(); // Bring the new window into focus
+        }
+
+        function cancelBet() {
+            total = 0;
+            side = '';
+        }
+
+        function submitValue() {
+            total=0;
+            const hiddenInput = document.getElementById('hiddenInput');
+            hiddenInput.value = total; // Set the total value to the hidden input
+            document.getElementById('totalForm').submit(); // Submit the form
+        }
+
+    </script>
+{% endblock content %}

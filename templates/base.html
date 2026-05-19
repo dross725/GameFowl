@@ -1,0 +1,78 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SmartWagers{% endblock title %}</title>
+    <link rel="stylesheet" href="{% static "app.css" %}?v=9">
+
+    {% block css_files %}{% endblock css_files %}
+    {% block script_files %}
+        <!--script src="{% static 'SmartWagers/signals.js' %}"></scrip-->
+    {% endblock script_files %}
+</head>
+<body>
+    {% block nav %}
+        <header id="main-navigation">
+            <nav id="navbar">
+                <div id="nav-brand">SmartWagers</div>
+                <ul id="nav-links">
+                    <li><a href="{% url "index" %}">Main</a></li>
+                    <li><a href="{% url "user-page" %}">Teller</a></li>
+                    <li><a href="{% url "admin-page" %}">Admin</a></li>
+                    <li><a href="#report">Reports</a></li>
+                </ul>
+                <div id="nav-actions">
+                    <form method="post" action="{% url "logout" %}">
+                        {% csrf_token %}
+                        <button type="submit" class="nav-logout-button" name="logout-button">Logout</button>
+                    </form>
+                </div>
+            </nav>
+        </header>
+    {% endblock nav %}
+    <div id="container">
+        <aside id="sidebar">
+            <h1>TRENDS</h1>
+            <ul id="trends">
+            </ul>
+        </aside>
+
+        <main id="main_content">
+            <div id="currentmatch">
+                <div id="currentmatchnum">FIGHT #</div>
+                <div id="currentmatchstatus">Status : Ongoing</div>
+                <div id="ws_status">Status: Connecting...</div>
+            </div>
+            {% block label %}
+                <section id='labels'>
+                    <div id='M_Label'><h1>MERON</h1></div>
+                    <div id="W_Label"><h1>WALA</h1></div>
+                </section>
+                
+            {% endblock label %}
+            <section id="wagers_section">
+                {% block pot_block %}
+                    <section id="pot">
+                        <div id="M_pot">
+                            <div id="M_total_bet"><h1>{{ M_total_bet }}</h1></div>
+                            <div id="M_payout"><h1>{{M_payout}}</h1></div>
+                            <div id="meron-betting-status"><h1>.</h1></div>
+                        </div>
+                        <div id="W_pot">
+                            <div id="W_total_bet"><h1>{{ W_total_bet }}</h1></div>
+                            <div id="W_payout"><h1>{{W_payout}}</h1></div>
+                            <div id="wala-betting-status"><h1>.</h1></div>
+                        </div>
+                    </section>
+                {% endblock pot_block %}
+                {% block content %}
+                
+                {% endblock content %}
+            </section>
+        </main>
+
+</body>
+</html>

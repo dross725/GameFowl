@@ -1,0 +1,218 @@
+{% extends 'base.html'%}
+{% load static %}
+
+{% block css_files %}
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=9">
+    <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=8">
+{% endblock css_files %}
+
+{% block script_files %}
+    <script src="{% static 'SmartWagers/administrator.js' %}"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}"></script>
+    {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
+
+{% endblock script_files %}
+
+{% block content %}
+    <section id='content'>
+        <section id='wagers'>
+            <div id='meron-wagers'>
+                
+                <div id='meron-text-input'>
+                    <textarea id='meron_textinput'>0</textarea>
+                </div>
+                <section class='meron-bet-buttons'>
+                    <section id='buttons_section1'>
+                        <div class='button' onclick='meron_addValue(100)'>100</div>
+                        <div class='button' onclick='meron_addValue(200)'>200</div>
+                        <div class='button' onclick='meron_addValue(500)'>500</div>
+                        <div class='button' onclick='meron_addValue(1000)'>1,000</div>
+                        
+                    </section>
+                    <section id='buttons_section2'>
+                        <div class='button' onclick='meron_addValue(2000)'>2,000</div>
+                        <div class='button' onclick='meron_addValue(5000)'>5,000</div>
+                        <div class='button' onclick='meron_addValue(10000)'>10,000</div>
+                        <div class='button' onclick='meron_addValue(15000)'>15,000</div>
+                        <div class='button' onclick='meron_addValue(20000)'>20,000</div>
+                    </section>
+                </section>
+                <section id='meron-submitreset-button'>
+                    <div class='button' id='M_SubmitButton' onclick='check_total("MERON")'>Submit</div>
+                    <div class='button' onclick='meron_reset()'>Reset</div>
+                </section>
+                <section id='meron-bet-control-buttons'>
+                    <div class='button' onclick='openadminbetcontrolModal("MERON", "Open")' id='M_OpenButton'>Open Meron</div>
+                    <div class='button' onclick='openadminbetcontrolModal("MERON", "Close")' id='M_CloseButton'>Close Meron</div>
+                </section>
+            </div>
+            <div id='wala-wagers'>
+                
+                
+                <div id='wala-text-input'>
+                    <textarea id='wala_textinput'>0</textarea>
+                </div>
+                <section id='wala-bet-buttons'>
+                    <section id='buttons_section1'>
+                        <div class='button' onclick='wala_addValue(100)'>100</div>
+                        <div class='button' onclick='wala_addValue(200)'>200</div>
+                        <div class='button' onclick='wala_addValue(500)'>500</div>
+                        <div class='button' onclick='wala_addValue(1000)'>1,000</div>
+
+                    </section>
+                    <section id='buttons_section2'>
+                        <div class='button' onclick='wala_addValue(2000)'>2,000</div>
+                        <div class='button' onclick='wala_addValue(5000)'>5,000</div>
+                        <div class='button' onclick='wala_addValue(10000)'>10,000</div>
+                        <div class='button' onclick='wala_addValue(15000)'>15,000</div>
+                        <div class='button' onclick='wala_addValue(20000)'>20,000</div>
+                    </section>
+                </section>
+                <section id="wala-submitreset-button">
+                    <div class='button' id='W_SubmitButton' onclick='check_total("WALA")'>Submit</div>
+                    <div class='button' onclick='wala_reset()'>Reset</div>
+                </section>
+                <section id="wala-bet-control-buttons">
+                    <div class='button' onclick='openadminbetcontrolModal("WALA", "Open")' id='W_OpenButton'>Open Wala</div>
+                    <div class='button' onclick='openadminbetcontrolModal("WALA", "Close")' id='W_CloseButton'>Close Wala</div>
+                </section>
+            </div>
+        </section>
+        <section id="controls">
+            <div class='button' id='startmatchbutton' onclick='openmodal("control_confirmationModal", "StartMatch")'>Start Match</div>
+            <div class='button' id='closebettingbutton' onclick='openmodal("control_confirmationModal", "CloseBetting")'>Close Betting</div>
+            <div class='button' id='cancelmatchbutton' onclick='openmodal("control_confirmationModal", "CancelMatch")'>Cancel Match</div>
+            <div class='button' id='endmatchbutton' onclick='openmodal("control_confirmationModal", "EndMatch")'>End Match</div>
+        </section>
+        <section id='payout'>
+            <div class='button' id='payout_button' onclick='openmodal("payoutmodal", "Payout")'>PAYOUT!</div>
+            <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
+        </section>
+    </section>
+
+    <form id='submitwagerForm' method='POST' style='display:none;'>
+        {% csrf_token %}
+        <input type='hidden' name='wager_value' id='wager_value' autocomplete='off'></input>
+        <input type='hidden' name='wager_id' id='wager_id'></input>
+    </form>
+
+    <div id='confirmationModal' class='modal'>
+        <div class='modal-content'>
+            <h2>Confirm Bet</h2>
+            <br>
+            <p>Please confirm bet for <h2 id='confirmside'></h2></p>
+            <br>
+            <p id='summaryValue'></p>
+            <br>
+            <button id='submitvalue' onclick='submitValue()'>Confirm</button> <!-- Confirm submission -->
+            <button onclick='closeModal()'>Cancel</button> <!-- Close without submitting -->
+        </div>
+    </div>
+
+    <div id='invalidtotalModal' class='modal'>
+        <div class='modal-content'>
+            <h2>Invalid Bet entered</h2>
+            <br>
+            <p>Please make sure value in the text area is a valid bet!</p>
+            <br>
+            <button onclick='closeInvalidTotalModal()'>Close</button> <!-- Close without submitting -->
+        </div>
+    </div>
+
+    <div id='adminbetcontrol' class='modal'>
+        <div class='modal-content'>
+            <h2 id='modal-header'>Admin Bet Control</h2>
+            <br>
+            <p id='modal-message'></p>
+            <br>
+            <button id='confirmopen'>Yes</button>
+            <button onclick='closemodal(adminbetcontrol)'>No</button>
+        </div>
+    </div>
+
+
+    <div id='control_confirmationModal' class='modal'>
+        <div class='modal-content'>
+            <h2 id='cm-modal-header'>HEADER</h2>
+            <br>
+            <p id='cm-modal-message'>Message</p>
+            <br>
+            <button id='cm-yes-button'onclick='openmodal()'>YES</button>
+            <button id='cm-no-button' onclick='closemodal()'>NO</button>
+        </div>
+    </div>
+
+    <div id='whowonmodal' class='modal'>
+        <div class='modal-content'c>
+            <h2>Who Won?</h2>
+            <br>
+            <p>Please select the winner of the match:</p>
+            <br>
+            <button id='meron_winner' onclick='endMatch("MERON")'>Meron</button>
+            <button id='wala_winner' onclick='endMatch("WALA")'>Wala</button>
+            <button id='draw' onclick='endMatch("DRAW")'>Draw</button>
+            <button onclick='closemodal("whowonmodal")'>Cancel</button>
+        </div>
+    </div>
+
+   <div id='payoutmodal' class='modal'>
+            <div class='modal-content'>
+                <h2>Payout</h2>
+                <br>
+                <p>Please scan receipt barcode</p>
+                <br>
+                <input name="payout_textarea" id="payout_barcode"></input>
+                <br>
+                <button id='payout_yes' onclick='payout()'>Search</button>
+                <button id='payout_no' onclick='closemodal("payoutmodal")'>Cancel</button>
+            </div>
+        </div>
+
+        <div id='cancelbetmodal' class='modal'>
+            <div class='modal-content'>
+                <h2>Cancel Bet</h2>
+                <br>
+                <p>Please scan receipt barcode</p>
+                <br>
+                <input name="cancelbet_textarea" id="cancelbet_barcode"></input>
+                <br>
+                <button id='cancelbet_yes' onclick='cancelbet()'>Search</button>
+                <button id='cancelbet_no' onclick='closemodal("cancelbetmodal")'>Cancel</button>
+            </div>
+        </div>
+
+        <div id='payout_error_modal' class='modal'>
+            <div class='modal-content'>
+                <h2 id='payout_error_header'>Payout Error</h2>
+                <br>
+                <p id='payout_error_message'>Message</p>
+                <br>
+                
+                <button id='payout_error_button' onclick='closemodal("payout_error_modal")'>Close</button>
+            </div>
+        </div>
+        <div id='payout_print_modal' class='modal'>
+            <div class='modal-content'>
+                <h2 id='payout_success_header'>Payout Summary</h2>
+                <br>
+                <p id='payout_message1'>Message</p>
+                <p id='payout_message2'>Message</p>
+                <p id='payout_message3'>Message</p>
+                <br>
+                <button id='payout_success_button' onclick='closemodal("payout_print_modal")'>Close</button>
+            </div>
+        </div>
+
+        <div id='matchclosedmodal' class=modal>
+            <div class='modal-content'>
+                <h2>Match Closed</h2>
+                <br>
+                <p>The match has been closed. No further bets can be placed.</p>
+                <br>
+                <button onclick='closemodal("matchclosedmodal")'>Close</button>
+            </div>
+        </div>
+    </div>
+
+{% endblock content %}
+

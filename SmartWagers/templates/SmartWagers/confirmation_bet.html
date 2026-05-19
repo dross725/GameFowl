@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <h2>Confirm Submission</h2>
+    <p>Please confirm the total value:</p>
+    <p>Total: ${total}</p>
+    <button onclick="window.opener.submitValue(); window.close();">Confirm</button> <!-- Confirm submission -->
+    <button onclick="window.close();">Cancel</button> <!-- Close without submitting -->
+</body>
+</html>

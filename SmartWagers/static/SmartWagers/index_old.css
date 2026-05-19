@@ -1,0 +1,118 @@
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+}
+
+.container {
+    display: flex;
+    flex-direction: row;
+    height: calc(100vh - 60px); /* Height minus header */
+  }
+
+.main-content {
+    width: 85%;
+    height: 100%; 
+    display: grid;
+    grid-template-rows: 5rem 1fr;
+    grid-template-columns: 1fr;
+}
+
+.labels {
+    display: grid;
+    flex-direction: column;
+    border: white;
+    grid-template-columns: auto auto;
+    border-radius: 12px;
+    /* background: pink;*/
+}
+
+.M_Label {
+    background: linear-gradient(to bottom, red, rgb(34, 0, 0));
+    height: 8rem;
+    border-radius: 12px;
+}
+
+.W_Label {
+    background: linear-gradient(to bottom, blue, rgb(0, 0, 34));
+    height: 8rem;
+    border-radius: 12px;
+}
+
+.label {
+    text-align: center;
+    font-weight: bolder ;
+    padding: 1px;
+    font-size: 30px;
+    color: white;
+}
+
+.payout {
+    font-weight: bold;
+    padding: 5px;
+    color: white;
+    margin-left: 30px;
+    font-size: 50px;
+}
+
+.wagers{
+    display: grid;
+    padding: 30px;
+    flex-direction: column;
+    border: white;
+    border-style:double;
+    background: linear-gradient(to bottom, green, black);
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat (2, 1fr);
+    border-radius: 12px;
+    background-image: url("../SmartWagers/images/cockpit.png"); /* Replace with your image path */
+    background-repeat: no-repeat;
+    background-size:cover; /* Ensures the image covers the entire div */
+    background-position: center; /* Centers the image */
+    margin-top: 50px;
+}
+.h1 {
+    text-align: center;
+}
+
+
+.button {
+    height: 3rem;
+    color: white;
+    padding: 10px;
+    text-align: justify;
+    margin: 0.5rem;
+    cursor: pointer;
+    border-radius: 12px;
+    background-color: #33333349;
+    border-color: #f4f4f4;
+    border-style: groove;
+    
+}
+
+.button:hover {
+    background-color: darkgray;
+}
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+    .container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        order: 1; /* Sidebar at the top */
+    }
+
+    .main-content {
+        width: 100%;
+        grid-template-rows: repeat(4, 1fr);
+        grid-template-columns: 1fr;
+    }
+}

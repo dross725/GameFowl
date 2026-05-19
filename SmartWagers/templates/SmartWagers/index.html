@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block css_files %}
+    <link rel="stylesheet" href="{% static "SmartWagers/index.css" %}?v=8">
+{% endblock css_files %}
+
+{% block script_files %}
+    <!--script src="{% static 'SmartWagers/submit_wagers.js' %}"></script-->
+    <script src="{% static 'SmartWagers/signals.js' %}"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}"></script>
+{% endblock script_files %}
+
+{% block content %}
+
+{% endblock %}

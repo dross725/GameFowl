@@ -1,0 +1,384 @@
+/* ── Design Tokens ──────────────────────────────────────── */
+:root {
+  --meron:        #c0392b;
+  --meron-dark:   #7b1a10;
+  --meron-glow:   rgba(192, 57, 43, 0.30);
+  --wala:         #1a6bc0;
+  --wala-dark:    #0d3c6e;
+  --wala-glow:    rgba(26, 107, 192, 0.30);
+  --bg:           #0e1014;
+  --bg-panel:     #15181f;
+  --bg-card:      #1c1f28;
+  --border:       rgba(255, 255, 255, 0.08);
+  --text:         #edf0f5;
+  --text-dim:     #6e7a8a;
+  --green:        #27ae60;
+  --orange:       #e67e22;
+  --radius:       10px;
+  --shadow:       0 6px 28px rgba(0, 0, 0, 0.55);
+}
+
+/* ── Reset ──────────────────────────────────────────────── */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* ── Navbar ─────────────────────────────────────────────── */
+header#main-navigation {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  height: 42px;
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  border-radius: 0;
+}
+
+#navbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 0;
+}
+
+/* Brand / logo on the left */
+#nav-brand {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: white;
+  white-space: nowrap;
+  padding-right: 20px;
+  border-right: 1px solid var(--border);
+  margin-right: 16px;
+  display: flex;
+  align-items: center;
+  background: linear-gradient(90deg, #e74c3c, #2980b9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Nav links — centered */
+#nav-links {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  justify-content: center;
+  padding: 0;
+}
+
+nav ul li a {
+  color: var(--text);
+  text-decoration: none;
+  padding: 5px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  display: block;
+  transition: background 0.15s, color 0.15s;
+}
+
+nav ul li a:hover,
+a:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+  border-radius: 6px;
+  color: white;
+}
+
+/* Actions / logout on the right */
+#nav-actions {
+  display: flex;
+  align-items: center;
+  margin-left: 16px;
+  padding-left: 20px;
+  border-left: 1px solid var(--border);
+}
+
+.nav-logout-button {
+  background: rgba(192, 57, 43, 0.28);
+  border: 1px solid rgba(192, 57, 43, 0.48);
+  color: var(--text);
+  padding: 5px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.nav-logout-button:hover {
+  background: rgba(192, 57, 43, 0.58);
+  border-color: rgba(192, 57, 43, 0.80);
+}
+
+/* ── Layout ─────────────────────────────────────────────── */
+#container {
+  display: flex;
+  flex-direction: row;
+  height: calc(100vh - 42px);
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────── */
+#sidebar {
+  width: 10vw;
+  min-width: 80px;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+#sidebar h1 {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: white;
+  background: linear-gradient(90deg, var(--green), var(--wala));
+  text-align: center;
+  padding: 8px 4px;
+  border-radius: 0;
+}
+
+.sidebar-header {
+  display: grid;
+  grid-template-columns: 28px auto 44px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 2px;
+}
+
+.sidebar-header > div,
+.sidebar-row > div {
+  text-align: center;
+}
+
+.sidebar-row {
+  display: grid;
+  grid-template-columns: 28px auto 44px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 11px;
+  padding: 3px 2px;
+}
+
+.fightnum {
+  color: var(--text-dim);
+  font-style: normal;
+  border: none;
+}
+
+.fightres {
+  color: var(--text);
+  font-weight: 600;
+  font-style: normal;
+  border: none;
+}
+
+.odds {
+  color: #f39c12;
+  font-weight: 600;
+  font-style: normal;
+  border: none;
+}
+
+.winner {
+  font-size: 11px;
+}
+
+/* ── Main Content ────────────────────────────────────────── */
+#main_content {
+  flex: 1;
+  display: grid;
+  /* Row 1: status bar | Row 2: labels | Row 3: wagers+pot */
+  grid-template-rows: 48px auto 1fr;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Status Bar ──────────────────────────────────────────── */
+#currentmatch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  height: 48px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  width: 100%;
+}
+
+#currentmatchnum {
+  background: linear-gradient(90deg, #1d6b3e, var(--green));
+  color: white;
+  padding: 6px 20px;
+  border-radius: 24px;
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+  letter-spacing: 1px;
+  box-shadow: 0 0 12px rgba(39, 174, 96, 0.30);
+}
+
+#currentmatchstatus {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 18px;
+  border-radius: 24px;
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+}
+
+#ws_status {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  padding: 4px 10px;
+  background: var(--bg-card);
+  border-radius: 20px;
+  border: 1px solid var(--border);
+}
+
+/* ── MERON / WALA Labels ─────────────────────────────────── */
+#labels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  /* margin-bottom creates visible gap between labels and pot cards */
+  margin: 4px 4px 4px;
+  padding: 0;
+  align-self: start;
+}
+
+#M_Label {
+  background-color: #8e1a12;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%),
+    linear-gradient(180deg, #e03428 0%, #8e1a12 100%);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80px; /* label card height — was 64px (+25%) */
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(224, 52, 40, 0.45);
+  border-top: 2px solid rgba(240, 90, 72, 0.70);
+}
+
+/* diagonal shimmer */
+#M_Label::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  transform: skewX(-18deg);
+  pointer-events: none;
+}
+
+#M_Label h1 {
+  font-size: clamp(25px, 4.375vw, 50px); /* MERON/WALA text — was clamp(20px, 3.5vw, 40px) (+25%) */
+  font-weight: 900;
+  color: white;
+  letter-spacing: 10px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.70);
+  text-transform: uppercase;
+  position: relative;
+}
+
+#W_Label {
+  background-color: #0d3c6e;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%),
+    linear-gradient(180deg, #1e7ed4 0%, #0d3c6e 100%);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 80px; /* label card height — was 64px (+25%) */
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(30, 126, 212, 0.45);
+  border-top: 2px solid rgba(50, 130, 220, 0.70);
+}
+
+/* diagonal shimmer */
+#W_Label::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
+  transform: skewX(-18deg);
+  pointer-events: none;
+}
+
+#W_Label h1 {
+  font-size: clamp(25px, 4.375vw, 50px); /* MERON/WALA text — was clamp(20px, 3.5vw, 40px) (+25%) */
+  font-weight: 900;
+  color: white;
+  letter-spacing: 10px;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.70);
+  text-transform: uppercase;
+  position: relative;
+}
+
+/* ── Wagers Section (pot + page content) ────────────────── */
+#wagers_section {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  margin: 0 4px 4px;
+  padding: 0;
+  background: none;
+  background-image: none !important;
+  min-height: 0;
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #container {
+    flex-direction: column;
+  }
+
+  #sidebar {
+    width: 100%;
+    min-width: unset;
+    order: -1;
+  }
+
+  #main_content {
+    width: 100%;
+  }
+}

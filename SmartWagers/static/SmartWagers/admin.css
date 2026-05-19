@@ -1,0 +1,415 @@
+/* ── Admin Panel ─────────────────────────────────────────── */
+/* Compact pot strip + wager inputs + fight controls          */
+/* No background images                                       */
+
+#wagers_section {
+  display: flex;
+  flex-direction: column;
+  background-image: none !important;
+  gap: 5px;
+}
+
+/* ── Pot totals strip (compact) ──────────────────────────── */
+#pot {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex-shrink: 0;
+  gap: 3px;
+}
+
+#M_pot {
+  background-color: #4a0c08;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 40%),
+    linear-gradient(180deg, #c0392b 0%, #4a0c08 70%, #220605 100%);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 13px; /* pot strip padding — was 8px 10px (+25%) */
+  box-shadow:
+    -4px 6px 20px rgba(192, 57, 43, 0.18),
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    inset 0 2px 10px rgba(0, 0, 0, 0.25);
+  border-left:   1px solid rgba(224, 52, 40, 0.35);
+  border-right:  1px solid rgba(224, 52, 40, 0.12);
+  border-bottom: 1px solid rgba(192, 57, 43, 0.25);
+}
+
+#W_pot {
+  background-color: #061b33;
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.07) 0%, transparent 40%),
+    linear-gradient(180deg, #1a6bc0 0%, #061b33 70%, #030c1a 100%);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 13px; /* pot strip padding — was 8px 10px (+25%) */
+  box-shadow:
+    4px 6px 20px rgba(26, 107, 192, 0.18),
+    0 8px 24px rgba(0, 0, 0, 0.45),
+    inset 0 2px 10px rgba(0, 0, 0, 0.25);
+  border-right:  1px solid rgba(30, 126, 212, 0.35);
+  border-left:   1px solid rgba(30, 126, 212, 0.12);
+  border-bottom: 1px solid rgba(26, 107, 192, 0.25);
+}
+
+#M_total_bet,
+#W_total_bet {
+  text-align: center;
+  font-size: clamp(28px, 6.25vw, 75px); /* total bet — was clamp(22px, 5vw, 60px) (+25%) */
+  font-weight: 900;
+  color: white;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  font-family: 'Arial Black', 'Impact', sans-serif;
+  line-height: 1;
+  background: none;
+  height: auto;
+  margin: 0;
+  padding: 0;
+}
+
+#M_payout,
+#W_payout {
+  text-align: center;
+  font-size: clamp(18px, 3.125vw, 43px); /* payout — was clamp(14px, 2.5vw, 34px) (+25%) */
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.88);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 9px;
+  padding: 4px 18px;
+  height: auto;
+  margin: 5px 0 0;
+}
+
+/* ── Content wrapper ─────────────────────────────────────── */
+#content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── Two-column wager input grid ─────────────────────────── */
+#wagers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Side panels (cards) ─────────────────────────────────── */
+#meron-wagers {
+  background-color: #2a0604;
+  background-image: linear-gradient(180deg, rgba(192, 57, 43, 0.14) 0%, rgba(80, 10, 8, 0.55) 100%);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(192, 57, 43, 0.32);
+  box-shadow:
+    -3px 4px 16px rgba(192, 57, 43, 0.14),
+    0 4px 14px rgba(0, 0, 0, 0.40);
+  overflow: hidden;
+}
+
+#wala-wagers {
+  background-color: #040c2a;
+  background-image: linear-gradient(180deg, rgba(26, 107, 192, 0.14) 0%, rgba(8, 28, 70, 0.55) 100%);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(26, 107, 192, 0.32);
+  box-shadow:
+    3px 4px 16px rgba(26, 107, 192, 0.14),
+    0 4px 14px rgba(0, 0, 0, 0.40);
+  overflow: hidden;
+}
+
+/* ── Bet amount input ────────────────────────────────────── */
+#meron-text-input,
+#wala-text-input {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+}
+
+#meron_textinput,
+#wala_textinput {
+  width: 80%;
+  max-width: 260px;
+  height: 32px;
+  resize: none;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  font-size: 19px;
+  font-weight: 700;
+  text-align: right;
+  background: rgba(0, 0, 0, 0.48);
+  color: white;
+  padding: 0 8px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#meron_textinput:focus {
+  border-color: rgba(192, 57, 43, 0.70);
+  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.15);
+}
+
+#wala_textinput:focus {
+  border-color: rgba(26, 107, 192, 0.70);
+  box-shadow: 0 0 0 2px rgba(26, 107, 192, 0.15);
+}
+
+/* ── Chip button rows ────────────────────────────────────── */
+.meron-bet-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  align-items: center;
+}
+
+#buttons_section1,
+#buttons_section2 {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+}
+
+/* ── Generic button ──────────────────────────────────────── */
+.button {
+  height: 28px;
+  min-width: 56px;
+  color: white;
+  padding: 0 10px;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.14s, transform 0.1s, box-shadow 0.14s;
+  user-select: none;
+}
+
+.button:hover {
+  background: rgba(255, 255, 255, 0.20);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.button:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+/* ── Submit / Reset ──────────────────────────────────────── */
+#meron-submitreset-button,
+#wala-submitreset-button {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  width: 100%;
+}
+
+#M_SubmitButton {
+  background: linear-gradient(135deg, #c0392b, #8e1a12);
+  border-color: rgba(192, 57, 43, 0.55);
+  min-width: 80px;
+}
+
+#M_SubmitButton:hover {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+#W_SubmitButton {
+  background: linear-gradient(135deg, #1a6bc0, #0d3c6e);
+  border-color: rgba(26, 107, 192, 0.55);
+  min-width: 80px;
+}
+
+#W_SubmitButton:hover {
+  background: linear-gradient(135deg, #2980b9, #1a6bc0);
+}
+
+/* ── Per-side Open / Close buttons ──────────────────────── */
+#meron-bet-control-buttons,
+#wala-bet-control-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 5px;
+  justify-content: center;
+  width: 100%;
+}
+
+#M_OpenButton,
+#W_OpenButton {
+  background: linear-gradient(135deg, #1d8348, #145a32);
+  border-color: rgba(39, 174, 96, 0.50);
+  font-weight: 700;
+  text-indent: 0;
+  flex: 1;
+  max-width: 120px;
+  justify-content: center;
+}
+
+#M_OpenButton:hover,
+#W_OpenButton:hover {
+  background: linear-gradient(135deg, #27ae60, #1d8348);
+}
+
+#M_CloseButton,
+#W_CloseButton {
+  background: linear-gradient(135deg, #922b21, #6e1c14);
+  border-color: rgba(192, 57, 43, 0.50);
+  font-weight: 700;
+  text-indent: 0;
+  flex: 1;
+  max-width: 120px;
+  justify-content: center;
+}
+
+#M_CloseButton:hover,
+#W_CloseButton:hover {
+  background: linear-gradient(135deg, #c0392b, #922b21);
+}
+
+/* ── Fight control bar (card) ────────────────────────────── */
+#controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: #1a1d26;
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.40), inset 0 1px 0 rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+
+#startmatchbutton {
+  background: linear-gradient(135deg, #27ae60, #1a7a42);
+  border-color: rgba(39, 174, 96, 0.50);
+  font-weight: 700;
+  min-width: 100px;
+}
+
+#startmatchbutton:hover {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+}
+
+#closebettingbutton {
+  background: linear-gradient(135deg, #e67e22, #a85709);
+  border-color: rgba(230, 126, 34, 0.50);
+  font-weight: 700;
+  min-width: 110px;
+}
+
+#closebettingbutton:hover {
+  background: linear-gradient(135deg, #f39c12, #e67e22);
+}
+
+#cancelmatchbutton {
+  background: linear-gradient(135deg, #7d3c98, #5b2c6f);
+  border-color: rgba(125, 60, 152, 0.50);
+  font-weight: 700;
+  min-width: 110px;
+}
+
+#cancelmatchbutton:hover {
+  background: linear-gradient(135deg, #9b59b6, #7d3c98);
+}
+
+#endmatchbutton {
+  background: linear-gradient(135deg, #c0392b, #7b1a10);
+  border-color: rgba(192, 57, 43, 0.50);
+  font-weight: 700;
+  min-width: 100px;
+}
+
+#endmatchbutton:hover {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+/* ── Payout / Cancel Bet (card) ──────────────────────────── */
+#payout {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.30);
+}
+
+#payout_button {
+  background: linear-gradient(135deg, #27ae60, #1a7a42);
+  border-color: rgba(39, 174, 96, 0.55);
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 150px;
+  height: 34px;
+  text-align: center;
+  width: auto;
+  margin: 0;
+  justify-content: center;
+}
+
+#payout_button:hover {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+}
+
+#cancel_bet {
+  background: linear-gradient(135deg, #e67e22, #a85709);
+  border-color: rgba(230, 126, 34, 0.55);
+  font-weight: 700;
+  min-width: 130px;
+  height: 34px;
+  text-align: center;
+  width: auto;
+  margin: 0;
+  justify-content: center;
+}
+
+#cancel_bet:hover {
+  background: linear-gradient(135deg, #f39c12, #e67e22);
+}
+
+#payout_barcode {
+  width: 200px;
+  height: 30px;
+  resize: none;
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 6px;
+  font-size: 18px;
+  text-align: right;
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
+  padding: 0 8px;
+  outline: none;
+}

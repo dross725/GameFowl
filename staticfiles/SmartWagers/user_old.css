@@ -1,0 +1,136 @@
+#h1 {
+    text-align: center;
+}
+
+#meron-wagers, #wala-wagers {
+    text-align: center;
+    color: white;
+    display: row;
+    align-items: center;
+}
+
+#meron-wagers h1 {
+    border: black;
+    border-style: ridge;
+    background-color: rgba(255, 0, 0, 0#473);
+    color: black;
+    font-weight: bolder;
+
+}
+ #meron-text-input {
+    padding: 10px;
+    display: flex; /* Center the textarea if needed */
+    justify-content: center; /* Centers horizontally */
+    align-items: center; /* Centers vertically */
+ }
+
+ #textinput {
+    width: 300px; /* Fixed width */
+    height: 25px; /* Fixed height */
+    resize: none; /* Prevents resizing */
+    border: 1px solid #ccc; /* Border styling */
+    border-radius: 4px; /* Rounded corners */
+    font-size: 20px; /* Font size */
+    text-align: right;
+ }
+
+#meron-bet-buttons {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#meron-submitreset-button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#meron-bet-control-buttons {
+    justify-content: center;
+    align-items: center;
+    text-align: justify;
+    align-items: center;
+}
+
+#wala-wagers h1 {
+    border: black;
+    border-style: ridge;
+    background-color: rgba(0, 0, 255, 0#473);
+    color: white;
+    font-weight: bolder;
+}
+ #wala-text-input {
+    padding: 10px;
+    display: flex; /* Center the textarea if needed */
+    justify-content: center; /* Centers horizontally */
+    align-items: center; /* Centers vertically */
+ }
+
+#wala-bet-buttons {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#wala-submitreset-button {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#wala-bet-control-buttons {
+    /*border: black;
+    border-style: double;*/
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+}
+
+#controls {
+    display: flex;
+    align-items: center;
+    /*border-color: black;
+    border-style: ridge;*/
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
+}
+
+#button {
+    height: 3rem;
+    color: white;
+    padding: 10px;
+    text-align: justify;
+    margin: 0.5rem;
+    cursor: pointer;
+    border-radius: 12px;
+    background-color: #33333349;
+    border-color: #f4f4f4;
+    border-style: groove;
+    
+}
+
+#button:hover {
+    background-color: darkgray;
+}
+
+/* Responsive Styles */
+@media (max-width: 768px) {
+    #container {
+        flex-direction: column;
+    }
+
+    #sidebar {
+        width: 100%;
+        order: 1; /* Sidebar at the top */
+    }
+
+    #main-content {
+        width: 100%;
+        grid-template-rows: repeat(4, 1fr);
+        grid-template-columns: 1fr;
+    }
+}

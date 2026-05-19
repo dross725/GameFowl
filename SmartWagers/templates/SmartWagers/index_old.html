@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block css_files %}
+    <link rel="stylesheet" href="{% static "SmartWagers/index.css" %}">
+{% endblock css_files %}
+
+
+{% block content %}
+<div class="container">
+    <aside class="sidebar">
+        <ul id="trends">
+            <li>Value 1</li>
+            <li>Value 2</li>
+            <li>Value 3</li>
+            <li>Value 4</li>
+            <li>Value 5</li>
+        </ul>
+    </aside>
+    <main class="main-content">
+        <section class='labels'>
+            <div class='M_Label'><h1>MERON</h1></div>
+            <div class="W_Label"><h1>WALA</h1></div>
+        </section>
+        <section class="pot">
+            <div class="M_pot">
+                <div class="M_total_bet"><h1>TOTAL BET</h1></div>
+                <div class="M_payout"><h2>PAYOUT: </h2></div>
+            </div>
+            <div>
+                <div class="W_total_bet"><h1>TOTAL BET</h1></div>
+                <div class="W_payout"><h2>PAYOUT: </h2></div>
+            </div>
+        </section>
+        
+    </main>
+</div>
+{% endblock content %}
