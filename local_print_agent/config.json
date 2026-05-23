@@ -1,0 +1,7 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "printer_name": "Canon G2010 series",
+  "print_mode": "windows_driver",
+  "code_page": "cp437"
+}

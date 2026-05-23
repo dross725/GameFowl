@@ -34,7 +34,7 @@ GameFowl / SmartWagers manages live cockfight betting sessions. Two sides — **
 - **Fight lifecycle** — Start → Open Betting → Close Betting → Declare Winner → Payout
 - **Per-side control** — Meron and Wala sides can be independently opened or closed
 - **Bet management** — Place, confirm, and cancel individual bets (cancellation allowed while fight is open)
-- **PDF receipts** — Barcoded bet receipts and payout receipts generated with ReportLab
+- **Receipts** — Barcoded bet receipts generated with ReportLab; payout receipts can be printed silently on each cashier's local Windows USB printer through the local print agent
 - **Session logging** — Login/logout timestamps recorded per user
 - **Fight results history** — Each completed fight is archived with totals, payouts, odds, and date
 - **Django Admin** — All models registered for back-office inspection
@@ -93,6 +93,8 @@ templates/
 
 static/
 └── app.css             # Global styles
+
+local_print_agent/      # Windows localhost print agent for remote cashier USB printers
 ```
 
 ---
@@ -192,7 +194,7 @@ endmatch(winner)
 ── Tellers scan receipts ───────────────────────────────────────
     payout_request(transactionid)
         └── Validates bet, checks winner, sets cashed_out=True
-        └── Prints payout receipt PDF
+        └── Sends payout receipt data to the browser for local cashier printing
 
 cancelmatch()
     └── Sets overall_status = CANCEL
@@ -299,13 +301,37 @@ The app will be available at `http://localhost:8000/`.
 
 ---
 
+## Local Payout Receipt Printing
+
+Remote cashier devices cannot silently print to USB printers through the browser alone. Each Windows cashier PC should run the local print agent in `local_print_agent/`.
+
+On each cashier PC:
+
+```bat
+py -m pip install pywin32
+copy config.example.json config.json
+run_print_agent.bat
+```
+
+Set `printer_name` in `local_print_agent/config.json` to the exact Windows printer queue name, or leave it empty to use the Windows default printer. With the agent running, use these local URLs on the cashier PC:
+
+```text
+http://127.0.0.1:8765/health
+http://127.0.0.1:8765/printers
+```
+
+When a bet is placed, the SmartWagers page sends receipt JSON to `http://127.0.0.1:8765/print-wager`. When a payout is approved, it sends receipt JSON to `http://127.0.0.1:8765/print-payout`. The agent accepts only localhost requests, renders the receipt with barcode text, and sends it to the cashier's configured USB printer.
+
+---
+
 ## Known Limitations
 
 - **Development-only config:** `DEBUG = True`, empty `ALLOWED_HOSTS`, and a hardcoded `SECRET_KEY` — do not deploy as-is.
 - **WebSocket URLs are hardcoded** to `ws://localhost:8000/` in the frontend JS files; update these for any other host or HTTPS deployment.
 - **SQLite** is not suitable for concurrent production load; migrate to PostgreSQL for production use.
 - **`Fight_Status` assumes `id=1`** — the app expects a single row to always exist; it will error if the row is missing or there are multiple rows.
-- **PDF receipts use fixed filenames** (`receipt_with_barcode.pdf`, `payout_receipt.pdf`) and will be overwritten on each print; concurrent users on the same server will collide.
+- **Bet receipt PDFs use a fixed filename** (`receipt_with_barcode.pdf`) and will be overwritten on each print; concurrent users on the same server can collide.
+- **Silent local payout printing requires the Windows local print agent** to be running on every cashier PC.
 - **`signals.py` is not connected** — it references a model table (`bets_bet`) that does not match current models and is not imported in `apps.py`, so its handlers never fire.
 - **`USE_TZ = False`** with timezone set to `Asia/Manila` — be aware of DST edge cases if the app runs across midnight.
 - **Session expires after 15 minutes** of inactivity (`SESSION_COOKIE_AGE = 900`).

@@ -13,6 +13,7 @@ class Wagers (models.Model):
     cashier  = models.CharField(max_length=100, editable=True, default="Juan DelaCruz")
     created_at = models.DateTimeField(default=now)
     cashed_out = models.BooleanField(default=False)
+    registered = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
         #if not self.transactionid:  # Only generate the code on creation
@@ -27,10 +28,6 @@ class Wagers (models.Model):
             
             self.transactionid = f"{current_year}{str(last_number).zfill(6)}"
         super().save(*args, **kwargs)  # Call the parent save method
-
-        if self.cashier != "System":
-            from . import services
-            services.print_wager_reciept(self.wager, self.side, self.fightnum, self.transactionid, self.created_at,self.cashier)
 
     def formatted_time(self):
         return (self.created_at).strftime("%Y-%m-%d %H:%M:%S")

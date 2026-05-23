@@ -1,5 +1,6 @@
 const pageType = window.location.pathname.split("/").pop(); // Get page type from URL
-const socket = new WebSocket(`ws://localhost:8000/ws/${pageType}/`); // Open correct WebSocket
+const signalsWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+const socket = new WebSocket(`${signalsWebsocketProtocol}://${window.location.host}/ws/${pageType}/`); // Open correct WebSocket
 
 socket.onmessage = (event) => {
     console.log("This is the signals.js file");

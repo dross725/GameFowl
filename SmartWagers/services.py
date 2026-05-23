@@ -4,8 +4,13 @@ from .models import Settings
 from .models import Fight_Results
 from .models import Fight_Status
 from datetime import timedelta
+from django.conf import settings
 from django.utils.timezone import now
 import barcode
+import os
+import shutil
+import subprocess
+import tempfile
 from barcode.writer import ImageWriter
 from reportlab.pdfgen import canvas
 from reportlab.graphics.barcode import code128
@@ -14,8 +19,36 @@ from reportlab.lib.units import mm
 
 debug = False
 
+def send_pdf_to_printer(pdf_path):
+    printer_name = getattr(settings, "RECEIPT_PRINTER_NAME", None)
+    print_options = getattr(settings, "RECEIPT_PRINT_OPTIONS", [])
+
+    lp_command = shutil.which("lp")
+    lpr_command = shutil.which("lpr")
+
+    if lp_command:
+        command = [lp_command]
+        for option in print_options:
+            command.extend(["-o", option])
+        if printer_name:
+            command.extend(["-d", printer_name])
+        command.append(pdf_path)
+    elif lpr_command:
+        command = [lpr_command]
+        if printer_name:
+            command.extend(["-P", printer_name])
+        command.append(pdf_path)
+    else:
+        raise RuntimeError("No print command found. Install/configure CUPS so `lp` or `lpr` is available.")
+
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        error_message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        raise RuntimeError(f"Failed to print receipt: {error_message}") from exc
+
 def get_fightnum():
-    wagers = Wagers.objects.order_by('-id').first()
+    wagers = Wagers.objects.filter(registered=True).order_by('-id').first()
     if wagers == None:
         #database is empty
         fight_num = 1
@@ -46,7 +79,7 @@ def get_control_status():
 
 
 def get_Wagers():
-    latest_wager = Wagers.objects.order_by('-id').first()  # Get latest entry by ID
+    latest_wager = Wagers.objects.filter(registered=True).order_by('-id').first()  # Get latest entry by ID
     if latest_wager:
         ts_id = latest_wager.transactionid
         fight_num = latest_wager.fightnum
@@ -106,10 +139,62 @@ def add_total(amount, side):
     return
 
 def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
-    addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier)
+    addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=True)
     addwager.save()
     add_total(amount, side)
-    return
+    return addwager
+
+def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
+    pending_wager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=False)
+    pending_wager.save()
+    return pending_wager
+
+def confirm_wager_receipt(transaction_id):
+    pending_wager = Wagers.objects.filter(transactionid=transaction_id, registered=False).first()
+    if pending_wager is None:
+        return None
+
+    if not is_betting_open(pending_wager.side):
+        pending_wager.delete()
+        return None
+
+    pending_wager.registered = True
+    pending_wager.save(update_fields=['registered'])
+    add_total(pending_wager.wager, pending_wager.side)
+    return pending_wager
+
+def cancel_wager_receipt(transaction_id):
+    pending_wager = Wagers.objects.filter(transactionid=transaction_id, registered=False).first()
+    if pending_wager is not None:
+        pending_wager.delete()
+
+    return pending_wager is not None
+
+def build_wager_receipt_payload(wager):
+    return {
+        'receipt_type': 'wager',
+        'transaction_id': wager.transactionid,
+        'fightnum': wager.fightnum,
+        'side': wager.side,
+        'amount': format(wager.wager, '.2f'),
+        'cashier': wager.cashier,
+        'date': wager.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+def is_betting_open(side):
+    fight_status = Fight_Status.objects.filter(id=1).first()
+    if fight_status is None:
+        return False
+
+    if fight_status.overall_status != "OPEN":
+        return False
+
+    if side == "MERON":
+        return fight_status.meron_status == "OPEN"
+    if side == "WALA":
+        return fight_status.wala_status == "OPEN"
+
+    return False
 
 def print_wager_reciept(amount, side, fightnum, transaction_id, date, cashier="Juan DelaCruz"):
     if debug:
@@ -161,7 +246,7 @@ def print_payout_reciept(payout_data):
         print('Printing payout receipt')
         print(payout_data)
 
-    amount = float(payout_data['Total_Payout'])
+    amount = float(str(payout_data['Total_Payout']).replace(",", ""))
     side = payout_data['side']
     fightnum = payout_data['fightnum']
     transaction_id = payout_data['transaction_id']
@@ -173,8 +258,16 @@ def print_payout_reciept(payout_data):
     width = 58 * mm
     height = 70 * mm
 
-    #Create canvas
-    c = canvas.Canvas("payout_receipt.pdf", pagesize=(width, height))
+    temp_file = tempfile.NamedTemporaryFile(
+        prefix=f"payout_receipt_{transaction_id}_",
+        suffix=".pdf",
+        delete=False,
+    )
+    temp_file.close()
+    pdf_path = temp_file.name
+
+    # Create the receipt as a temporary PDF, then hand it to the OS print queue.
+    c = canvas.Canvas(pdf_path, pagesize=(width, height))
 
     # Sample receipt text
     c.setFont("Helvetica", 10)
@@ -203,6 +296,12 @@ def print_payout_reciept(payout_data):
     # Finalize PDF
     c.showPage()
     c.save()
+
+    try:
+        send_pdf_to_printer(pdf_path)
+    finally:
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
 
     return f"Payout Receipt: {amount} on {side} for fight {fightnum} by {cashier}"
 
@@ -434,7 +533,7 @@ def update_fight_status(fightstatus, side = None):
 
 def payout_request(transaction_id):
     comm = get_comm_val()
-    payout_data = Wagers.objects.filter(transactionid=transaction_id).first()
+    payout_data = Wagers.objects.filter(transactionid=transaction_id, registered=True).first()
     payout_result = {}
     payout_result['payout'] = True
     
@@ -491,6 +590,7 @@ def payout_request(transaction_id):
     payout_result['wager'] = wager
     payout_result['odds'] = payout_fightresults.odds
     payout_result['cashier'] = payout_data.cashier
+    payout_result['receipt_date'] = now().strftime("%Y-%m-%d %H:%M:%S")
 
     if payout_fightresult_side == "MERON":
         payout_multiplier = payout_fightresults.mpayout
@@ -503,14 +603,23 @@ def payout_request(transaction_id):
     payout_multiplier = payout_multiplier/100
     
     total_payout = wager * (payout_multiplier)
-    total_payout = format (total_payout, ',')
     # print ("wager: " +str(wager))
     # print ("multiplier: " +str(payout_multiplier))
     # print (total_payout)
 
     payout_result['Total_Payout'] = format(total_payout, '.2f')
-    payout_result['multiplier'] = format(payout_multiplier, '.2f') 
-    #print_payout_reciept(payout_result)
+    payout_result['multiplier'] = format(payout_multiplier, '.2f')
+    payout_result['receipt'] = {
+        'receipt_type': 'payout',
+        'transaction_id': transaction_id,
+        'fightnum': payout_data_fn,
+        'side': payout_fightresult_side,
+        'odds': payout_fightresults.odds,
+        'multiplier': payout_result['multiplier'],
+        'Total_Payout': payout_result['Total_Payout'],
+        'cashier': payout_data.cashier,
+        'date': payout_result['receipt_date'],
+    }
     payout_data.cashed_out = True
     payout_data.save()
 
@@ -522,7 +631,7 @@ def get_fight_results(*args):
 
 def cancel_bet(transaction_id):
     debug = True
-    cancel_data = Wagers.objects.filter(transactionid=transaction_id).first()
+    cancel_data = Wagers.objects.filter(transactionid=transaction_id, registered=True).first()
     cancel_result = {}
     cancel_result["cancel_bet"] = True
     print ("cancel bet" , transaction_id)

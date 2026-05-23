@@ -1,13 +1,16 @@
 body {
   margin: 0;
-  padding: 0;
+  padding: 16px;
   font-family: 'Segoe UI', sans-serif;
-  background: url("../SmartWagers/images/login-img.jpg") no-repeat center center fixed;
+  background: url("../SmartWagers/images/login-img.jpg") no-repeat center center;
   background-size: cover;
+  background-attachment: scroll;
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
 }
 
 .login-container {
@@ -15,8 +18,30 @@ body {
   padding: 40px;
   border-radius: 10px;
   box-shadow: 0 8px 16px rgba(0,0,0,0.3);
-  width: 300px;
+  width: 100%;
+  max-width: 300px;
   text-align: center;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  body {
+    padding: 20px 16px;
+    align-items: flex-start;
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+
+  .login-container {
+    padding: 28px 24px;
+    margin-top: 10vh;
+  }
+
+  form input,
+  button {
+    font-size: 16px;
+    min-height: 44px;
+  }
 }
 
 .login-container h2 {
