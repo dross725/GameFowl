@@ -1,4 +1,5 @@
-const adminSocket = new WebSocket("ws://localhost:8000/ws/administrator/");
+const adminWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+const adminSocket = new WebSocket(`${adminWebsocketProtocol}://${window.location.host}/ws/administrator/`);
 
 adminSocket.onmessage = (event) => {
     //console.log(`WebSocket message received for ${pageType}:`, event.data);

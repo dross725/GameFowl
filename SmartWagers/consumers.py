@@ -79,6 +79,7 @@ class WagersConsumer(AsyncWebsocketConsumer):
                 side_status = data["side_status"]
                 side = data["side"]
                 await self.update_control_status(side, side_status)
+                overall_status, meron_status, wala_status, fightnum = await self.get_fight_status()
                 print ("side status updated: ", side_status, "for side:", side)
 
                 for group_name in ["index", "user", "administrator"]:
@@ -86,7 +87,11 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     await self.channel_layer.group_send(group_name, {
                         'type': 'send_data',
                         'side': side,
-                        'side_status': side_status
+                        'side_status': side_status,
+                        'overall_status': overall_status,
+                        'meron_status': meron_status,
+                        'wala_status': wala_status,
+                        'fightnum': fightnum
                     })
 
             elif "barcode" in data:
@@ -138,6 +143,10 @@ class WagersConsumer(AsyncWebsocketConsumer):
         elif "side" in event and "side_status" in event:
             response["side"] = event["side"]
             response["side_status"] = event["side_status"]
+            response["overall_status"] = event["overall_status"]
+            response["meron_status"] = event["meron_status"]
+            response["wala_status"] = event["wala_status"]
+            response["fightnum"] = event["fightnum"]
 
         elif 'payout' in event:
             print ("Payout event data:", event)
@@ -173,6 +182,10 @@ class WagersConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def update_control_status(self, side, status):
         return services.update_control_status(side, status)
+
+    @database_sync_to_async
+    def get_fight_status(self):
+        return services.get_fight_status()
     
     @database_sync_to_async
     def startnewmatch(self):

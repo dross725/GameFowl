@@ -1,4 +1,5 @@
-const userSocket = new WebSocket("ws://localhost:8000/ws/user/");
+const userWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+const userSocket = new WebSocket(`${userWebsocketProtocol}://${window.location.host}/ws/user/`);
 
 userSocket.onmessage = (event) => {
     const data = JSON.parse(event.data);
@@ -17,15 +18,28 @@ userSocket.onmessage = (event) => {
         console.log("Data received:", data);
     }
 
-    // Enable/disable the button based on admin toggle
-    if ("meron_status" in data && "wala_status" in data) {
-        let side = data.side;
-        let status = data.side_status;
-        let over_all_status = data.overall_status;
+    if ("side" in data && "side_status" in data) {
+        const side = data.side;
+        const status = normalizeBettingStatus(data.side_status);
         console.log("Changing status of ", side + " to " + status);
-        updateOnClick(status, side);
-        openbettingdisabledModal();  // Show modal when buttons are disabled
-        update_disp_FightStatus(over_all_status);
+        updateUserBettingStatus(status, side);
+        if (status === "CLOSED") {
+            openbettingdisabledModal();
+        }
+    }
+
+    if ("meron_status" in data && "wala_status" in data) {
+        updateUserBettingStatus(data.meron_status, "MERON");
+        updateUserBettingStatus(data.wala_status, "WALA");
+        updateFightnum(data.fightnum);
+    }
+
+    if ("fight_status" in data) {
+        get_fightstatus();
+    }
+
+    if ("overall_status" in data) {
+        update_disp_FightStatus(data.overall_status);
     }
 }; 
 
@@ -57,21 +71,58 @@ function updateFightnum(fightnum){
     document.getElementById("currentmatchnum").innerText = "FIGHT # "+fightnum;
 };
 
+function normalizeBettingStatus(status) {
+    return status === "CLOSE" ? "CLOSED" : status;
+}
+
+function updateUserBettingStatus(status, side) {
+    status = normalizeBettingStatus(status);
+
+    if (status === "CLOSED") {
+        if (side === "MERON" || side === "BOTH") {
+            closeMeronUser();
+        }
+        if (side === "WALA" || side === "BOTH") {
+            closeWalaUser();
+        }
+        resetTotal();
+        return;
+    }
+
+    if (status === "OPEN") {
+        if (side === "MERON" || side === "BOTH") {
+            openMeronUser();
+        }
+        if (side === "WALA" || side === "BOTH") {
+            openWalaUser();
+        }
+        resetTotal();
+    }
+}
+
+function setBettingStatusText(element, status) {
+    element.innerHTML = status;
+    element.style.backgroundColor = status === "OPEN" ? "rgba(7, 248, 2, 0.573)" : "rgba(248, 7, 7, 0.573)";
+    element.style.textAlign = "center";
+}
+
 function updateOnClick(ButtonStatus, side) {
+    ButtonStatus = normalizeBettingStatus(ButtonStatus);
     const headertext = document.getElementById("modal-header-text");
     const modalmessage = document.getElementById("modal-message");
     
     if (ButtonStatus === 'CLOSED'){
         headertext.innerHTML = "Betting is currently disabled for <strong>" + side + "</strong>.";
         modalmessage.innerHTML = "DO NOT Accept bets for <strong>" + side + "</strong> until the betting is enabled again.";
-        if (side === "MERON") {
+        if (side === "MERON" || side === "BOTH") {
             const status_text = document.getElementById("meron-betting-status");
             const SubmitButton = document.getElementById("Musersubmit");
 
             status_text.innerHTML = "CLOSED";
             status_text.style.backgroundColor = "rgba(248, 7, 7, 0.573)"; // Change background color to red
             SubmitButton.onclick = () => openbettingdisabledModal();  // Show modal when disabled
-        }else if (side === "WALA") {
+        }
+        if (side === "WALA" || side === "BOTH") {
             const status_text = document.getElementById("wala-betting-status");
             const SubmitButton = document.getElementById("Wusersubmit");
 
@@ -82,21 +133,23 @@ function updateOnClick(ButtonStatus, side) {
     }else if (ButtonStatus === 'OPEN') {
         headertext.innerHTML = "Betting is enabled for <strong>" + side + "</strong>.";
         modalmessage.innerHTML = "You can now accept bets for <strong>" + side + "</strong>.";  
-        if (side === "MERON") {
+        if (side === "MERON" || side === "BOTH") {
             const status_text = document.getElementById("meron-betting-status");
             const SubmitButton = document.getElementById("Musersubmit");
 
             status_text.innerHTML = "OPEN";
             status_text.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green
             SubmitButton.onclick = () => check_total("MERON");  // Go back to normal behavior
-        }else if (side === "WALA") {
+        }
+        if (side === "WALA" || side === "BOTH") {
             const status_text = document.getElementById("wala-betting-status");
             const SubmitButton = document.getElementById("Wusersubmit");
             
             status_text.innerHTML = "OPEN";
             status_text.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green
             SubmitButton.onclick = () => check_total("WALA");  // Go back to normal behavior
-        }else {
+        }
+        if (side !== "MERON" && side !== "WALA" && side !== "BOTH") {
             console.error("Invalid side specified:", side);
             return;
         }
@@ -110,8 +163,17 @@ function openbettingdisabledModal() {
     resetTotal();
 };
 
-function closebettingdisabledModal() {
-    document.getElementById('bettingdisabled').style.display = 'none';
+function closebettingdisabledModal(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    const bettingDisabledModal = document.getElementById('bettingdisabled');
+    if (bettingDisabledModal) {
+        bettingDisabledModal.style.display = 'none';
+        bettingDisabledModal.removeAttribute('style');
+    }
     resetTotal();  // Reset totals when modal is closed
 };
 
@@ -120,9 +182,7 @@ function openMeronUser(){
     let mbettingstatus = document.getElementById("meron-betting-status");
     let msubmitButton = document.getElementById("Musersubmit");
     
-    mbettingstatus.innerHTML = "OPEN";
-    mbettingstatus.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green
-    mbettingstatus.style.textAlign = "center";
+    setBettingStatusText(mbettingstatus, "OPEN");
     msubmitButton.onclick = () => check_total("MERON");
 
 };
@@ -131,9 +191,7 @@ function openWalaUser(){
     let wbettingstatus = document.getElementById("wala-betting-status");
     let wsubmitButton = document.getElementById("Wusersubmit");
     
-    wbettingstatus.innerHTML = "OPEN";
-    wbettingstatus.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green
-    wbettingstatus.style.textAlign = "center";
+    setBettingStatusText(wbettingstatus, "OPEN");
     wsubmitButton.onclick = () => check_total("WALA");
 };
 
@@ -143,9 +201,7 @@ function closeMeronUser(){
     let msubmitButton = document.getElementById("Musersubmit");
     let modalheader = document.getElementById("modal-header-text")
     let modalmessage = document.getElementById("modal-message");
-    mbettingstatus.innerHTML = "CLOSED";
-    mbettingstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)";  // Change background color to red
-    mbettingstatus.style.textAlign = "center";
+    setBettingStatusText(mbettingstatus, "CLOSED");
     modalheader.innerHTML = "Betting is currently disabled for <strong>MERON</strong>.";
     modalmessage.innerHTML = "DO NOT Accept bets for <strong>MERON</strong> until the betting is enabled again.";
     msubmitButton.onclick = () => openbettingdisabledModal();
@@ -156,11 +212,9 @@ function closeWalaUser(){
     let wsubmitButton = document.getElementById("Wusersubmit");
     let modalheader = document.getElementById("modal-header-text")
     let modalmessage = document.getElementById("modal-message");
-    wbettingstatus.innerHTML = "CLOSED";
-    wbettingstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)";  // Change background color to red
-    wbettingstatus.style.textAlign = "center";
-    modalheader.innerHTML = "Betting is currently disabled for <strong>MERON</strong>.";
-    modalmessage.innerHTML = "DO NOT Accept bets for <strong>MERON</strong> until the betting is enabled again.";
+    setBettingStatusText(wbettingstatus, "CLOSED");
+    modalheader.innerHTML = "Betting is currently disabled for <strong>WALA</strong>.";
+    modalmessage.innerHTML = "DO NOT Accept bets for <strong>WALA</strong> until the betting is enabled again.";
     wsubmitButton.onclick = () => openbettingdisabledModal();
 }
 
@@ -178,18 +232,18 @@ async function get_fightstatus(){
     console.log("Fight status: ", fight_status);
 
     if (fight_status == "OPEN"){
-        if (m_status == "OPEN"){
+        if (normalizeBettingStatus(m_status) == "OPEN"){
             //console.log ("Meron open");
             openMeronUser();
-        }else if (m_status = "CLOSED"){
+        }else if (normalizeBettingStatus(m_status) == "CLOSED"){
             console.log ("Meron close");
             closeMeronUser();
         }
 
-        if(w_status == "OPEN"){
+        if(normalizeBettingStatus(w_status) == "OPEN"){
             //console.log ("wala open");
             openWalaUser();
-        }else if (w_status == "CLOSED"){
+        }else if (normalizeBettingStatus(w_status) == "CLOSED"){
             //console.log ("wala close");
             closeWalaUser();
         }
@@ -266,6 +320,10 @@ async function fetchButtonState() {
 // Call this function when the page loads
 document.addEventListener("DOMContentLoaded", () => {
     console.log("Fetching button states on page load...");
+    const bettingDisabledCloseButton = document.getElementById("bettingdisabled-close-button");
+    if (bettingDisabledCloseButton) {
+        bettingDisabledCloseButton.addEventListener("click", closebettingdisabledModal);
+    }
     //fetchButtonState();
     get_fightstatus();  // Fetch fight status on page load
 });
