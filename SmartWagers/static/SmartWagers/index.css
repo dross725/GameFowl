@@ -1,5 +1,5 @@
 /* ── Index / Display Board ───────────────────────────────── */
-/* Full-screen two-column pot display — no background images  */
+/* Full-screen two-column pot display with logo silhouettes   */
 
 #pot {
   display: grid;
@@ -49,6 +49,32 @@
   border-right:  1px solid rgba(30, 126, 212, 0.35);
   border-left:   1px solid rgba(30, 126, 212, 0.12);
   border-bottom: 1px solid rgba(26, 107, 192, 0.28);
+}
+
+#M_pot,
+#W_pot {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+#M_pot::before,
+#W_pot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: url("images/logo.jpg") center / 58% no-repeat;
+  filter: grayscale(1) contrast(1.35);
+  mix-blend-mode: multiply;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+#M_pot > *,
+#W_pot > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Total bet amount (big number) ───────────────────────── */
