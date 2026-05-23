@@ -100,6 +100,32 @@ def SuperUser(request):
 def Reports(request):
     return None
 
+def notify_bet_updates():
+    channel_layer = get_channel_layer()
+    if channel_layer == None:
+        print ("Channel Layer is None")
+    else:
+        async_to_sync(channel_layer.group_send)(
+            "bet_updates", 
+            {
+                'type': 'send_data', 
+                'action': 'update'
+            }
+        )
+
+def wager_ajax_response(saved_wager):
+    meron_total, meron_payout, wala_total, wala_payout, total_bet, fightnum = services.get_Totals()
+    notify_bet_updates()
+    return JsonResponse({
+        'ok': True,
+        'receipt': services.build_wager_receipt_payload(saved_wager),
+        'M_total_bet': format(int(meron_total), ','),
+        'M_payout': meron_payout,
+        'W_total_bet': format(int(wala_total), ','),
+        'W_payout': wala_payout,
+        'fightnum': fightnum,
+    })
+
 @group_required('admin')
 def Main_admin(request):
     #initialize
@@ -109,35 +135,32 @@ def Main_admin(request):
     print ("USER: " +str(request.user))
     
     if request.method == 'POST':
+        action = request.POST.get('action', 'reserve')
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'cancel_pending':
+            services.cancel_wager_receipt(request.POST.get('transaction_id', ''))
+            return JsonResponse({'ok': True})
+
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'confirm_print':
+            saved_wager = services.confirm_wager_receipt(request.POST.get('transaction_id', ''))
+            if saved_wager is None:
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'wager_not_registered',
+                }, status=409)
+            return wager_ajax_response(saved_wager)
+
         wager = int(request.POST.get('wager_value', 0))
         wager_id = request.POST.get('wager_id', None)
 
-        services.add_wager(wager, wager_id, current_fn)
-        meron_total, meron_payout, wala_total, wala_payout, total_bet , fightnum = services.get_Totals() 
+        if request.headers.get('x-requested-with') != 'XMLHttpRequest':
+            return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
 
-        # Notify WebSocket about the new bet
-        channel_layer = get_channel_layer()
-        #print ('channel')
-        if channel_layer == None:
-            print ("Channel Layer is None")
-        else:
-            async_to_sync(channel_layer.group_send)(
-                "bet_updates", 
-                {
-                    'type': 'send_data', 
-                    'action': 'update'
-                }
-            )
-        
-        print ("USER: " +str(request.user))
-        if debug == True:
-            print ('\n=================================')
-            print ('mtotal ' +str(format(int(meron_total), ',')))
-            print ('wtotal ' +str(format(int(wala_total), ',')))
-            print ('mpayout ' +str(meron_payout)) 
-            print ('wpayout ' +str(wala_payout))
-
-        return redirect ('admin-page')
+        pending_wager = services.reserve_wager_receipt(wager, wager_id, current_fn, cashier=str(request.user))
+        return JsonResponse({
+            'ok': True,
+            'pending': True,
+            'receipt': services.build_wager_receipt_payload(pending_wager),
+        })
 
     return render( request, 'SmartWagers/administrator.html', {
         'M_total_bet' : format(int(meron_total), ','),
@@ -155,34 +178,47 @@ def Teller(request):
     current_fn = services.get_fightnum()
 
     if request.method == 'POST':
+        action = request.POST.get('action', 'reserve')
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'cancel_pending':
+            services.cancel_wager_receipt(request.POST.get('transaction_id', ''))
+            return JsonResponse({'ok': True})
+
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'confirm_print':
+            saved_wager = services.confirm_wager_receipt(request.POST.get('transaction_id', ''))
+            if saved_wager is None:
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'wager_not_registered',
+                }, status=409)
+            return wager_ajax_response(saved_wager)
+
         wager = int(request.POST.get('wager_value', 0))
         wager_id = request.POST.get('wager_id', None)
 
-        services.add_wager(wager, wager_id, current_fn)
-        meron_total, meron_payout, wala_total, wala_payout, total_bet, fightnum= services.get_Totals() 
+        if not services.is_betting_open(wager_id):
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'betting_closed',
+                    'blocked_betting_side': wager_id,
+                }, status=409)
+            return render( request, 'SmartWagers/user.html', {
+                'M_total_bet' : format(int(meron_total), ','),
+                'M_payout' : meron_payout,
+                'W_total_bet' : format(int(wala_total), ','),
+                'W_payout' : wala_payout,
+                'blocked_betting_side': wager_id,
+            })
 
-        # Notify WebSocket about the new bet
-        channel_layer = get_channel_layer()
-        #print ('channel')
-        if channel_layer == None:
-            print ("Channel Layer is None")
-        else:
-            async_to_sync(channel_layer.group_send)(
-                "bet_updates", 
-                {
-                    'type': 'send_data', 
-                    'action': 'update'
-                }
-            )
-        
-        if debug == True:
-            print ('\n=================================')
-            print ('mtotal ' +str(format(int(meron_total), ',')))
-            print ('wtotal ' +str(format(int(wala_total), ',')))
-            print ('mpayout ' +str(meron_payout)) 
-            print ('wpayout ' +str(wala_payout))
+        if request.headers.get('x-requested-with') != 'XMLHttpRequest':
+            return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
 
-        return redirect ('user-page')
+        pending_wager = services.reserve_wager_receipt(wager, wager_id, current_fn, cashier=str(request.user))
+        return JsonResponse({
+            'ok': True,
+            'pending': True,
+            'receipt': services.build_wager_receipt_payload(pending_wager),
+        })
 
     return render( request, 'SmartWagers/user.html', {
         'M_total_bet' : format(int(meron_total), ','),
