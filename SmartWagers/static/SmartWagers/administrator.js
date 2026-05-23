@@ -1,5 +1,6 @@
-const administratorSocket = new WebSocket("ws://localhost:8000/ws/administrator/");
-//new WebSocket(`ws://${window.location.host}/ws/administrator`);
+const administratorWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+const administratorSocket = new WebSocket(`${administratorWebsocketProtocol}://${window.location.host}/ws/administrator/`);
+const localPrintAgentUrl = (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
 
 // Initialize the WebSocket connection
 administratorSocket.onopen = () => {
@@ -19,7 +20,7 @@ administratorSocket.onclose = () => {
     updateStatus("Disconnected");
 }
 
-administratorSocket.onmessage = (event) => {
+administratorSocket.onmessage = async (event) => {
     const data = JSON.parse(event.data);
     console.log("Data received on message:", data);
 
@@ -41,8 +42,13 @@ administratorSocket.onmessage = (event) => {
             document.getElementById('payout_success_header').innerText = "Payout request valid!";
             document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
             document.getElementById('payout_message2').innerText = "Total Payout Amount: " + data.Total_Payout;
-            document.getElementById('payout_message3').innerText = "";
+            document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
             document.getElementById('payout_print_modal').style.display = 'flex';
+
+            const printResult = await printPayoutReceipt(data);
+            document.getElementById('payout_message3').innerText = printResult.ok
+                ? printResult.message
+                : "Receipt print failed: " + printResult.message;
         } else if ("side" in data && data.side === "CANCELLED") {
             document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
             document.getElementById('payout_message1').innerText = "Please refund the bettor.";
@@ -68,6 +74,60 @@ administratorSocket.onmessage = (event) => {
     }
     updateStatus("Connected");
     get_fightstatus();
+}
+
+async function printPayoutReceipt(data) {
+    const receipt = data.receipt || {
+        receipt_type: "payout",
+        transaction_id: data.transaction_id,
+        fightnum: data.fightnum,
+        side: data.side,
+        odds: data.odds,
+        multiplier: data.multiplier,
+        Total_Payout: data.Total_Payout,
+        cashier: data.cashier,
+        date: data.receipt_date,
+    };
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+        const response = await fetch(`${localPrintAgentUrl}/print-payout`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(receipt),
+            signal: controller.signal,
+        });
+        let result = {};
+        try {
+            result = await response.json();
+        } catch (error) {
+            result = {};
+        }
+
+        if (!response.ok || !result.ok) {
+            return {
+                ok: false,
+                message: result.error || `Local print agent returned HTTP ${response.status}.`,
+            };
+        }
+
+        return {
+            ok: true,
+            message: result.message || "Receipt sent to local printer.",
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            message: error.name === "AbortError"
+                ? "Local print agent did not respond."
+                : "Local print agent is not running or is blocked.",
+        };
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 function updateStatus(status) {
@@ -225,6 +285,7 @@ function openBetting(side){
     console.log("Opening betting for " +side)
     if (side === "BOTH"){
         SuperOpenBetting();
+        administratorSocket.send(JSON.stringify({side_status: "OPEN", side: side}));
         return
     }
 

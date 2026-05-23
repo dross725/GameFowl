@@ -110,7 +110,7 @@
   background-color: #2a0604;
   background-image: linear-gradient(180deg, rgba(192, 57, 43, 0.14) 0%, rgba(80, 10, 8, 0.55) 100%);
   border-radius: 10px;
-  padding: 8px;
+  padding: 28px 8px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -119,14 +119,17 @@
   box-shadow:
     -3px 4px 16px rgba(192, 57, 43, 0.14),
     0 4px 14px rgba(0, 0, 0, 0.40);
-  overflow: hidden;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 #wala-wagers {
   background-color: #040c2a;
   background-image: linear-gradient(180deg, rgba(26, 107, 192, 0.14) 0%, rgba(8, 28, 70, 0.55) 100%);
   border-radius: 10px;
-  padding: 8px;
+  padding: 28px 8px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -135,7 +138,10 @@
   box-shadow:
     3px 4px 16px rgba(26, 107, 192, 0.14),
     0 4px 14px rgba(0, 0, 0, 0.40);
-  overflow: hidden;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 /* ── Bet amount input ────────────────────────────────────── */
@@ -176,12 +182,14 @@
 }
 
 /* ── Chip button rows ────────────────────────────────────── */
-.meron-bet-buttons {
+.meron-bet-buttons,
+#wala-bet-buttons {
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 100%;
   align-items: center;
+  margin-top: 16px;
 }
 
 #buttons_section1,
@@ -224,6 +232,13 @@
   box-shadow: none;
 }
 
+#wagers .button {
+  height: 31px;
+  min-width: 62px;
+  padding: 0 11px;
+  font-size: 13px;
+}
+
 /* ── Submit / Reset ──────────────────────────────────────── */
 #meron-submitreset-button,
 #wala-submitreset-button {
@@ -236,7 +251,7 @@
 #M_SubmitButton {
   background: linear-gradient(135deg, #c0392b, #8e1a12);
   border-color: rgba(192, 57, 43, 0.55);
-  min-width: 80px;
+  min-width: 88px;
 }
 
 #M_SubmitButton:hover {
@@ -246,7 +261,7 @@
 #W_SubmitButton {
   background: linear-gradient(135deg, #1a6bc0, #0d3c6e);
   border-color: rgba(26, 107, 192, 0.55);
-  min-width: 80px;
+  min-width: 88px;
 }
 
 #W_SubmitButton:hover {
@@ -261,6 +276,7 @@
   gap: 5px;
   justify-content: center;
   width: 100%;
+  margin-top: 32px;
 }
 
 #M_OpenButton,
@@ -270,7 +286,7 @@
   font-weight: 700;
   text-indent: 0;
   flex: 1;
-  max-width: 120px;
+  max-width: 132px;
   justify-content: center;
 }
 
@@ -286,7 +302,7 @@
   font-weight: 700;
   text-indent: 0;
   flex: 1;
-  max-width: 120px;
+  max-width: 132px;
   justify-content: center;
 }
 
@@ -412,4 +428,92 @@
   color: white;
   padding: 0 8px;
   outline: none;
+}
+
+/* ── Mobile ──────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #content {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  #pot {
+    grid-template-columns: 1fr;
+  }
+
+  #wagers {
+    grid-template-columns: 1fr;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  #meron-wagers,
+  #wala-wagers {
+    overflow: visible;
+    padding: 12px 10px;
+  }
+
+  #meron_textinput,
+  #wala_textinput {
+    width: 100%;
+    max-width: none;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .button {
+    min-height: 44px;
+    min-width: 68px;
+    font-size: 14px;
+    padding: 0 12px;
+  }
+
+  #M_SubmitButton,
+  #W_SubmitButton {
+    min-height: 44px;
+    min-width: 100px;
+  }
+
+  #controls {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  #controls .button {
+    flex: 1 1 calc(50% - 8px);
+    min-width: 120px;
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  #payout {
+    flex-direction: column;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  #payout_button,
+  #cancel_bet {
+    width: 100%;
+    max-width: 320px;
+    min-height: 44px;
+    min-width: unset;
+  }
+
+  #M_total_bet,
+  #W_total_bet {
+    font-size: clamp(24px, 9vw, 48px);
+  }
+
+  #M_payout,
+  #W_payout {
+    font-size: clamp(14px, 4.5vw, 24px);
+  }
+
+  #payout_barcode {
+    width: 100%;
+    max-width: 280px;
+    height: 44px;
+  }
 }

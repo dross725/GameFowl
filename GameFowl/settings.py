@@ -26,7 +26,14 @@ SECRET_KEY = 'django-insecure-$rm$w0aqx6o&i+h9l9c&f=%evb%_xi8l6jg^p)9l7%@rs+cp1e
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    'weer-melba-reduplicative.ngrok-free.dev',
+    'daphne',
+    'daphne.local',
+    '192.168.1.6',
+]
 
 
 # Application definition
@@ -52,6 +59,15 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://weer-melba-reduplicative.ngrok-free.dev',
+    'http://daphne.local',
+    'http://192.168.1.6',
+    'http://localhost',
+    'http://127.0.0.1',
+    'http://daphne',
 ]
 
 ROOT_URLCONF = 'GameFowl.urls'
