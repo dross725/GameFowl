@@ -118,6 +118,8 @@ def wager_ajax_response(saved_wager):
     notify_bet_updates()
     return JsonResponse({
         'ok': True,
+        'pending': False,
+        'print_required': services.is_wager_receipt_printing_enabled(),
         'receipt': services.build_wager_receipt_payload(saved_wager),
         'M_total_bet': format(int(meron_total), ','),
         'M_payout': meron_payout,
@@ -155,10 +157,15 @@ def Main_admin(request):
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
             return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
 
+        if not services.is_wager_receipt_printing_enabled():
+            saved_wager = services.add_wager(wager, wager_id, current_fn, cashier=str(request.user))
+            return wager_ajax_response(saved_wager)
+
         pending_wager = services.reserve_wager_receipt(wager, wager_id, current_fn, cashier=str(request.user))
         return JsonResponse({
             'ok': True,
             'pending': True,
+            'print_required': True,
             'receipt': services.build_wager_receipt_payload(pending_wager),
         })
 
@@ -213,10 +220,15 @@ def Teller(request):
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
             return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
 
+        if not services.is_wager_receipt_printing_enabled():
+            saved_wager = services.add_wager(wager, wager_id, current_fn, cashier=str(request.user))
+            return wager_ajax_response(saved_wager)
+
         pending_wager = services.reserve_wager_receipt(wager, wager_id, current_fn, cashier=str(request.user))
         return JsonResponse({
             'ok': True,
             'pending': True,
+            'print_required': True,
             'receipt': services.build_wager_receipt_payload(pending_wager),
         })
 

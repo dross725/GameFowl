@@ -174,6 +174,14 @@ LOGIN_REDIRECT_URL = '/index'  # Where to go after login
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 SESSION_COOKIE_AGE = 900  # 15 minutes (in seconds)
 
+# Set to False, or set WAGER_RECEIPT_PRINTING_ENABLED=false in the environment,
+# to register bets without requiring receipt printing.
+#WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
+#    "WAGER_RECEIPT_PRINTING_ENABLED",
+#    "true",
+#).lower() in ("1", "true", "yes", "on")
+WAGER_RECEIPT_PRINTING_ENABLED = False
+
 
 
 ###

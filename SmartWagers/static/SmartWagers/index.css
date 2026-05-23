@@ -1,6 +1,23 @@
 /* ── Index / Display Board ───────────────────────────────── */
 /* Full-screen two-column pot display with logo silhouettes   */
 
+#wagers_section {
+  position: relative;
+  isolation: isolate;
+}
+
+#wagers_section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: url("images/logo.jpg") center / clamp(320px, 38vw, 620px) no-repeat;
+  filter: grayscale(1) contrast(1.35);
+  mix-blend-mode: multiply;
+  opacity: 0.36;
+  pointer-events: none;
+}
+
 #pot {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -54,27 +71,13 @@
 #M_pot,
 #W_pot {
   position: relative;
-  isolation: isolate;
   overflow: hidden;
-}
-
-#M_pot::before,
-#W_pot::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: url("images/logo.jpg") center / 58% no-repeat;
-  filter: grayscale(1) contrast(1.35);
-  mix-blend-mode: multiply;
-  opacity: 0.42;
-  pointer-events: none;
 }
 
 #M_pot > *,
 #W_pot > * {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 /* ── Total bet amount (big number) ───────────────────────── */
