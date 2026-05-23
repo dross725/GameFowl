@@ -256,7 +256,7 @@ async function submitValue() {
     const submitButton = document.getElementById('submitvalue');
     if (submitButton) {
         submitButton.disabled = true;
-        submitButton.innerText = "Printing...";
+        submitButton.innerText = "Submitting...";
     }
 
     try {
@@ -276,6 +276,11 @@ async function submitValue() {
                 return;
             }
             alert(result.error || "Unable to submit wager.");
+            return;
+        }
+
+        if (!result.pending || result.print_required === false) {
+            window.location.reload();
             return;
         }
 
