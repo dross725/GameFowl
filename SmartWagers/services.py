@@ -144,6 +144,9 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
     add_total(amount, side)
     return addwager
 
+def is_wager_receipt_printing_enabled():
+    return getattr(settings, "WAGER_RECEIPT_PRINTING_ENABLED", True)
+
 def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
     pending_wager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=False)
     pending_wager.save()

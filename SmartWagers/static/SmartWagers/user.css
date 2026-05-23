@@ -14,6 +14,18 @@
   gap: 5px;
 }
 
+#wagers_section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: url("images/logo.jpg") center / clamp(260px, 34vw, 520px) no-repeat;
+  filter: grayscale(1) contrast(1.35);
+  mix-blend-mode: multiply;
+  opacity: 0.36;
+  pointer-events: none;
+}
+
 /* ── Pot totals strip ────────────────────────────────────── */
 #pot {
   display: grid;
@@ -65,26 +77,20 @@
 #meron-wagers,
 #wala-wagers {
   position: relative;
-  isolation: isolate;
 }
 
-#meron-wagers::before,
-#wala-wagers::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: url("images/logo.jpg") center / 55% no-repeat;
-  filter: grayscale(1) contrast(1.35);
-  mix-blend-mode: multiply;
-  opacity: 0.42;
-  pointer-events: none;
-}
-
+#M_pot > *,
+#W_pot > *,
 #meron-wagers > *,
 #wala-wagers > * {
   position: relative;
-  z-index: 1;
+  z-index: 2;
+}
+
+.button,
+textarea {
+  position: relative;
+  z-index: 2;
 }
 
 #M_total_bet,
@@ -231,6 +237,14 @@
   justify-content: center;
   gap: 5px;
   width: 100%;
+}
+
+#meron-bet-buttons .button,
+#wala-bet-buttons .button {
+  height: 38px;
+  min-width: 78px;
+  padding: 0 14px;
+  font-size: 16px;
 }
 
 /* ── Generic button ──────────────────────────────────────── */
