@@ -372,6 +372,40 @@ a:hover {
   min-height: 0;
 }
 
+/* ── Compact layout for 10" screens (~800 px tall) ──────── */
+@media (max-height: 820px) {
+  /* Shrink the fixed-height status bar */
+  #currentmatch {
+    height: 34px;
+  }
+  #main_content {
+    grid-template-rows: 34px auto 1fr;
+  }
+  #currentmatchnum,
+  #currentmatchstatus {
+    font-size: 12px;
+    padding: 4px 14px;
+  }
+  #ws_status {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  /* Shrink MERON / WALA header banners */
+  #labels {
+    margin: 2px 4px;
+  }
+  #M_Label,
+  #W_Label {
+    height: 44px;
+  }
+  #M_Label h1,
+  #W_Label h1 {
+    font-size: clamp(14px, 2.5vw, 28px);
+    letter-spacing: 4px;
+  }
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 768px) {
   body {

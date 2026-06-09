@@ -74,15 +74,8 @@
   border-bottom: 1px solid rgba(26, 107, 192, 0.25);
 }
 
-#meron-wagers,
-#wala-wagers {
-  position: relative;
-}
-
 #M_pot > *,
-#W_pot > *,
-#meron-wagers > *,
-#wala-wagers > * {
+#W_pot > * {
   position: relative;
   z-index: 2;
 }
@@ -141,59 +134,119 @@ textarea {
 }
 
 #wagers {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3px;
+  display: flex;
+  width: 100%;
   flex: 1;
   min-height: 0;
 }
 
-/* ── Side panels (cards) ─────────────────────────────────── */
-#meron-wagers {
-  background-color: #2a0604;
-  background-image: linear-gradient(180deg, rgba(192, 57, 43, 0.14) 0%, rgba(80, 10, 8, 0.55) 100%);
+/* ── Unified wager panel ─────────────────────────────────── */
+#unified-wagers {
+  background-color: #12151c;
+  background-image: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%);
   border-radius: 10px;
-  padding: 28px 8px 8px;
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(192, 57, 43, 0.32);
-  box-shadow:
-    -3px 4px 18px rgba(192, 57, 43, 0.14),
-    0 4px 16px rgba(0, 0, 0, 0.40);
-  overflow: hidden;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  width: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
-#wala-wagers {
-  background-color: #040c2a;
-  background-image: linear-gradient(180deg, rgba(26, 107, 192, 0.14) 0%, rgba(8, 28, 70, 0.55) 100%);
-  border-radius: 10px;
-  padding: 28px 8px 8px;
+/* ── Side radio toggle ───────────────────────────────────── */
+#side-selector {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid rgba(26, 107, 192, 0.32);
-  box-shadow:
-    3px 4px 18px rgba(26, 107, 192, 0.14),
-    0 4px 16px rgba(0, 0, 0, 0.40);
+  width: 100%;
+  border-radius: 8px;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+
+/* Pulse outline when no side is selected yet */
+#side-selector:has(#radio_none:checked) {
+  border-color: rgba(255, 255, 255, 0.28);
+  animation: sidePromptPulse 1.8s ease-in-out infinite;
+}
+
+@keyframes sidePromptPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.0); }
+  50%       { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.10); }
+}
+
+/* Hint text — hidden by default, visible when no side chosen */
+#side-hint {
+  display: none;
+  margin: 2px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+  text-align: center;
+}
+
+#unified-wagers:has(#radio_none:checked) #side-hint {
+  display: block;
+}
+
+.radio-label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 11px 0;
+  cursor: pointer;
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.60);
+  transition: background 0.15s, color 0.15s;
+  user-select: none;
+}
+
+.radio-label input[type='radio'] {
+  accent-color: white;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.meron-radio {
+  background: rgba(192, 57, 43, 0.22);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wala-radio {
+  background: rgba(26, 107, 192, 0.22);
+}
+
+.meron-radio:has(input:checked) {
+  background: linear-gradient(135deg, #c0392b 0%, #8e1a12 100%);
+  color: white;
+}
+
+.wala-radio:has(input:checked) {
+  background: linear-gradient(135deg, #1a6bc0 0%, #0d3c6e 100%);
+  color: white;
 }
 
 /* ── Bet amount input ────────────────────────────────────── */
-#meron-text-input,
-#wala-text-input {
+#bet-text-input {
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
-  margin-bottom: 0;
 }
 
-#meron_textinput,
-#wala_textinput {
-  width: 80%;
+#bet_textinput {
+  width: 100%;
   max-width: 280px;
   height: 34px;
   resize: none;
@@ -202,32 +255,25 @@ textarea {
   font-size: 20px;
   font-weight: 700;
   text-align: right;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.48);
   color: white;
   padding: 0 10px;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-#meron_textinput:focus {
-  border-color: rgba(192, 57, 43, 0.70);
-  box-shadow: 0 0 0 2px rgba(192, 57, 43, 0.15);
-}
-
-#wala_textinput:focus {
-  border-color: rgba(26, 107, 192, 0.70);
-  box-shadow: 0 0 0 2px rgba(26, 107, 192, 0.15);
+#bet_textinput:focus {
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
 }
 
 /* ── Chip button rows ────────────────────────────────────── */
-#meron-bet-buttons,
-#wala-bet-buttons {
+.bet-buttons {
   display: flex;
   flex-direction: column;
   gap: 4px;
   width: 100%;
   align-items: center;
-  margin-top: 16px;
 }
 
 #buttons_section1,
@@ -239,8 +285,7 @@ textarea {
   width: 100%;
 }
 
-#meron-bet-buttons .button,
-#wala-bet-buttons .button {
+.bet-buttons .button {
   height: 38px;
   min-width: 78px;
   padding: 0 14px;
@@ -280,36 +325,22 @@ textarea {
 }
 
 /* ── Submit / Reset row ──────────────────────────────────── */
-#meron-submitreset-button,
-#wala-submitreset-button {
+#submitreset-button {
   display: flex;
   gap: 8px;
   justify-content: center;
   width: 100%;
 }
 
-#Musersubmit,
-#M_SubmitButton {
-  background: linear-gradient(135deg, #c0392b, #8e1a12);
-  border-color: rgba(192, 57, 43, 0.55);
-  min-width: 99px;
+#Usersubmit {
+  background: linear-gradient(135deg, #27ae60, #1a7a42);
+  border-color: rgba(39, 174, 96, 0.55);
+  min-width: 110px;
+  font-weight: 700;
 }
 
-#Musersubmit:hover,
-#M_SubmitButton:hover {
-  background: linear-gradient(135deg, #e74c3c, #c0392b);
-}
-
-#Wusersubmit,
-#W_SubmitButton {
-  background: linear-gradient(135deg, #1a6bc0, #0d3c6e);
-  border-color: rgba(26, 107, 192, 0.55);
-  min-width: 99px;
-}
-
-#Wusersubmit:hover,
-#W_SubmitButton:hover {
-  background: linear-gradient(135deg, #2980b9, #1a6bc0);
+#Usersubmit:hover {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
 }
 
 /* ── Payout / Cancel Bet row card ────────────────────────── */
@@ -374,6 +405,65 @@ textarea {
   outline: none;
 }
 
+/* ── Compact layout for 10" screens (~800 px tall) ──────── */
+@media (max-height: 820px) {
+  /* Pot strip — user page has even larger fonts, compress more */
+  #M_pot,
+  #W_pot {
+    padding: 5px 12px;
+  }
+  #M_total_bet,
+  #W_total_bet {
+    font-size: clamp(22px, 4.25vw, 52px);
+  }
+  #M_payout,
+  #W_payout {
+    font-size: clamp(13px, 2.25vw, 28px);
+    padding: 2px 14px;
+    margin-top: 2px;
+  }
+
+  /* Unified wager panel */
+  #unified-wagers {
+    padding: 5px 10px 8px;
+    gap: 5px;
+  }
+  .radio-label {
+    padding: 6px 0;
+    font-size: 15px;
+  }
+  #bet_textinput {
+    height: 28px;
+    font-size: 17px;
+  }
+  .bet-buttons {
+    gap: 3px;
+  }
+  .bet-buttons .button {
+    height: 30px;
+    min-width: 66px;
+    font-size: 14px;
+    padding: 0 10px;
+  }
+  #submitreset-button {
+    gap: 5px;
+  }
+  #Usersubmit {
+    height: 30px;
+    min-width: 90px;
+  }
+
+  /* Payout / Cancel Bet bar */
+  #content > section:last-child {
+    padding: 4px 8px;
+    gap: 6px;
+  }
+  #payout_button,
+  #cancel_bet {
+    height: 28px;
+  }
+}
+
 /* ── Mobile ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
   #content {
@@ -384,22 +474,18 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  #wagers {
-    grid-template-columns: 1fr;
-    overflow: visible;
+  #unified-wagers {
+    padding: 10px 8px 12px;
   }
 
-  #meron-wagers,
-  #wala-wagers {
-    overflow: visible;
-    padding: 12px 10px;
+  .radio-label {
+    font-size: 15px;
+    padding: 10px 0;
   }
 
-  #meron_textinput,
-  #wala_textinput {
-    width: 100%;
+  #bet_textinput {
     max-width: none;
-    height: 44px;
+    height: 48px;
     font-size: 22px;
   }
 
@@ -415,8 +501,7 @@ textarea {
     gap: 8px;
   }
 
-  #Musersubmit,
-  #Wusersubmit {
+  #Usersubmit {
     min-height: 44px;
     min-width: 110px;
     font-size: 15px;
