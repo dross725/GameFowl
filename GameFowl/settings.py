@@ -33,6 +33,7 @@ ALLOWED_HOSTS = [
     'daphne',
     'daphne.local',
     '192.168.1.6',
+    '192.168.1.2',
 ]
 
 
@@ -65,6 +66,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://weer-melba-reduplicative.ngrok-free.dev',
     'http://daphne.local',
     'http://192.168.1.6',
+    'http://192.168.1.2',
     'http://localhost',
     'http://127.0.0.1',
     'http://daphne',

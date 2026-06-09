@@ -143,29 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
     update_trends();
 });
 
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Enter') {
-        const payoutModal = document.getElementById('payoutmodal');
-        const errorModal = document.getElementById('payout_error_modal');
-        const cancelBetModal = document.getElementById('cancelbetmodal');
-
-        if (payoutModal && payoutModal.style.display === 'flex') {
-            const okayButton = document.getElementById('payout_yes');
-            if (okayButton) okayButton.click();
-        } else if (errorModal && errorModal.style.display === 'flex') {
-            const closeButton = document.getElementById('payout_error_button');
-            if (closeButton) closeButton.click();
-        }
-
-        if (cancelBetModal && cancelBetModal.style.display === 'flex') {
-            const cancelButton = document.getElementById('cancelbet_yes');
-            if (cancelButton) cancelButton.click();
-        } else if (errorModal && errorModal.style.display === 'flex') {
-            const closeButton = document.getElementById('payout_error_button');
-            if (closeButton) closeButton.click();
-        }
-    }
-});
+/* Modal keyboard shortcuts are handled centrally in submit_wagers.js */
 
 
 //start of betting functions 
@@ -248,19 +226,13 @@ function SuperCloseBetting() {
     closeMeron();
     closeWala();
     console.log("Super closing betting for both sides");
-    //disable buttons in the admin page
     const mopenButton = document.getElementById("M_OpenButton");
     const wopenButton = document.getElementById("W_OpenButton");
-    const msubmitButton = document.getElementById("M_SubmitButton");
-    const wsubmitButton = document.getElementById("W_SubmitButton");
-    
-    mopenButton.disable = true;
-    mopenButton.onclick = null; // Disable the open button
-    wopenButton.disable = true;
-    wopenButton.onclick = null; // Disable the open button
-    msubmitButton.onclick = () => openmodal('matchclosedmodal','null'); 
-    wsubmitButton.onclick = () => openmodal('matchclosedmodal','null'); 
-    
+    const submitButton = document.getElementById("SubmitButton");
+
+    if (mopenButton) { mopenButton.disabled = true; mopenButton.onclick = null; }
+    if (wopenButton) { wopenButton.disabled = true; wopenButton.onclick = null; }
+    if (submitButton) submitButton.onclick = () => openmodal('matchclosedmodal', 'null');
 }
 
 function SuperOpenBetting() {
@@ -268,17 +240,13 @@ function SuperOpenBetting() {
     openMeron();
     openWala();
     console.log("Super Open betting for both sides");
-    //disable buttons in the admin page
-    const msubmitButton = document.getElementById("M_SubmitButton");
-    const wsubmitButton = document.getElementById("W_SubmitButton");
+    const submitButton = document.getElementById("SubmitButton");
     const mopenButton = document.getElementById("M_OpenButton");
     const wopenButton = document.getElementById("W_OpenButton");
 
-    mopenButton.onclick = () => null; // Disable the open button
-    wopenButton.onclick = () => null; // Disable the open button
-    msubmitButton.onclick = () => check_total("MERON"); 
-    wsubmitButton.onclick = () => check_total("WALA"); 
-    
+    if (mopenButton) mopenButton.onclick = () => null;
+    if (wopenButton) wopenButton.onclick = () => null;
+    if (submitButton) submitButton.onclick = () => check_total();
 }
 
 function openBetting(side){
@@ -441,18 +409,14 @@ async function payout() {
 
 
 function closeadminbetting() {
-    console.log('Close admin betting')
-    const msubmitButton = document.getElementById('M_SubmitButton');
-    const wsubmitButton = document.getElementById('W_SubmitButton');
-    msubmitButton.onclick = () => null;
-    wsubmitButton.onclick = () => null;
+    console.log('Close admin betting');
+    const submitButton = document.getElementById('SubmitButton');
+    if (submitButton) submitButton.onclick = () => null;
 }
 
 function openadminbetting() {
-    const msubmitButton = document.getElementById('M_SubmitButton');
-    const wsubmitButton = document.getElementById('W_SubmitButton');
-    msubmitButton.onclick = () => check_total("MERON");
-    wsubmitButton.onclick = () => check_total("WALA");
+    const submitButton = document.getElementById('SubmitButton');
+    if (submitButton) submitButton.onclick = () => check_total();
 }
 
 function closemodal(modalid) {
