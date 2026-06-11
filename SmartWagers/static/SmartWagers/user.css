@@ -391,6 +391,23 @@ textarea {
   background: linear-gradient(135deg, #f39c12, #e67e22);
 }
 
+#reprint_button {
+  background: linear-gradient(135deg, #2471a3, #154360);
+  border-color: rgba(36, 113, 163, 0.55);
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 140px;
+  height: 36px;
+  text-align: center;
+  width: auto;
+  margin: 0 auto;
+  justify-content: center;
+}
+
+#reprint_button:hover {
+  background: linear-gradient(135deg, #2e86c1, #2471a3);
+}
+
 #payout_barcode {
   width: 200px;
   height: 30px;
@@ -459,7 +476,8 @@ textarea {
     gap: 6px;
   }
   #payout_button,
-  #cancel_bet {
+  #cancel_bet,
+  #reprint_button {
     height: 28px;
   }
 }
@@ -514,7 +532,8 @@ textarea {
   }
 
   #payout_button,
-  #cancel_bet {
+  #cancel_bet,
+  #reprint_button {
     width: 100%;
     max-width: 320px;
     min-height: 44px;

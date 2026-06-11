@@ -372,6 +372,7 @@ document.addEventListener('keydown', (e) => {
         ['payout_print_modal',     () => click('payout_success_button'),  () => click('payout_success_button')],
         ['matchclosedmodal',       () => { if (typeof closemodal === 'function') closemodal('matchclosedmodal'); }, () => { if (typeof closemodal === 'function') closemodal('matchclosedmodal'); }],
         ['bettingdisabled',        () => click('bettingdisabled-close-button'), () => click('bettingdisabled-close-button')],
+        ['reprintmodal',           () => click('reprint_search_button'),   () => click('reprint_cancel_button')],
     ];
 
     for (const [id, enterAction, escAction] of modals) {
