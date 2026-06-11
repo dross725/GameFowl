@@ -1,76 +1,64 @@
-let meron_total = 0;
-let wala_total = 0;
+let bet_total = 0;
 let wager_value = 0;
 let wager_id = '';
 
-function check_total(side){
-    /* Get the value from what is in the textarea not the total*/
-    if (side == 'WALA'){
-        const val = document.getElementById('wala_textinput')
+function getSelectedSide() {
+    if (document.getElementById('radio_meron')?.checked) return 'MERON';
+    if (document.getElementById('radio_wala')?.checked) return 'WALA';
+    return null; /* neutral / no side chosen */
+}
 
-        if (val.value == 0 || val.value == '' || isNaN(val.value)){
-            wala_reset();
-            openInvalidTotalModal();
-        }else if (val.value != wala_total){
-            openConfirmationModal(val.value, side);
-        }else if (val.value == wala_total){
-            openConfirmationModal(val.value, side);
-        }
+function focusBetInput() {
+    const textarea = document.getElementById('bet_textinput');
+    if (textarea) textarea.focus();
+}
 
-    }else if (side == 'MERON'){
-        const val = document.getElementById('meron_textinput')
+function addValue(value) {
+    bet_total += value;
+    const textarea = document.getElementById('bet_textinput');
+    if (textarea) textarea.value = bet_total;
+    focusBetInput();
+}
 
-        if (val.value == 0 || val.value == '' || isNaN(val.value)){
-            wala_reset();
-            openInvalidTotalModal();
-        }else if (val.value != meron_total){
-            openConfirmationModal(val.value, side);
-        }else if (val.value == meron_total){
-            openConfirmationModal(val.value, side);
-        }
-    } else {
-        resetTotal();
-        openInvalidTotalModal();
+function resetBet() {
+    bet_total = 0;
+    const textarea = document.getElementById('bet_textinput');
+    if (textarea) textarea.value = '0';
+    /* Return to neutral — no side selected */
+    const noneRadio = document.getElementById('radio_none');
+    if (noneRadio) noneRadio.checked = true;
+    focusBetInput();
+}
+
+/* Legacy aliases kept for backward compatibility */
+function meron_reset() { resetBet(); }
+function wala_reset() { resetBet(); }
+function meron_addValue(value) { addValue(value); }
+function wala_addValue(value) { addValue(value); }
+
+function check_total(side) {
+    const activeSide = side || getSelectedSide();
+
+    if (!activeSide) {
+        openInvalidTotalModal('Please select a side (Meron or Wala) before placing a bet.');
+        return;
     }
-}
 
-function wala_addValue(value) {
-    /*make sure to clear other side to avoid stacking*/
-    meron_reset();
-    wala_total += value;
-    const walatextarea = document.getElementById('wala_textinput');
-    walatextarea.value = '';
-    walatextarea.value += wala_total; 
-}
+    const textarea = document.getElementById('bet_textinput');
+    const val = textarea ? textarea.value.trim() : '';
 
-function wala_reset() {
-    wala_total = 0;
-    const walatextarea = document.getElementById('wala_textinput');
-    walatextarea.value = '0';
-}
-
-function meron_addValue(value) {
-    /*make sure to clear other side to avoid stacking*/
-    wala_reset();
-    meron_total += value;
-    const textarea = document.getElementById('meron_textinput');
-    textarea.value = ''; 
-    textarea.value += meron_total; 
-}
-
-function meron_reset() {
-    meron_total = 0;
-    const textarea = document.getElementById('meron_textinput');
-    textarea.value = '0';
+    if (!val || val === '0' || isNaN(val) || Number(val) <= 0) {
+        resetBet();
+        openInvalidTotalModal('Please make sure the bet amount is a valid number.');
+        return;
+    }
+    openConfirmationModal(val, activeSide);
 }
 
 function resetTotal() {
-    meron_reset();
-    wala_reset();
+    resetBet();
     document.getElementById('wager_value').value = '';
     document.getElementById('wager_id').value = '';
-    // localStorage.clear();
-    // sessionStorage.clear();
 }
 
 function openConfirmationModal(total, side) {
@@ -84,18 +72,21 @@ function openConfirmationModal(total, side) {
 }
 
 function closeModal() {
-
-    document.getElementById('confirmationModal').style.display = 'none'; // Hide the modal
-    resetTotal(); // Reset total when modal is closed
+    document.getElementById('confirmationModal').style.display = 'none';
+    resetTotal();
+    focusBetInput();
 }
 
-function openInvalidTotalModal() {
-    document.getElementById('invalidtotalModal').style.display = 'flex'; // Show the modal
+function openInvalidTotalModal(message) {
+    const msg = document.getElementById('invalidtotal-message');
+    if (msg && message) msg.textContent = message;
+    document.getElementById('invalidtotalModal').style.display = 'flex';
 }
 
 function closeInvalidTotalModal() {
-    document.getElementById('invalidtotalModal').style.display = 'none'; // Hide the modal
-    resetTotal(); // Reset total when modal is closed
+    document.getElementById('invalidtotalModal').style.display = 'none';
+    resetTotal();
+    focusBetInput();
 }
 
 function cancelBet() {
@@ -234,7 +225,11 @@ async function isBettingOpen(side) {
 }
 
 function shouldBlockClosedBettingForCurrentPage() {
-    return Boolean(document.getElementById("Musersubmit") || document.getElementById("Wusersubmit"));
+    return Boolean(
+        document.getElementById("Usersubmit") ||
+        document.getElementById("Musersubmit") ||
+        document.getElementById("Wusersubmit")
+    );
 }
 
 async function submitValue() {
@@ -247,10 +242,13 @@ async function submitValue() {
     }
 
     const wager_val = document.getElementById('wager_value');
-    wager_val.value = wager_value; 
+    wager_val.value = wager_value;
 
     const wager_side = document.getElementById('wager_id');
     wager_side.value = wager_id;
+
+    /* Reset textarea immediately — values already captured in the hidden fields above */
+    resetBet();
 
     const form = document.getElementById('submitwagerForm');
     const submitButton = document.getElementById('submitvalue');
@@ -318,3 +316,74 @@ window.onload = function() {
     document.getElementById('wager_value').value = '';
     document.getElementById('wager_id').value = '';
 };
+
+document.addEventListener('DOMContentLoaded', () => {
+    const textarea = document.getElementById('bet_textinput');
+    if (!textarea) return;
+
+    /* Auto-focus on page load */
+    textarea.focus();
+
+    /* Enter key → submit instead of newline, but only when no modal is open */
+    textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const hasOpenModal = [...document.querySelectorAll('.modal')].some(m => m.style.display === 'flex');
+            if (!hasOpenModal) {
+                e.stopPropagation(); /* consumed here — don't let document handler also fire */
+                check_total();
+            }
+        }
+    });
+
+    /* Re-focus after switching sides with the radio buttons */
+    document.querySelectorAll('input[name="bet_side"]').forEach(radio => {
+        radio.addEventListener('change', () => focusBetInput());
+    });
+});
+
+/* ── Global modal keyboard shortcuts ─────────────────────── *
+ * Enter = primary action (Confirm / Yes / Search / Close)    *
+ * Esc   = secondary action (Cancel / No / Close)             *
+ * ─────────────────────────────────────────────────────────── */
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+
+    /* Let the bet textarea handle Enter only when no modal is currently open */
+    if (e.key === 'Enter' && document.activeElement === document.getElementById('bet_textinput')) {
+        const hasOpenModal = [...document.querySelectorAll('.modal')].some(m => m.style.display === 'flex');
+        if (!hasOpenModal) return;
+    }
+
+    const click = (id) => { const b = document.getElementById(id); if (b) b.click(); };
+    const call  = (fn) => { if (typeof fn === 'function') fn(); };
+
+    /* Ordered by priority — first visible modal wins */
+    const modals = [
+        /* id                      Enter action                           Esc action */
+        ['confirmationModal',      () => click('submitvalue'),            () => call(closeModal)],
+        ['invalidtotalModal',      () => call(closeInvalidTotalModal),    () => call(closeInvalidTotalModal)],
+        ['control_confirmationModal', () => click('cm-yes-button'),       () => click('cm-no-button')],
+        ['adminbetcontrol',        () => click('confirmopen'),            () => { if (typeof closemodal === 'function') closemodal('adminbetcontrol'); }],
+        ['whowonmodal',            null,                                  () => { if (typeof closemodal === 'function') closemodal('whowonmodal'); }],
+        ['payoutmodal',            () => click('payout_yes'),             () => click('payout_no')],
+        ['cancelbetmodal',         () => click('cancelbet_yes'),          () => click('cancelbet_no')],
+        ['payout_error_modal',     () => click('payout_error_button'),    () => click('payout_error_button')],
+        ['payout_print_modal',     () => click('payout_success_button'),  () => click('payout_success_button')],
+        ['matchclosedmodal',       () => { if (typeof closemodal === 'function') closemodal('matchclosedmodal'); }, () => { if (typeof closemodal === 'function') closemodal('matchclosedmodal'); }],
+        ['bettingdisabled',        () => click('bettingdisabled-close-button'), () => click('bettingdisabled-close-button')],
+        ['reprintmodal',           () => click('reprint_search_button'),   () => click('reprint_cancel_button')],
+    ];
+
+    for (const [id, enterAction, escAction] of modals) {
+        const el = document.getElementById(id);
+        if (!el || el.style.display !== 'flex') continue;
+
+        const action = e.key === 'Enter' ? enterAction : escAction;
+        if (action) {
+            e.preventDefault();
+            action();
+        }
+        break; /* Only the topmost visible modal gets the keystroke */
+    }
+});
