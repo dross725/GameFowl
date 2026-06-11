@@ -2,6 +2,14 @@ let bet_total = 0;
 let wager_value = 0;
 let wager_id = '';
 
+function formatNumber(n) {
+    return Number(n).toLocaleString('en-US');
+}
+
+function stripCommas(str) {
+    return String(str).replace(/,/g, '');
+}
+
 function getSelectedSide() {
     if (document.getElementById('radio_meron')?.checked) return 'MERON';
     if (document.getElementById('radio_wala')?.checked) return 'WALA';
@@ -16,7 +24,7 @@ function focusBetInput() {
 function addValue(value) {
     bet_total += value;
     const textarea = document.getElementById('bet_textinput');
-    if (textarea) textarea.value = bet_total;
+    if (textarea) textarea.value = formatNumber(bet_total);
     focusBetInput();
 }
 
@@ -45,14 +53,14 @@ function check_total(side) {
     }
 
     const textarea = document.getElementById('bet_textinput');
-    const val = textarea ? textarea.value.trim() : '';
+    const raw = stripCommas(textarea ? textarea.value.trim() : '');
 
-    if (!val || val === '0' || isNaN(val) || Number(val) <= 0) {
+    if (!raw || raw === '0' || isNaN(raw) || Number(raw) <= 0) {
         resetBet();
         openInvalidTotalModal('Please make sure the bet amount is a valid number.');
         return;
     }
-    openConfirmationModal(val, activeSide);
+    openConfirmationModal(raw, activeSide);
 }
 
 function resetTotal() {
@@ -324,6 +332,16 @@ document.addEventListener('DOMContentLoaded', () => {
     /* Auto-focus on page load */
     textarea.focus();
 
+    /* Auto-format with commas as the user types */
+    textarea.addEventListener('input', () => {
+        const digits = stripCommas(textarea.value).replace(/\D/g, '');
+        const num = digits === '' ? 0 : parseInt(digits, 10);
+        bet_total = num;
+        const formatted = num === 0 ? '' : formatNumber(num);
+        /* Preserve a trailing empty state so the field feels natural to clear */
+        textarea.value = digits === '' ? '' : formatted;
+    });
+
     /* Enter key → submit instead of newline, but only when no modal is open */
     textarea.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -339,6 +357,44 @@ document.addEventListener('DOMContentLoaded', () => {
     /* Re-focus after switching sides with the radio buttons */
     document.querySelectorAll('input[name="bet_side"]').forEach(radio => {
         radio.addEventListener('change', () => focusBetInput());
+    });
+
+    /* M / W hotkeys to toggle Meron / Wala radio buttons */
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'm' && e.key !== 'w') return;
+
+        /* Skip when a modifier is held or focus is in any editable field */
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+        /* Skip when any modal is open */
+        const hasOpenModal = [...document.querySelectorAll('.modal')].some(m => m.style.display === 'flex');
+        if (hasOpenModal) return;
+
+        e.preventDefault();
+
+        const meronRadio = document.getElementById('radio_meron');
+        const walaRadio  = document.getElementById('radio_wala');
+        const noneRadio  = document.getElementById('radio_none');
+
+        if (e.key === 'm' && meronRadio) {
+            if (meronRadio.checked) {
+                if (noneRadio) noneRadio.checked = true;
+            } else {
+                meronRadio.checked = true;
+                meronRadio.dispatchEvent(new Event('change'));
+            }
+        } else if (e.key === 'w' && walaRadio) {
+            if (walaRadio.checked) {
+                if (noneRadio) noneRadio.checked = true;
+            } else {
+                walaRadio.checked = true;
+                walaRadio.dispatchEvent(new Event('change'));
+            }
+        }
+
+        focusBetInput();
     });
 });
 
