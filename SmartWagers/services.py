@@ -628,6 +628,12 @@ def payout_request(transaction_id):
 
     return (payout_result)
 
+def lookup_wager_for_reprint(transaction_id):
+    wager = Wagers.objects.filter(transactionid=transaction_id, registered=True).first()
+    if wager is None:
+        return None
+    return build_wager_receipt_payload(wager)
+
 def get_fight_results(*args):
     results = Fight_Results.objects.values(*args).order_by('-fightnum')
     return results

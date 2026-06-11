@@ -383,6 +383,16 @@ function openmodal(modalid, buttonid, side=null) {
         document.getElementById(modalid).style.display = 'flex';
         document.getElementById('cancelbet_barcode').value='';
 
+    } else if (modalid == 'reprintmodal') {
+        document.getElementById(modalid).style.display = 'flex';
+        document.getElementById('reprint_transaction_id').value = '';
+        document.getElementById('reprint_status_message').innerText = '';
+        const btn = document.getElementById('reprint_search_button');
+        if (btn) { btn.disabled = false; }
+        setTimeout(() => {
+            document.getElementById('reprint_transaction_id').focus();
+        }, 100);
+
     } else {
         console.log("Opening modal with ID: " + modalid);
         document.getElementById(modalid).style.display = 'flex';
@@ -562,6 +572,71 @@ function cancelbet(){
         closemodal('cancelbetmodal');
    }
 
+}
+
+async function reprintReceipt() {
+    const transactionId = document.getElementById('reprint_transaction_id').value.trim();
+    const statusMsg = document.getElementById('reprint_status_message');
+    const searchBtn = document.getElementById('reprint_search_button');
+
+    if (!transactionId) {
+        statusMsg.innerText = 'Please enter a Transaction ID.';
+        return;
+    }
+
+    statusMsg.innerText = 'Searching...';
+    searchBtn.disabled = true;
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+    try {
+        const response = await fetch('/reprint_wager/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: `transaction_id=${encodeURIComponent(transactionId)}`,
+        });
+
+        const data = await response.json();
+
+        if (!data.ok) {
+            closemodal('reprintmodal');
+            document.getElementById('payout_error_header').innerText = 'Reprint Error';
+            if (data.error === 'notfound') {
+                document.getElementById('payout_error_message').innerText = 'Transaction ID not found. Please check and try again.';
+            } else {
+                document.getElementById('payout_error_message').innerText = 'An error occurred. Please try again.';
+            }
+            document.getElementById('payout_error_modal').style.display = 'flex';
+            return;
+        }
+
+        statusMsg.innerText = 'Transaction found. Sending to printer...';
+
+        const printResult = await printWagerReceipt(data.receipt);
+
+        closemodal('reprintmodal');
+        document.getElementById('payout_success_header').innerText = 'Reprint Receipt';
+        document.getElementById('payout_message1').innerText = 'Transaction ID: ' + transactionId;
+        document.getElementById('payout_message2').innerText = printResult.ok
+            ? 'Receipt sent to printer successfully.'
+            : 'Print failed: ' + printResult.message;
+        document.getElementById('payout_message3').innerText = '';
+        document.getElementById('payout_print_modal').style.display = 'flex';
+
+    } catch (error) {
+        console.error('Reprint error:', error);
+        closemodal('reprintmodal');
+        document.getElementById('payout_error_header').innerText = 'Reprint Error';
+        document.getElementById('payout_error_message').innerText = 'Network error. Please try again.';
+        document.getElementById('payout_error_modal').style.display = 'flex';
+    } finally {
+        searchBtn.disabled = false;
+        statusMsg.innerText = '';
+    }
 }
 async function update_trends() {
     //console.log("Updating trends");

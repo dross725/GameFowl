@@ -7,7 +7,7 @@
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=print-agent-5"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}?v=reprint-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=print-agent-11"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -74,6 +74,7 @@
         <section id='payout'>
             <div class='button' id='payout_button' onclick='openmodal("payoutmodal", "Payout")'>PAYOUT!</div>
             <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
+            <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
         </section>
     </section>
 
@@ -197,6 +198,21 @@
                 <p>The match has been closed. No further bets can be placed.</p>
                 <br>
                 <button onclick='closemodal("matchclosedmodal")'>Close</button>
+            </div>
+        </div>
+
+        <div id='reprintmodal' class='modal'>
+            <div class='modal-content'>
+                <h2>Reprint Receipt</h2>
+                <br>
+                <p>Enter Transaction ID to reprint bet receipt</p>
+                <br>
+                <input type='text' id='reprint_transaction_id' placeholder='Transaction ID' autocomplete='off'>
+                <br>
+                <p id='reprint_status_message' style='min-height:1.2em;'></p>
+                <br>
+                <button id='reprint_search_button' onclick='reprintReceipt()'>Search &amp; Print</button>
+                <button id='reprint_cancel_button' onclick='closemodal("reprintmodal")'>Cancel</button>
             </div>
         </div>
     </div>

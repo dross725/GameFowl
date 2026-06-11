@@ -100,6 +100,21 @@ def SuperUser(request):
 def Reports(request):
     return None
 
+@login_required
+def reprint_wager(request):
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    transaction_id = request.POST.get('transaction_id', '').strip()
+    if not transaction_id:
+        return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
+
+    receipt = services.lookup_wager_for_reprint(transaction_id)
+    if receipt is None:
+        return JsonResponse({'ok': False, 'error': 'notfound'})
+
+    return JsonResponse({'ok': True, 'receipt': receipt})
+
 def notify_bet_updates():
     channel_layer = get_channel_layer()
     if channel_layer == None:
