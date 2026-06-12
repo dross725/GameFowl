@@ -22,7 +22,7 @@
                     <li><a href="{% url "index" %}">Main</a></li>
                     <li><a href="{% url "user-page" %}">Teller</a></li>
                     <li><a href="{% url "admin-page" %}">Admin</a></li>
-                    <li><a href="#report">Reports</a></li>
+                    <li><a href="{% url "teller-report" %}">Reports</a></li>
                 </ul>
                 <div id="nav-actions">
                     <form method="post" action="{% url "logout" %}">

@@ -309,8 +309,171 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     //fetchButtonState();
     get_fightstatus();  // Fetch fight status on page load
+    fetchTellerBalance();
 });
 // window.onload = function() {
 //     console.log("Fetching button states on page load...");
 //     fetchButtonState();
 // }
+
+// ── Teller balance ────────────────────────────────────────
+
+function formatBalance(value) {
+    const num = Number(value);
+    return '₱ ' + num.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function updateBalanceButton(balance) {
+    const btn = document.getElementById('balance_button');
+    if (btn) btn.innerText = formatBalance(balance);
+}
+
+function updateBalanceModal(balance, grandTotal) {
+    const display = document.getElementById('balance_display');
+    const gtDisplay = document.getElementById('grand_total_display');
+    if (display) display.innerText = formatBalance(balance);
+    if (gtDisplay) gtDisplay.innerText = formatBalance(grandTotal);
+}
+
+async function fetchTellerBalance() {
+    try {
+        const response = await fetch('/get_teller_balance/');
+        const data = await response.json();
+        if (data.ok) {
+            updateBalanceButton(data.balance);
+            return data;
+        }
+    } catch (error) {
+        console.error('Error fetching teller balance:', error);
+    }
+    return null;
+}
+
+async function openBalanceModal() {
+    const data = await fetchTellerBalance();
+    const balance = data?.balance ?? 0;
+    const grandTotal = data?.grand_total ?? 0;
+    updateBalanceModal(balance, grandTotal);
+
+    const amountInput = document.getElementById('balance_amount');
+    if (amountInput) {
+        amountInput.value = '';
+        // Attach comma-formatting once (guard against duplicate listeners)
+        if (!amountInput._balanceFormatted) {
+            amountInput._balanceFormatted = true;
+            amountInput.addEventListener('input', () => {
+                const digits = stripCommas(amountInput.value).replace(/\D/g, '');
+                const num = digits === '' ? 0 : parseInt(digits, 10);
+                amountInput.value = digits === '' ? '' : formatNumber(num);
+            });
+        }
+    }
+    const statusMsg = document.getElementById('balance_status_message');
+    if (statusMsg) statusMsg.innerText = '';
+    document.getElementById('balancemodal').style.display = 'flex';
+    setTimeout(() => { if (amountInput) amountInput.focus(); }, 100);
+}
+
+async function printRemitReceipt(payload) {
+    const localPrintAgentUrl = (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    try {
+        const response = await fetch(`${localPrintAgentUrl}/print-remit`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal,
+        });
+        let result = {};
+        try { result = await response.json(); } catch (_) {}
+        if (!response.ok || !result.ok) {
+            return { ok: false, message: result.error || `Print agent returned HTTP ${response.status}.` };
+        }
+        return { ok: true, message: result.message || 'Receipt sent to printer.' };
+    } catch (error) {
+        return {
+            ok: false,
+            message: error.name === 'AbortError'
+                ? 'Local print agent did not respond.'
+                : 'Local print agent is not running or is blocked.',
+        };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+async function submitTellerTransaction(type) {
+    const amountInput = document.getElementById('balance_amount');
+    const statusMsg = document.getElementById('balance_status_message');
+    const amount = parseFloat(stripCommas(amountInput.value));
+
+    if (!amount || amount <= 0 || isNaN(amount)) {
+        statusMsg.innerText = 'Please enter a valid amount.';
+        return;
+    }
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+    statusMsg.innerText = 'Processing...';
+
+    const remitBtn = document.getElementById('balance_remit_btn');
+    if (remitBtn) remitBtn.disabled = true;
+
+    try {
+        const response = await fetch('/teller_transaction/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: `transaction_type=${encodeURIComponent(type)}&amount=${encodeURIComponent(amount)}`,
+        });
+        const data = await response.json();
+
+        if (!data.ok) {
+            statusMsg.innerText = data.error === 'invalid_amount'
+                ? 'Please enter a valid amount greater than zero.'
+                : 'Error: ' + (data.error || 'Unknown error');
+            return;
+        }
+
+        updateBalanceButton(data.balance);
+        closemodal('balancemodal');
+
+        const now = new Date();
+        const dateStr = now.toLocaleString('en-PH', {
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit',
+            hour12: false,
+        });
+        const label = 'Remit';
+
+        // Show the shared print-result modal while the job is in-flight
+        document.getElementById('payout_success_header').innerText = `${label} Receipt`;
+        document.getElementById('payout_message1').innerText = `Txn ID   : ${data.transaction_id}`;
+        document.getElementById('payout_message2').innerText = `${label} Amount : ₱ ${Number(data.amount).toLocaleString('en-PH')}`;
+        document.getElementById('payout_message3').innerText = 'Sending receipt to printer...';
+        document.getElementById('payout_print_modal').style.display = 'flex';
+
+        const printResult = await printRemitReceipt({
+            transaction_type: data.transaction_type,
+            transaction_id: data.transaction_id,
+            amount: data.amount,
+            balance: data.balance,
+            grand_total: data.grand_total,
+            cashier: data.cashier,
+            date: dateStr,
+        });
+
+        document.getElementById('payout_message3').innerText = printResult.ok
+            ? 'Receipt sent to printer.'
+            : 'Print failed: ' + printResult.message;
+
+    } catch (error) {
+        console.error('Transaction error:', error);
+        statusMsg.innerText = 'Network error. Please try again.';
+    } finally {
+        if (remitBtn) remitBtn.disabled = false;
+    }
+}

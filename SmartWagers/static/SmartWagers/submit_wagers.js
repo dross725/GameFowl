@@ -429,6 +429,7 @@ document.addEventListener('keydown', (e) => {
         ['matchclosedmodal',       () => { if (typeof closemodal === 'function') closemodal('matchclosedmodal'); }, () => { if (typeof closemodal === 'function') closemodal('matchclosedmodal'); }],
         ['bettingdisabled',        () => click('bettingdisabled-close-button'), () => click('bettingdisabled-close-button')],
         ['reprintmodal',           () => click('reprint_search_button'),   () => click('reprint_cancel_button')],
+        ['balancemodal',           null,                                   () => click('balance_cancel_btn')],
     ];
 
     for (const [id, enterAction, escAction] of modals) {
