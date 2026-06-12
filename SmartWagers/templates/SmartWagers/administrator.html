@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=17">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=19">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
 {% endblock css_files %}
 
@@ -75,6 +75,8 @@
             <div class='button' id='payout_button' onclick='openmodal("payoutmodal", "Payout")'>PAYOUT!</div>
             <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
             <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
+            <a href="{% url 'admin-tellers' %}" class='button' id='tellers_button' style='text-decoration:none;'>Tellers</a>
+            <div class='button' id='received_button' onclick='openreceivedmodal()'>Received</div>
         </section>
     </section>
 
@@ -215,6 +217,23 @@
                 <button id='reprint_cancel_button' onclick='closemodal("reprintmodal")'>Cancel</button>
             </div>
         </div>
+
+        <div id='receivedmodal' class='modal'>
+            <div class='modal-content'>
+                <h2>Mark Remit Received</h2>
+                <br>
+                <p>Scan or enter the Remit Transaction ID</p>
+                <br>
+                <input type='text' id='received_txn_id' placeholder='e.g. R2026000001'
+                       autocomplete='off' style='text-transform:uppercase;letter-spacing:1px;'
+                       onkeydown="if(event.key==='Enter')submitMarkReceived()">
+                <br>
+                <p id='received_status_msg' style='min-height:1.2em;'></p>
+                <br>
+                <button id='received_confirm_btn' onclick='submitMarkReceived()'>Mark Received</button>
+                <button onclick='closemodal("receivedmodal")'>Cancel</button>
+            </div>
+        </div>
     </div>
 
     {% if blocked_betting_side %}
@@ -224,6 +243,65 @@
             });
         </script>
     {% endif %}
+
+    <script>
+    const MARK_RECEIVED_URL = "{% url 'admin-mark-received' %}";
+    const ADMIN_CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+    function openreceivedmodal() {
+        document.getElementById('received_txn_id').value = '';
+        document.getElementById('received_status_msg').innerText = '';
+        document.getElementById('received_status_msg').style.color = '';
+        document.getElementById('received_confirm_btn').disabled = false;
+        document.getElementById('receivedmodal').style.display = 'flex';
+        setTimeout(() => document.getElementById('received_txn_id').focus(), 80);
+    }
+
+    async function submitMarkReceived() {
+        const txnId = document.getElementById('received_txn_id').value.trim().toUpperCase();
+        const statusEl = document.getElementById('received_status_msg');
+        const btn = document.getElementById('received_confirm_btn');
+
+        if (!txnId) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Please enter a transaction ID.';
+            return;
+        }
+
+        btn.disabled = true;
+        statusEl.innerText = 'Processing...';
+        statusEl.style.color = '';
+
+        const fd = new FormData();
+        fd.append('transaction_id', txnId);
+        fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
+
+        try {
+            const res  = await fetch(MARK_RECEIVED_URL, { method: 'POST', body: fd });
+            const data = await res.json();
+
+            if (!data.ok) {
+                const msgs = {
+                    not_found:        'Transaction ID not found.',
+                    not_a_remit:      'Only REMIT transactions can be marked received.',
+                    already_received: 'This transaction was already marked received.',
+                };
+                statusEl.style.color = '#e74c3c';
+                statusEl.innerText = msgs[data.error] || ('Error: ' + data.error);
+                btn.disabled = false;
+                return;
+            }
+
+            closemodal('receivedmodal');
+            btn.disabled = false;
+
+        } catch (err) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Network error. Check connection.';
+            btn.disabled = false;
+        }
+    }
+    </script>
 
 {% endblock content %}
 

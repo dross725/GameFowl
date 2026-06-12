@@ -115,6 +115,7 @@ class TellerTransaction(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='teller_transactions')
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.FloatField()
+    received = models.BooleanField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
