@@ -15,6 +15,9 @@ urlpatterns = [
     path("get_pot_values/", views.get_pot_values, name="get-pot-values"),
     path("get_fight_results_view/", views.get_fight_results_view, name="get-fight-results"),
     path("reprint_wager/", views.reprint_wager, name="reprint-wager"),
+    path("get_teller_balance/", views.get_teller_balance, name="get-teller-balance"),
+    path("teller_transaction/", views.teller_transaction, name="teller-transaction"),
+    path("reports/", views.teller_report, name="teller-report"),
     #path("get_button_state_view/<str:side>/", views.get_button_state_view)
     #path("reports", views.Reports, name="reports-page"),
     #path("su_admin/<slug:slug>", views.SuperUser, name="su_admin")

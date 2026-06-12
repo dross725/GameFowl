@@ -101,3 +101,38 @@ class SessionLog(models.Model):
     
     def __str__(self):
         return f"{self.user} | {self.login_time} → {self.logout_time or 'Active'}"
+
+
+class TellerTransaction(models.Model):
+    REMIT = 'REMIT'
+    COLLECT = 'COLLECT'
+    TRANSACTION_TYPES = [
+        (REMIT, 'Remit'),
+        (COLLECT, 'Collect'),
+    ]
+
+    transaction_id = models.CharField(max_length=12, unique=True, editable=False, default='R000000000')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='teller_transactions')
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
+    amount = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'transaction_type']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk is None:
+            current_year = datetime.now().year
+            last_entry = TellerTransaction.objects.order_by('-id').first()
+            if last_entry and last_entry.transaction_id[1:5] == str(current_year):
+                last_number = int(last_entry.transaction_id[5:]) + 1
+            else:
+                last_number = 1
+            self.transaction_id = f"R{current_year}{str(last_number).zfill(6)}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.transaction_id} | {self.user} | {self.transaction_type} | {self.amount} | {self.created_at}"

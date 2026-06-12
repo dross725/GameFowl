@@ -338,6 +338,139 @@ def print_receipt(config, printer_name, receipt):
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
 
 
+# ── Remit / Collect receipts ──────────────────────────────
+
+def escpos_remit_receipt(receipt, code_page="cp437"):
+    transaction_type = str(receipt.get("transaction_type", "REMIT")).upper()
+    transaction_id = str(receipt.get("transaction_id", ""))
+    amount = money(receipt.get("amount"))
+    balance = money(receipt.get("balance"))
+    grand_total = money(receipt.get("grand_total"))
+    cashier = str(receipt.get("cashier", ""))
+    date = str(receipt.get("date", ""))
+
+    label = "REMIT RECEIPT" if transaction_type == "REMIT" else "COLLECT RECEIPT"
+    action_line = f"*** {transaction_type} ***"
+
+    output = bytearray()
+    output += b"\x1b@"       # Initialize
+    output += b"\x1ba\x01"   # Center
+    output += text_line(date, code_page)
+    output += b"\x1bE\x01"
+    output += text_line(label, code_page)
+    output += text_line(action_line, code_page)
+    output += b"\x1bE\x00"
+    output += text_line("", code_page)
+    output += b"\x1ba\x00"   # Left align
+    output += text_line(f"Teller   : {cashier}", code_page)
+    output += text_line(f"Amount   : {amount}", code_page)
+    output += text_line(f"Balance  : {balance}", code_page)
+    output += text_line(f"Grand Tot: {grand_total}", code_page)
+    output += text_line(f"Txn ID   : {transaction_id}", code_page)
+    output += text_line("", code_page)
+
+    if transaction_id:
+        barcode_data = ("{B" + transaction_id).encode("ascii", errors="ignore")
+        output += b"\x1ba\x01"       # Center for barcode
+        output += b"\x1dH\x02"       # Barcode text below
+        output += b"\x1dh\x50"       # Barcode height
+        output += b"\x1dw\x02"       # Barcode width
+        output += b"\x1dk\x49" + bytes([len(barcode_data)]) + barcode_data
+        output += text_line("", code_page)
+
+    output += text_line("", code_page)
+    output += b"\x1dV\x42\x00"  # Partial cut
+    return bytes(output)
+
+
+def print_windows_driver_remit(printer_name, receipt):
+    win32ui = get_win32ui()
+    win32con = get_win32con()
+
+    transaction_type = str(receipt.get("transaction_type", "REMIT")).upper()
+    transaction_id = str(receipt.get("transaction_id", ""))
+    amount = money(receipt.get("amount"))
+    balance = money(receipt.get("balance"))
+    grand_total = money(receipt.get("grand_total"))
+    cashier = str(receipt.get("cashier", ""))
+    date = str(receipt.get("date", ""))
+
+    label = "REMIT RECEIPT" if transaction_type == "REMIT" else "COLLECT RECEIPT"
+
+    dc = win32ui.CreateDC()
+    dc.CreatePrinterDC(printer_name)
+    dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
+    dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
+    page_width = dc.GetDeviceCaps(win32con.HORZRES)
+    margin_x = max(int(dpi_x * 0.15), 30)
+    y = max(int(dpi_y * 0.15), 30)
+    line_gap = int(dpi_y * 0.12)
+
+    normal_font = win32ui.CreateFont({
+        "name": "Arial", "height": int(dpi_y * 0.11), "weight": 400,
+    })
+    bold_font = win32ui.CreateFont({
+        "name": "Arial", "height": int(dpi_y * 0.13), "weight": 700,
+    })
+    barcode_font = win32ui.CreateFont({
+        "name": "Consolas", "height": int(dpi_y * 0.10), "weight": 700,
+    })
+    barcode_height = int(dpi_y * 0.45)
+    barcode_narrow = max(int(dpi_x * 0.012), 2)
+
+    def draw_centered(text, font):
+        nonlocal y
+        dc.SelectObject(font)
+        text_width, text_height = dc.GetTextExtent(text)
+        x = max(int((page_width - text_width) / 2), margin_x)
+        dc.TextOut(x, y, text)
+        y += text_height + line_gap
+
+    def draw_left(text, font=normal_font):
+        nonlocal y
+        dc.SelectObject(font)
+        _, text_height = dc.GetTextExtent(text)
+        dc.TextOut(margin_x, y, text)
+        y += text_height + line_gap
+
+    dc.StartDoc("SmartWagers Remit Receipt")
+    try:
+        dc.StartPage()
+        draw_centered(date, normal_font)
+        draw_centered(label, bold_font)
+        draw_centered(f"*** {transaction_type} ***", bold_font)
+        y += line_gap
+        draw_left(f"Teller    : {cashier}")
+        draw_left(f"Amount    : {amount}")
+        draw_left(f"Balance   : {balance}")
+        draw_left(f"Grand Tot : {grand_total}")
+        draw_left(f"Txn ID    : {transaction_id}")
+        if transaction_id:
+            y += line_gap
+            barcode_width = code39_width(transaction_id, barcode_narrow)
+            barcode_x = max(int((page_width - barcode_width) / 2), margin_x)
+            draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
+            y += barcode_height + line_gap
+            draw_centered(transaction_id, barcode_font)
+        dc.EndPage()
+    finally:
+        dc.EndDoc()
+        dc.DeleteDC()
+
+    return None
+
+
+def print_remit_receipt(config, printer_name, receipt):
+    print_mode = str(config.get("print_mode", "windows_driver")).lower()
+    if print_mode == "escpos":
+        payload = escpos_remit_receipt(receipt, config["code_page"])
+        return print_raw(printer_name, payload)
+    if print_mode == "windows_driver":
+        return print_windows_driver_remit(printer_name, receipt)
+
+    raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
+
+
 class PrintAgentHandler(BaseHTTPRequestHandler):
     server_version = "SmartWagersPrintAgent/1.0"
 
@@ -394,7 +527,7 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
             self.send_json(403, {"ok": False, "error": "Only localhost requests are allowed."})
             return
 
-        if self.path not in ("/print-payout", "/print-wager"):
+        if self.path not in ("/print-payout", "/print-wager", "/print-remit"):
             self.send_json(404, {"ok": False, "error": "Unknown endpoint."})
             return
 
@@ -404,7 +537,10 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
             receipt = json.loads(raw_body.decode("utf-8"))
             config = load_config()
             printer_name = configured_printer(config)
-            job_id = print_receipt(config, printer_name, receipt)
+            if self.path == "/print-remit":
+                job_id = print_remit_receipt(config, printer_name, receipt)
+            else:
+                job_id = print_receipt(config, printer_name, receipt)
         except json.JSONDecodeError:
             self.send_json(400, {"ok": False, "error": "Invalid JSON payload."})
             return

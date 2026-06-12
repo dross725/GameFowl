@@ -408,6 +408,66 @@ textarea {
   background: linear-gradient(135deg, #2e86c1, #2471a3);
 }
 
+#balance_button {
+  background: linear-gradient(135deg, #b7950b, #7d6608);
+  border-color: rgba(212, 172, 13, 0.55);
+  font-size: 14px;
+  font-weight: 800;
+  min-width: 140px;
+  height: 36px;
+  text-align: center;
+  width: auto;
+  margin: 0 auto;
+  justify-content: center;
+  color: #fff8dc;
+  letter-spacing: 0.5px;
+}
+
+#balance_button:hover {
+  background: linear-gradient(135deg, #d4ac0d, #b7950b);
+}
+
+/* ── Balance modal content ───────────────────────────────── */
+#balance_display {
+  font-size: 26px;
+  font-weight: 900;
+  color: #f1c40f;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(241, 196, 15, 0.25);
+  border-radius: 10px;
+  padding: 10px 24px;
+  margin: 4px auto 0;
+  display: inline-block;
+  min-width: 160px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+#grand_total_display {
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.60);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+  padding: 6px 20px;
+  margin: 4px auto 0;
+  display: inline-block;
+  min-width: 140px;
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+#balance_remit_btn {
+  background: linear-gradient(135deg, #c0392b, #8e1a12);
+  border-color: rgba(192, 57, 43, 0.50);
+}
+
+#balance_remit_btn:hover {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+
 #payout_barcode {
   width: 200px;
   height: 30px;
@@ -477,7 +537,8 @@ textarea {
   }
   #payout_button,
   #cancel_bet,
-  #reprint_button {
+  #reprint_button,
+  #balance_button {
     height: 28px;
   }
 }
@@ -533,7 +594,8 @@ textarea {
 
   #payout_button,
   #cancel_bet,
-  #reprint_button {
+  #reprint_button,
+  #balance_button {
     width: 100%;
     max-width: 320px;
     min-height: 44px;
