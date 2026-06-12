@@ -525,6 +525,40 @@ textarea {
   background: linear-gradient(135deg, #2e86c1, #2471a3);
 }
 
+#tellers_button {
+  background: linear-gradient(135deg, #6c3483, #4a235a);
+  border-color: rgba(142, 68, 173, 0.55);
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 130px;
+  height: 34px;
+  text-align: center;
+  width: auto;
+  margin: 0;
+  justify-content: center;
+}
+
+#tellers_button:hover {
+  background: linear-gradient(135deg, #8e44ad, #6c3483);
+}
+
+#received_button {
+  background: linear-gradient(135deg, #d4ac0d, #9a7d0a);
+  border-color: rgba(212, 172, 13, 0.55);
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 130px;
+  height: 34px;
+  text-align: center;
+  width: auto;
+  margin: 0;
+  justify-content: center;
+}
+
+#received_button:hover {
+  background: linear-gradient(135deg, #f1c40f, #d4ac0d);
+}
+
 #payout_barcode {
   width: 200px;
   height: 30px;

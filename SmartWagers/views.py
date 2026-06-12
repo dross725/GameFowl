@@ -7,6 +7,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
 from .models import SessionLog, TellerTransaction, Wagers
+from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
 from django.utils.timezone import now
@@ -335,4 +336,114 @@ def teller_transaction(request):
         'transaction_type': transaction_type,
         'amount': amount,
         'transaction_id': txn.transaction_id,
+    })
+
+
+@group_required('admin')
+def admin_tellers(request):
+    """Admin view: shows all tellers with balances and TellerTransaction history."""
+    try:
+        teller_group = Group.objects.get(name='teller')
+        tellers = teller_group.user_set.all().order_by('username')
+    except Group.DoesNotExist:
+        tellers = []
+
+    teller_data = []
+    for teller in tellers:
+        balance, grand_total = _compute_teller_balance(teller)
+        transactions = TellerTransaction.objects.filter(user=teller).order_by('-created_at')
+        teller_data.append({
+            'user': teller,
+            'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
+            'balance': balance,
+            'grand_total': grand_total,
+            'transactions': transactions,
+        })
+
+    return render(request, 'SmartWagers/admin_tellers.html', {
+        'teller_data': teller_data,
+    })
+
+
+@group_required('admin')
+def admin_teller_txn(request):
+    """Admin endpoint: issue a REMIT or COLLECT transaction for any teller."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    transaction_type = request.POST.get('transaction_type', '').strip().upper()
+    if transaction_type not in (TellerTransaction.REMIT, TellerTransaction.COLLECT):
+        return JsonResponse({'ok': False, 'error': 'invalid_type'}, status=400)
+
+    try:
+        teller_id = int(request.POST.get('teller_id', 0))
+        amount = float(request.POST.get('amount', 0))
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_params'}, status=400)
+
+    if amount <= 0:
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    try:
+        teller_group = Group.objects.get(name='teller')
+        teller = teller_group.user_set.get(pk=teller_id)
+    except (Group.DoesNotExist, User.DoesNotExist):
+        return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
+
+    txn = TellerTransaction.objects.create(
+        user=teller,
+        transaction_type=transaction_type,
+        amount=amount,
+    )
+
+    balance, grand_total = _compute_teller_balance(teller)
+    display_name = (f"{teller.first_name} {teller.last_name}".strip() or teller.username)
+
+    return JsonResponse({
+        'ok': True,
+        'transaction_id': txn.transaction_id,
+        'balance': balance,
+        'grand_total': grand_total,
+        'cashier': str(teller),
+        'teller_name': display_name,
+        'teller_id': teller.pk,
+        'amount': amount,
+        'transaction_type': transaction_type,
+        'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+    })
+
+
+@group_required('admin')
+def admin_mark_received(request):
+    """Admin endpoint: mark a REMIT transaction as received by the admin."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    transaction_id = request.POST.get('transaction_id', '').strip().upper()
+    if not transaction_id:
+        return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
+
+    try:
+        txn = TellerTransaction.objects.select_related('user').get(transaction_id=transaction_id)
+    except TellerTransaction.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+
+    if txn.transaction_type != TellerTransaction.REMIT:
+        return JsonResponse({'ok': False, 'error': 'not_a_remit'}, status=400)
+
+    if txn.received:
+        return JsonResponse({
+            'ok': False,
+            'error': 'already_received',
+            'transaction_id': txn.transaction_id,
+            'teller_id': txn.user.pk,
+        }, status=409)
+
+    txn.received = True
+    txn.save(update_fields=['received'])
+
+    return JsonResponse({
+        'ok': True,
+        'transaction_id': txn.transaction_id,
+        'teller_id': txn.user.pk,
     })
