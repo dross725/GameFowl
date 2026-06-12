@@ -2,14 +2,14 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=15">
+    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=18">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
 {% endblock css_files %}
 
 {% block script_files %}
     <script src="{% static 'SmartWagers/administrator.js' %}?v=reprint-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=print-agent-11"></script>
-    <script src="{% static 'SmartWagers/user.js' %}?v=print-agent-5"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=print-agent-12"></script>
+    <script src="{% static 'SmartWagers/user.js' %}?v=balance-6"></script>
 {% endblock script_files %}
 
 {% block content %}
@@ -60,6 +60,7 @@
             <div class='button' id='payout_button' onclick='openmodal("payoutmodal")'>Payout</div>
             <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
             <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
+            <div class='button' id='balance_button' onclick='openBalanceModal()'>₱ 0</div>
         </section>
     </section>
 
@@ -174,6 +175,24 @@
                 <br>
                 <button id='reprint_search_button' onclick='reprintReceipt()'>Search &amp; Print</button>
                 <button id='reprint_cancel_button' onclick='closemodal("reprintmodal")'>Cancel</button>
+            </div>
+        </div>
+
+        <div id='balancemodal' class='modal'>
+            <div class='modal-content'>
+                <h2>Balance Report</h2>
+                <br>
+                <p>Grand Total Collected</p>
+                <div id='grand_total_display'>₱ 0</div>
+                <p style='margin-top:10px;'>Current On-Hand Balance</p>
+                <div id='balance_display'>₱ 0</div>
+                <br>
+                <p>Enter amount to remit:</p>
+                <input type='text' inputmode='numeric' id='balance_amount' placeholder='0' autocomplete='off'>
+                <p id='balance_status_message' style='min-height:1.2em;'></p>
+                <br>
+                <button id='balance_remit_btn' onclick='submitTellerTransaction("REMIT")'>Remit</button>
+                <button id='balance_cancel_btn' onclick='closemodal("balancemodal")'>Cancel</button>
             </div>
         </div>
     </div>

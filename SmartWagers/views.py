@@ -1,11 +1,12 @@
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden
+from django.db.models import Sum
 from . import services as services
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
-from .models import SessionLog
+from .models import SessionLog, TellerTransaction, Wagers
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
 from django.utils.timezone import now
@@ -253,3 +254,85 @@ def Teller(request):
         'W_total_bet' : format(int(wala_total), ','),
         'W_payout' : wala_payout
          })
+
+
+@group_required('teller')
+def teller_report(request):
+    wagers = Wagers.objects.filter(
+        cashier=str(request.user),
+        registered=True,
+    ).order_by('-created_at')
+
+    total_amount = wagers.aggregate(total=Sum('wager'))['total'] or 0.0
+    total_count = wagers.count()
+
+    return render(request, 'SmartWagers/teller_report.html', {
+        'wagers': wagers,
+        'total_amount': total_amount,
+        'total_count': total_count,
+        'teller_name': str(request.user),
+    })
+
+
+def _compute_teller_balance(user):
+    """Return (balance, grand_total) for a teller.
+
+    grand_total = raw sum of all registered bets — never reduced by remit/collect.
+    balance     = grand_total − remits + collects.
+    """
+    username = str(user)
+    grand_total = Wagers.objects.filter(
+        cashier=username, registered=True
+    ).aggregate(total=Sum('wager'))['total'] or 0.0
+
+    remit_total = TellerTransaction.objects.filter(
+        user=user, transaction_type=TellerTransaction.REMIT
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+
+    collect_total = TellerTransaction.objects.filter(
+        user=user, transaction_type=TellerTransaction.COLLECT
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+
+    balance = grand_total - remit_total + collect_total
+    return balance, grand_total
+
+
+@group_required('teller')
+def get_teller_balance(request):
+    balance, grand_total = _compute_teller_balance(request.user)
+    return JsonResponse({'ok': True, 'balance': balance, 'grand_total': grand_total})
+
+
+@group_required('teller')
+def teller_transaction(request):
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    transaction_type = request.POST.get('transaction_type', '').strip().upper()
+    if transaction_type != TellerTransaction.REMIT:
+        return JsonResponse({'ok': False, 'error': 'invalid_type'}, status=400)
+
+    try:
+        amount = float(request.POST.get('amount', 0))
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    if amount <= 0:
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    txn = TellerTransaction.objects.create(
+        user=request.user,
+        transaction_type=transaction_type,
+        amount=amount,
+    )
+
+    balance, grand_total = _compute_teller_balance(request.user)
+    return JsonResponse({
+        'ok': True,
+        'balance': balance,
+        'grand_total': grand_total,
+        'cashier': str(request.user),
+        'transaction_type': transaction_type,
+        'amount': amount,
+        'transaction_id': txn.transaction_id,
+    })
