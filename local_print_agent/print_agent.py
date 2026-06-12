@@ -29,7 +29,7 @@ def load_config():
 
 def money(value):
     try:
-        return f"{float(str(value).replace(',', '')):.2f}"
+        return f"{float(str(value).replace(',', '')):,.2f}"
     except (TypeError, ValueError):
         return str(value or "0.00")
 

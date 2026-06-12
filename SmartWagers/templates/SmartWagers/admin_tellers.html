@@ -1,0 +1,826 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Teller Balances — SmartWagers{% endblock title %}
+
+{% block css_files %}
+<style>
+  /* ── Override layout for full-width report page ────────── */
+  #wagers_section {
+    overflow-y: auto !important;
+    background: none !important;
+    padding: 0 !important;
+    margin: 0 4px 4px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    min-height: 0;
+  }
+
+  #wagers_section::before { display: none !important; }
+
+  /* ── Page wrapper ──────────────────────────────────────── */
+  #tellers-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px 16px 24px;
+    min-height: 0;
+    flex: 1;
+  }
+
+  /* ── Page header ───────────────────────────────────────── */
+  #tellers-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #tellers-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: white;
+    letter-spacing: 0.5px;
+  }
+
+  #tellers-subtitle {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.40);
+    margin-top: 2px;
+  }
+
+  /* ── Teller cards grid ─────────────────────────────────── */
+  #teller-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .teller-card {
+    background: #1b1e27;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  }
+
+  /* ── Card header row ───────────────────────────────────── */
+  .teller-card-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.12s;
+  }
+
+  .teller-card-header:hover { background: rgba(255,255,255,0.03); }
+
+  .teller-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2980b9, #1a3c5e);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    font-weight: 800;
+    color: white;
+    flex-shrink: 0;
+  }
+
+  .teller-meta {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .teller-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .teller-username {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.38);
+    margin-top: 1px;
+  }
+
+  .teller-stats {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .teller-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    min-width: 90px;
+  }
+
+  .teller-stat-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.38);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+  }
+
+  .teller-stat-value {
+    font-size: 16px;
+    font-weight: 900;
+    color: #f1c40f;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+
+  .teller-stat-value.neutral { color: rgba(255,255,255,0.75); }
+
+  .teller-stat-value.negative { color: #e74c3c; }
+
+  .txn-btn {
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s, transform 0.1s;
+    letter-spacing: 0.4px;
+    flex-shrink: 0;
+  }
+
+  .txn-btn.remit-btn {
+    background: linear-gradient(135deg, #c0392b, #8e1a12);
+  }
+
+  .txn-btn.collect-btn {
+    background: linear-gradient(135deg, #27ae60, #1a7a43);
+  }
+
+  .txn-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+  .txn-btn:active { transform: translateY(0); }
+
+  .expand-chevron {
+    color: rgba(255,255,255,0.30);
+    font-size: 14px;
+    flex-shrink: 0;
+    transition: transform 0.2s;
+    margin-left: 4px;
+  }
+
+  .teller-card.expanded .expand-chevron { transform: rotate(180deg); }
+
+  /* ── Transaction history panel ─────────────────────────── */
+  .teller-history {
+    display: none;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    overflow: hidden;
+  }
+
+  .teller-card.expanded .teller-history { display: block; }
+
+  .history-table-container {
+    max-height: 280px;
+    overflow-y: auto;
+  }
+
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .history-table thead th {
+    position: sticky;
+    top: 0;
+    background: #12151c;
+    color: rgba(255,255,255,0.42);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.09);
+    white-space: nowrap;
+    z-index: 5;
+  }
+
+  .history-table thead th:last-child { text-align: right; }
+
+  .history-table tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.1s;
+  }
+
+  .history-table tbody tr:last-child { border-bottom: none; }
+  .history-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+  .history-table tbody tr.row-remit {
+    border-left: 3px solid rgba(231, 76, 60, 0.50);
+  }
+
+  .history-table tbody tr.row-collect {
+    border-left: 3px solid rgba(39, 174, 96, 0.55);
+  }
+
+  .history-table td {
+    padding: 8px 14px;
+    color: rgba(255,255,255,0.80);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .history-table td:last-child {
+    text-align: right;
+    font-weight: 700;
+  }
+
+  .td-txid-h {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: rgba(255,255,255,0.45) !important;
+    letter-spacing: 0.4px;
+  }
+
+  .type-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .type-badge.remit {
+    background: linear-gradient(135deg, #c0392b, #8e1a12);
+    color: white;
+  }
+
+  .type-badge.collect {
+    background: linear-gradient(135deg, #27ae60, #1a6e3c);
+    color: white;
+  }
+
+  .td-ts {
+    font-size: 11px;
+    color: rgba(255,255,255,0.42) !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .amount-remit { color: #e74c3c !important; }
+  .amount-collect { color: #2ecc71 !important; }
+
+  .received-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    background: linear-gradient(135deg, #d4ac0d, #9a7d0a);
+    color: white;
+  }
+
+  .pending-badge {
+    font-size: 10px;
+    color: rgba(255,255,255,0.28);
+  }
+
+  .history-empty {
+    padding: 20px 14px;
+    color: rgba(255,255,255,0.28);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  /* ── No tellers state ──────────────────────────────────── */
+  #no-tellers {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: rgba(255,255,255,0.28);
+    gap: 8px;
+  }
+
+  /* ── Collect modal ─────────────────────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-overlay.active { display: flex; }
+
+  .modal-box {
+    background: #1b1e27;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 28px 28px 24px;
+    width: 340px;
+    max-width: 92vw;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.60);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .modal-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: white;
+    letter-spacing: 0.4px;
+  }
+
+  .modal-teller-name {
+    font-size: 13px;
+    color: rgba(255,255,255,0.50);
+    margin-top: 2px;
+    font-weight: 500;
+  }
+
+  .modal-field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.40);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    margin-bottom: 6px;
+  }
+
+  .modal-field input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-radius: 8px;
+    color: white;
+    font-size: 20px;
+    font-weight: 800;
+    padding: 10px 14px;
+    outline: none;
+    box-sizing: border-box;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .modal-field input:focus {
+    border-color: rgba(255, 255, 255, 0.40);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+  }
+
+  .modal-status {
+    font-size: 12px;
+    min-height: 1.4em;
+    font-weight: 500;
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: none;
+  }
+
+  .modal-status.error {
+    display: block;
+    background: rgba(231,76,60,0.12);
+    color: #e74c3c;
+    border: 1px solid rgba(231,76,60,0.25);
+  }
+
+  .modal-status.success {
+    display: block;
+    background: rgba(39,174,96,0.12);
+    color: #2ecc71;
+    border: 1px solid rgba(39,174,96,0.25);
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+
+  .btn-cancel-modal {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: rgba(255,255,255,0.55);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 20px;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+
+  .btn-cancel-modal:hover { background: rgba(255,255,255,0.05); }
+
+  .btn-confirm-collect {
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 9px 22px;
+    cursor: pointer;
+    transition: opacity 0.15s, background 0.2s;
+    letter-spacing: 0.3px;
+    background: linear-gradient(135deg, #27ae60, #1a7a43);
+  }
+
+  .btn-confirm-collect.is-remit {
+    background: linear-gradient(135deg, #c0392b, #8e1a12);
+  }
+
+  .btn-confirm-collect:hover { opacity: 0.85; }
+  .btn-confirm-collect:disabled { opacity: 0.45; cursor: default; }
+
+  /* ── Print option checkbox ─────────────────────────────── */
+  .print-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.52);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .print-option input[type="checkbox"] {
+    accent-color: #27ae60;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+
+  @media (max-width: 600px) {
+    .teller-stats { gap: 10px; }
+    .teller-stat { min-width: 70px; }
+    .teller-stat-value { font-size: 14px; }
+    .txn-btn { padding: 7px 12px; font-size: 11px; }
+  }
+</style>
+{% endblock css_files %}
+
+{% block label %}{% endblock label %}
+{% block pot_block %}{% endblock pot_block %}
+
+{% block content %}
+<div id="tellers-wrapper">
+
+  <div id="tellers-header">
+    <div>
+      <div id="tellers-title">Teller Balances</div>
+      <div id="tellers-subtitle">Manage remit / collect &amp; view transaction history</div>
+    </div>
+  </div>
+
+  <div id="teller-cards">
+    {% if teller_data %}
+      {% for td in teller_data %}
+      <div class="teller-card" id="teller-card-{{ td.user.pk }}">
+
+        <div class="teller-card-header" onclick="toggleCard({{ td.user.pk }})">
+          <div class="teller-avatar">{{ td.display_name|slice:":1"|upper }}</div>
+
+          <div class="teller-meta">
+            <div class="teller-name">{{ td.display_name }}</div>
+            <div class="teller-username">@{{ td.user.username }}</div>
+          </div>
+
+          <div class="teller-stats">
+            <div class="teller-stat">
+              <span class="teller-stat-label">Grand Total</span>
+              <span class="teller-stat-value neutral" id="gt-{{ td.user.pk }}">₱ {{ td.grand_total|floatformat:0 }}</span>
+            </div>
+            <div class="teller-stat">
+              <span class="teller-stat-label">Balance</span>
+              <span class="teller-stat-value {% if td.balance < 0 %}negative{% endif %}" id="bal-{{ td.user.pk }}">₱ {{ td.balance|floatformat:0 }}</span>
+            </div>
+          </div>
+
+          <button class="txn-btn remit-btn"
+                  onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'REMIT')">
+            Remit
+          </button>
+          <button class="txn-btn collect-btn"
+                  onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'COLLECT')">
+            Collect
+          </button>
+
+          <span class="expand-chevron">▼</span>
+        </div>
+
+        <div class="teller-history">
+          <div class="history-table-container" id="history-{{ td.user.pk }}">
+            {% if td.transactions %}
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Transaction ID</th>
+                  <th>Type</th>
+                  <th>Timestamp</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="history-body-{{ td.user.pk }}">
+                {% for txn in td.transactions %}
+                <tr class="row-{{ txn.transaction_type|lower }}" id="txn-row-{{ txn.transaction_id }}">
+                  <td style="color:rgba(255,255,255,0.28);font-size:10px;">{{ forloop.counter }}</td>
+                  <td class="td-txid-h">{{ txn.transaction_id }}</td>
+                  <td>
+                    <span class="type-badge {{ txn.transaction_type|lower }}">{{ txn.transaction_type }}</span>
+                  </td>
+                  <td class="td-ts">{{ txn.created_at|date:"Y-m-d" }} {{ txn.created_at|time:"H:i:s" }}</td>
+                  <td class="amount-{{ txn.transaction_type|lower }}">₱ {{ txn.amount|floatformat:0 }}</td>
+                  <td>
+                    {% if txn.transaction_type == 'REMIT' %}
+                      {% if txn.received %}
+                        <span class="received-badge">Received</span>
+                      {% else %}
+                        <span class="pending-badge" id="status-{{ txn.transaction_id }}">—</span>
+                      {% endif %}
+                    {% else %}
+                      <span class="pending-badge">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% else %}
+            <div class="history-empty" id="history-empty-{{ td.user.pk }}">No transactions yet.</div>
+            {% endif %}
+          </div>
+        </div>
+
+      </div>
+      {% endfor %}
+    {% else %}
+      <div id="no-tellers">
+        <p>No tellers found in the system.</p>
+      </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- ── Collect Modal ──────────────────────────────────────── -->
+<div class="modal-overlay" id="collect-modal-overlay" onclick="closeCollectModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div>
+      <div class="modal-title" id="modal-title">Issue Collect</div>
+      <div class="modal-teller-name" id="modal-teller-name"></div>
+    </div>
+
+    <input type="hidden" id="modal-teller-id" value="">
+    <input type="hidden" id="modal-txn-type" value="COLLECT">
+
+    <div class="modal-field">
+      <label>Amount (₱)</label>
+      <input type="text" inputmode="numeric" id="collect-amount" placeholder="0" autocomplete="off">
+    </div>
+
+    <label class="print-option">
+      <input type="checkbox" id="collect-print" checked>
+      Print receipt
+    </label>
+
+    <div class="modal-status" id="collect-status"></div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel-modal" onclick="closeCollectModal()">Cancel</button>
+      <button class="btn-confirm-collect" id="btn-collect-confirm" onclick="submitTxn()">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TELLER_TXN_URL = "{% url 'admin-teller-txn' %}";
+const PRINT_AGENT_URL = "http://127.0.0.1:8765/print-remit";
+const CSRF_TOKEN = "{{ csrf_token }}";
+
+/* ── Card expand/collapse ──────────────────────────── */
+function toggleCard(tellerId) {
+  const card = document.getElementById(`teller-card-${tellerId}`);
+  card.classList.toggle('expanded');
+}
+
+/* ── Transaction modal (REMIT or COLLECT) ──────────── */
+function openTxnModal(event, tellerId, tellerName, txnType) {
+  event.stopPropagation();
+
+  const isRemit = txnType === 'REMIT';
+  document.getElementById('modal-teller-id').value  = tellerId;
+  document.getElementById('modal-txn-type').value   = txnType;
+  document.getElementById('modal-teller-name').textContent = tellerName;
+  document.getElementById('modal-title').textContent = isRemit ? 'Issue Remit' : 'Issue Collect';
+  document.getElementById('collect-amount').value   = '';
+
+  const confirmBtn = document.getElementById('btn-collect-confirm');
+  confirmBtn.textContent = isRemit ? 'Confirm Remit' : 'Confirm Collect';
+  confirmBtn.classList.toggle('is-remit', isRemit);
+
+  setStatus('', '');
+  attachAmountFormatter();
+  document.getElementById('collect-modal-overlay').classList.add('active');
+  setTimeout(() => document.getElementById('collect-amount').focus(), 80);
+}
+
+function closeCollectModal(event) {
+  if (event && event.target !== document.getElementById('collect-modal-overlay')) return;
+  document.getElementById('collect-modal-overlay').classList.remove('active');
+}
+
+
+function setStatus(type, msg) {
+  const el = document.getElementById('collect-status');
+  el.className = 'modal-status' + (type ? ` ${type}` : '');
+  el.textContent = msg;
+}
+
+/* ── Submit transaction ────────────────────────────── */
+async function submitTxn() {
+  const tellerId = document.getElementById('modal-teller-id').value;
+  const txnType  = document.getElementById('modal-txn-type').value;
+  const amount   = parseFloat(stripCommas(document.getElementById('collect-amount').value));
+  const doPrint  = document.getElementById('collect-print').checked;
+
+  if (!amount || amount <= 0 || isNaN(amount)) {
+    setStatus('error', 'Please enter a valid amount.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-collect-confirm');
+  btn.disabled = true;
+  setStatus('', '');
+
+  const fd = new FormData();
+  fd.append('teller_id', tellerId);
+  fd.append('amount', amount);
+  fd.append('transaction_type', txnType);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res  = await fetch(TELLER_TXN_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!data.ok) {
+      setStatus('error', `Error: ${data.error || 'Unknown error'}`);
+      btn.disabled = false;
+      return;
+    }
+
+    updateTellerCard(data);
+    prependHistoryRow(data);
+
+    if (doPrint) {
+      triggerPrint(data);
+    }
+
+    /* Close modal — do this last and keep button disabled until closed */
+    document.getElementById('collect-modal-overlay').classList.remove('active');
+    btn.disabled = false;
+
+  } catch (err) {
+    setStatus('error', 'Network error. Check connection.');
+    btn.disabled = false;
+  }
+}
+
+function updateTellerCard(data) {
+  const tid = data.teller_id;
+  const balEl = document.getElementById(`bal-${tid}`);
+  const gtEl  = document.getElementById(`gt-${tid}`);
+  if (balEl) {
+    balEl.textContent = `₱ ${fmtNum(data.balance)}`;
+    balEl.className = 'teller-stat-value' + (data.balance < 0 ? ' negative' : '');
+  }
+  if (gtEl) {
+    gtEl.textContent = `₱ ${fmtNum(data.grand_total)}`;
+  }
+}
+
+function prependHistoryRow(data) {
+  const tid  = data.teller_id;
+  const type = data.transaction_type.toLowerCase();
+  const tbody    = document.getElementById(`history-body-${tid}`);
+  const emptyDiv = document.getElementById(`history-empty-${tid}`);
+
+  const statusCell = type === 'remit'
+    ? `<span class="pending-badge" id="status-${escHtml(data.transaction_id)}">—</span>`
+    : `<span class="pending-badge">—</span>`;
+
+  const row = document.createElement('tr');
+  row.className = `row-${type}`;
+  row.id = `txn-row-${data.transaction_id}`;
+  row.innerHTML = `
+    <td style="color:rgba(255,255,255,0.28);font-size:10px;">—</td>
+    <td class="td-txid-h">${escHtml(data.transaction_id)}</td>
+    <td><span class="type-badge ${type}">${escHtml(data.transaction_type)}</span></td>
+    <td class="td-ts">${escHtml(data.created_at)}</td>
+    <td class="amount-${type}">₱ ${fmtNum(data.amount)}</td>
+    <td>${statusCell}</td>
+  `;
+
+  if (tbody) {
+    tbody.insertBefore(row, tbody.firstChild);
+  } else if (emptyDiv) {
+    const container = document.getElementById(`history-${tid}`);
+    container.innerHTML = `
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Transaction ID</th><th>Type</th><th>Timestamp</th><th>Amount</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="history-body-${tid}"></tbody>
+      </table>
+    `;
+    document.getElementById(`history-body-${tid}`).appendChild(row);
+  }
+
+  const card = document.getElementById(`teller-card-${tid}`);
+  if (card && !card.classList.contains('expanded')) {
+    card.classList.add('expanded');
+  }
+}
+
+/* ── Print agent ───────────────────────────────────── */
+function triggerPrint(data) {
+  const now = new Date();
+  const dateStr = now.getFullYear() + '-' +
+    String(now.getMonth()+1).padStart(2,'0') + '-' +
+    String(now.getDate()).padStart(2,'0') + ' ' +
+    String(now.getHours()).padStart(2,'0') + ':' +
+    String(now.getMinutes()).padStart(2,'0') + ':' +
+    String(now.getSeconds()).padStart(2,'0');
+
+  fetch(PRINT_AGENT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      transaction_type: data.transaction_type,
+      transaction_id:   data.transaction_id,
+      amount:           data.amount,
+      balance:          data.balance,
+      grand_total:      data.grand_total,
+      cashier:          data.cashier,
+      date:             dateStr,
+    }),
+  }).catch(() => { /* print agent unavailable — silently ignore */ });
+}
+
+/* ── Utilities ─────────────────────────────────────── */
+function fmtNum(n) {
+  return Number(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
+}
+
+function stripCommas(str) {
+  return String(str).replace(/,/g, '');
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function attachAmountFormatter() {
+  const input = document.getElementById('collect-amount');
+  if (!input || input._fmtAttached) return;
+  input._fmtAttached = true;
+  input.addEventListener('input', () => {
+    const digits = stripCommas(input.value).replace(/\D/g, '');
+    const num    = digits === '' ? 0 : parseInt(digits, 10);
+    input.value  = digits === '' ? '' : Number(num).toLocaleString('en-US');
+  });
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    document.getElementById('collect-modal-overlay').classList.remove('active');
+  }
+});
+</script>
+{% endblock content %}

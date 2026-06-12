@@ -75,7 +75,7 @@ function openConfirmationModal(total, side) {
     const summaryValue = document.getElementById('summaryValue');
     const confirmside = document.getElementById('confirmside');
     confirmside.innerText = wager_id;
-    summaryValue.innerText = 'Total: ' + wager_value; // Display the total in the modal
+    summaryValue.innerText = 'Total: ₱ ' + formatNumber(wager_value);
     document.getElementById('confirmationModal').style.display = 'flex'; // Show the modal
 }
 
