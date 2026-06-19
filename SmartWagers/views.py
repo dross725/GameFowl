@@ -6,7 +6,7 @@ from . import services as services
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
-from .models import SessionLog, TellerTransaction, Wagers
+from .models import SessionLog, TellerTransaction, Wagers, Event
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
@@ -78,7 +78,15 @@ def get_fight_results_view (request):
 
 def get_fight_status_view (request): 
     overall_status, meron_status, wala_status, fightnum  = services.get_fight_status()
-    return JsonResponse({"overall_status": overall_status, "meron_status": meron_status, "wala_status": wala_status, "fightnum": fightnum})
+    active_event = services.get_active_event()
+    return JsonResponse({
+        "overall_status": overall_status,
+        "meron_status": meron_status,
+        "wala_status": wala_status,
+        "fightnum": fightnum,
+        "event_active": active_event is not None,
+        "event_name": active_event.name if active_event else "",
+    })
 
 def get_pot_values (request):
     m_total_pot, m_payout, w_total_pot, w_payout, total_pot, fight_num = services.get_Totals()
@@ -127,6 +135,20 @@ def notify_bet_updates():
             {
                 'type': 'send_data', 
                 'action': 'update'
+            }
+        )
+
+def notify_event_change():
+    """Broadcast an event-state change to all connected clients so they re-poll get_fight_status_view."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    for group in ["administrator", "user", "index"]:
+        async_to_sync(channel_layer.group_send)(
+            group,
+            {
+                'type': 'send_data',
+                'fight_status': 'event_changed',
             }
         )
 
@@ -259,11 +281,13 @@ def Teller(request):
 
 @group_required('teller')
 def teller_report(request):
-    wagers = Wagers.objects.filter(
-        cashier=str(request.user),
-        registered=True,
-    ).order_by('-created_at')
+    active_event = services.get_active_event()
 
+    wager_qs = Wagers.objects.filter(cashier=str(request.user), registered=True)
+    if active_event is not None:
+        wager_qs = wager_qs.filter(created_at__gte=active_event.started_at)
+
+    wagers = wager_qs.order_by('-created_at')
     total_amount = wagers.aggregate(total=Sum('wager'))['total'] or 0.0
     total_count = wagers.count()
 
@@ -272,35 +296,50 @@ def teller_report(request):
         'total_amount': total_amount,
         'total_count': total_count,
         'teller_name': str(request.user),
+        'active_event': active_event,
     })
 
 
-def _compute_teller_balance(user):
-    """Return (balance, grand_total) for a teller.
+def _compute_teller_balance(user, event=None):
+    """Return (balance, grand_total) for a teller, optionally scoped to an event.
 
-    grand_total = raw sum of all registered bets — never reduced by remit/collect.
-    balance     = grand_total − remits + collects.
+    When *event* is supplied, only wagers and transactions created within the
+    event's time window are counted.  This allows grand totals to restart with
+    each new event.
+
+    grand_total = raw sum of registered bets in scope.
+    balance     = grand_total − remits + collects (in scope).
     """
     username = str(user)
-    grand_total = Wagers.objects.filter(
-        cashier=username, registered=True
-    ).aggregate(total=Sum('wager'))['total'] or 0.0
+    wager_qs = Wagers.objects.filter(cashier=username, registered=True)
+    txn_qs = TellerTransaction.objects.filter(user=user)
 
-    remit_total = TellerTransaction.objects.filter(
-        user=user, transaction_type=TellerTransaction.REMIT
+    if event is not None:
+        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
+        txn_qs = txn_qs.filter(created_at__gte=event.started_at)
+        if event.ended_at:
+            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+    grand_total = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
+    remit_total = txn_qs.filter(
+        transaction_type=TellerTransaction.REMIT
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    collect_total = txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    payout_total = txn_qs.filter(
+        transaction_type=TellerTransaction.PAYOUT
     ).aggregate(total=Sum('amount'))['total'] or 0.0
 
-    collect_total = TellerTransaction.objects.filter(
-        user=user, transaction_type=TellerTransaction.COLLECT
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
-
-    balance = grand_total - remit_total + collect_total
+    balance = grand_total - remit_total + collect_total - payout_total
     return balance, grand_total
 
 
 @group_required('teller')
 def get_teller_balance(request):
-    balance, grand_total = _compute_teller_balance(request.user)
+    active_event = services.get_active_event()
+    balance, grand_total = _compute_teller_balance(request.user, event=active_event)
     return JsonResponse({'ok': True, 'balance': balance, 'grand_total': grand_total})
 
 
@@ -327,7 +366,8 @@ def teller_transaction(request):
         amount=amount,
     )
 
-    balance, grand_total = _compute_teller_balance(request.user)
+    active_event = services.get_active_event()
+    balance, grand_total = _compute_teller_balance(request.user, event=active_event)
     return JsonResponse({
         'ok': True,
         'balance': balance,
@@ -348,9 +388,11 @@ def admin_tellers(request):
     except Group.DoesNotExist:
         tellers = []
 
+    active_event = services.get_active_event()
+
     teller_data = []
     for teller in tellers:
-        balance, grand_total = _compute_teller_balance(teller)
+        balance, grand_total = _compute_teller_balance(teller, event=active_event)
         transactions = TellerTransaction.objects.filter(user=teller).order_by('-created_at')
         teller_data.append({
             'user': teller,
@@ -362,6 +404,7 @@ def admin_tellers(request):
 
     return render(request, 'SmartWagers/admin_tellers.html', {
         'teller_data': teller_data,
+        'active_event': active_event,
     })
 
 
@@ -396,7 +439,7 @@ def admin_teller_txn(request):
         amount=amount,
     )
 
-    balance, grand_total = _compute_teller_balance(teller)
+    balance, grand_total = _compute_teller_balance(teller, event=services.get_active_event())
     display_name = (f"{teller.first_name} {teller.last_name}".strip() or teller.username)
 
     return JsonResponse({
@@ -446,4 +489,97 @@ def admin_mark_received(request):
         'ok': True,
         'transaction_id': txn.transaction_id,
         'teller_id': txn.user.pk,
+    })
+
+
+@group_required('admin')
+def start_event_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    event_name = request.POST.get('event_name', '').strip()
+    if not event_name:
+        return JsonResponse({'ok': False, 'error': 'event_name_required'}, status=400)
+
+    event = services.start_event(event_name)
+    notify_event_change()
+
+    return JsonResponse({
+        'ok': True,
+        'event_id': event.id,
+        'event_name': event.name,
+        'started_at': event.started_at.strftime('%Y-%m-%d %H:%M:%S'),
+    })
+
+
+@group_required('admin')
+def end_event_view(request):
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    event = services.end_event()
+    if event is None:
+        return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=404)
+
+    notify_event_change()
+
+    return JsonResponse({
+        'ok': True,
+        'event_id': event.id,
+        'event_name': event.name,
+        'ended_at': event.ended_at.strftime('%Y-%m-%d %H:%M:%S'),
+        'report_url': reverse('admin-event-report') + f'?event_id={event.id}',
+    })
+
+
+@group_required('admin')
+def admin_event_report(request):
+    event_id = request.GET.get('event_id')
+    if event_id:
+        event = Event.objects.filter(id=event_id).first()
+    else:
+        event = Event.objects.order_by('-started_at').first()
+
+    all_events = Event.objects.order_by('-started_at')
+
+    if event is None:
+        return render(request, 'SmartWagers/event_report.html', {
+            'event': None,
+            'all_events': all_events,
+        })
+
+    try:
+        teller_group = Group.objects.get(name='teller')
+        tellers = teller_group.user_set.all().order_by('username')
+    except Group.DoesNotExist:
+        tellers = []
+
+    teller_data = []
+    grand_total_all = 0.0
+    for teller in tellers:
+        balance, grand_total = _compute_teller_balance(teller, event=event)
+        txn_qs = TellerTransaction.objects.filter(
+            user=teller,
+            created_at__gte=event.started_at,
+        )
+        if event.ended_at:
+            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+        remit_total = txn_qs.filter(
+            transaction_type=TellerTransaction.REMIT
+        ).aggregate(total=Sum('amount'))['total'] or 0.0
+
+        teller_data.append({
+            'user': teller,
+            'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
+            'grand_total': grand_total,
+            'remit_total': remit_total,
+            'balance': balance,
+        })
+        grand_total_all += grand_total
+
+    return render(request, 'SmartWagers/event_report.html', {
+        'event': event,
+        'all_events': all_events,
+        'teller_data': teller_data,
+        'grand_total_all': grand_total_all,
     })

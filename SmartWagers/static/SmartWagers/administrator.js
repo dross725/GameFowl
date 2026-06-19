@@ -515,8 +515,36 @@ async function get_fightstatus(){
     let fight_status = data.overall_status;
     let m_status = data.meron_status;
     let w_status = data.wala_status;
+    const event_active = data.event_active;
 
-    get_status_for_display(fight_num, fight_status, m_status, w_status);
+    applyEventState(event_active);
+
+    if (event_active) {
+        get_status_for_display(fight_num, fight_status, m_status, w_status);
+    }
+}
+
+function applyEventState(event_active) {
+    const startBtn = document.getElementById('start_event_button');
+    const endBtn   = document.getElementById('end_event_button');
+
+    if (event_active) {
+        // Event running: disable Start Event, re-enable End Event
+        if (startBtn) { startBtn.classList.add('btn-event-disabled'); startBtn.onclick = null; }
+        if (endBtn)   { endBtn.classList.remove('btn-event-disabled'); endBtn.onclick = () => openEndEventModal(); }
+    } else {
+        // No active event: enable Start Event, disable End Event,
+        // and freeze every other operational button.
+        if (startBtn) { startBtn.classList.remove('btn-event-disabled'); startBtn.onclick = () => openStartEventModal(); }
+        if (endBtn)   { endBtn.classList.add('btn-event-disabled'); endBtn.onclick = null; }
+
+        document.querySelectorAll('.button').forEach(btn => {
+            if (btn.id !== 'start_event_button' && btn.id !== 'end_event_button') {
+                btn.onclick = null;
+                btn.classList.add('btn-event-disabled');
+            }
+        });
+    }
 }
 
 

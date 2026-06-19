@@ -3,6 +3,9 @@ from .models import Totals
 from .models import Settings
 from .models import Fight_Results
 from .models import Fight_Status
+from .models import Event
+from .models import TellerTransaction
+from django.contrib.auth.models import User
 from datetime import timedelta
 from django.conf import settings
 from django.utils.timezone import now
@@ -102,14 +105,14 @@ def compute_payout(m_total, w_total, total_pot):
         print ('w_total ' + str(w_total))
         print ('total_pot ' + str(total_pot))
 
-    if m_total > 20000:
+    if m_total > 0:
         m_payout = total_pot / m_total
         m_payout = m_payout - (m_payout * comm)
         m_payout = format(m_payout * 100, '.2f')
     else:
         m_payout = 0
 
-    if w_total > 20000:
+    if w_total > 0:
         w_payout = total_pot / w_total
         w_payout = w_payout - (w_payout * comm)
         w_payout = format(w_payout * 100, '.2f')
@@ -173,9 +176,55 @@ def cancel_wager_receipt(transaction_id):
 
     return pending_wager is not None
 
+def get_active_event():
+    """Return the currently active Event, or None."""
+    return Event.objects.filter(is_active=True).order_by('-started_at').first()
+
+
+def start_event(name):
+    """Deactivate any running event, create a new one, and reset the fight counter to 0
+    so the first call to startnewmatch() produces fight #1."""
+    Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
+
+    event = Event.objects.create(name=name, is_active=True)
+
+    fight_status = Fight_Status.objects.filter(id=1).first()
+    if fight_status:
+        fight_status.fightnum = 0
+        fight_status.overall_status = 'CLOSE'
+        fight_status.meron_status = 'CLOSE'
+        fight_status.wala_status = 'CLOSE'
+        fight_status.save()
+    else:
+        Fight_Status.objects.create(
+            fightnum=0, overall_status='CLOSE',
+            meron_status='CLOSE', wala_status='CLOSE',
+        )
+
+    anchor = Wagers(fightnum=0, side='EVENT_START', wager=0, cashier='System')
+    anchor.save()
+
+    Totals.objects.create(fightnum=0, mtotal=0, wtotal=0, mpayout=0, wpayout=0, totalpot=0)
+
+    return event
+
+
+def end_event():
+    """Mark the active event as ended and return it."""
+    event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+    if event is None:
+        return None
+    event.is_active = False
+    event.ended_at = now()
+    event.save(update_fields=['is_active', 'ended_at'])
+    return event
+
+
 def build_wager_receipt_payload(wager):
+    event = get_active_event()
     return {
         'receipt_type': 'wager',
+        'event_name': event.name if event else '',
         'transaction_id': wager.transactionid,
         'fightnum': wager.fightnum,
         'side': wager.side,
@@ -378,7 +427,6 @@ def update_fightresults(side):
         odds = wala_odds
 
     if side == "CANCELLED":
-        #Match cancelled, refund bet 
         odds = "CANCELLED"
         side = "CANCELLED"
     
@@ -386,8 +434,12 @@ def update_fightresults(side):
         odds = "DRAW"
         side = "DRAW"
 
-    add_fight_result = Fight_Results(fightnum=fightnum, side=side, mtotal=m_total, wtotal=w_total,
-                                     mpayout=m_payout, wpayout=w_payout, totalpot=total_pot, odds=odds)
+    active_event = get_active_event()
+    add_fight_result = Fight_Results(
+        fightnum=fightnum, side=side, mtotal=m_total, wtotal=w_total,
+        mpayout=m_payout, wpayout=w_payout, totalpot=total_pot, odds=odds,
+        event=active_event,
+    )
     add_fight_result.save()
     endmatch = Wagers(fightnum=fightnum, side=side, wager=0, cashier='System')
     endmatch.save()
@@ -562,7 +614,25 @@ def payout_request(transaction_id):
         #print (str(payout_result))
         return (payout_result)
     
-    payout_fightresults = Fight_Results.objects.filter(fightnum=payout_data_fn).first()
+    from django.db.models import Q
+    wager_datetime = payout_data.created_at
+    event = Event.objects.filter(
+        started_at__lte=wager_datetime
+    ).filter(
+        Q(ended_at__isnull=True) | Q(ended_at__gte=wager_datetime)
+    ).order_by('-started_at').first()
+
+    if event:
+        # Bet placed within a tracked event — only use results from that event
+        payout_fightresults = Fight_Results.objects.filter(
+            fightnum=payout_data_fn,
+            event=event
+        ).order_by('id').first()
+    else:
+        # Legacy bet (placed before event tracking) — use most recent result for that fightnum
+        payout_fightresults = Fight_Results.objects.filter(
+            fightnum=payout_data_fn
+        ).order_by('-id').first()
     
     if payout_fightresults is None:
         if debug:
@@ -603,9 +673,9 @@ def payout_request(transaction_id):
         payout_multiplier = 100  # In case of DRAW or CANCELLED, return the original wager amount
 
     #Commission has been deducted from the main payout computation
-    payout_multiplier = payout_multiplier/100
-    
-    total_payout = wager * (payout_multiplier)
+    payout_multiplier = round(payout_multiplier / 100, 2)
+
+    total_payout = wager * payout_multiplier
     # print ("wager: " +str(wager))
     # print ("multiplier: " +str(payout_multiplier))
     # print (total_payout)
@@ -626,6 +696,17 @@ def payout_request(transaction_id):
     payout_data.cashed_out = True
     payout_data.save()
 
+    # Deduct payout amount from the cashier's teller balance
+    try:
+        cashier_user = User.objects.get(username=payout_data.cashier)
+        TellerTransaction.objects.create(
+            user=cashier_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=total_payout,
+        )
+    except User.DoesNotExist:
+        pass  # Cashier not found (e.g. admin-placed bet), skip balance deduction
+
     return (payout_result)
 
 def lookup_wager_for_reprint(transaction_id):
@@ -635,8 +716,11 @@ def lookup_wager_for_reprint(transaction_id):
     return build_wager_receipt_payload(wager)
 
 def get_fight_results(*args):
-    results = Fight_Results.objects.values(*args).order_by('-fightnum')
-    return results
+    active_event = get_active_event()
+    qs = Fight_Results.objects.order_by('-fightnum')
+    if active_event is not None:
+        qs = qs.filter(event=active_event)
+    return qs.values(*args)
 
 def cancel_bet(transaction_id):
     debug = True

@@ -67,6 +67,7 @@ class Fight_Results(models.Model):
     totalpot = models.FloatField(default=0, blank=False, null=False)
     odds = models.CharField(max_length=10)
     date = models.DateField(default=datetime.today)
+    event = models.ForeignKey('Event', null=True, blank=True, on_delete=models.SET_NULL, related_name='fight_results')
 
     def __str__(self):
         return f"{self.fightnum} {self.side} {self.odds} {self.mtotal} {self.mpayout} {self.wtotal} {self.wpayout} {self.totalpot} {self.date}"
@@ -106,9 +107,11 @@ class SessionLog(models.Model):
 class TellerTransaction(models.Model):
     REMIT = 'REMIT'
     COLLECT = 'COLLECT'
+    PAYOUT = 'PAYOUT'
     TRANSACTION_TYPES = [
         (REMIT, 'Remit'),
         (COLLECT, 'Collect'),
+        (PAYOUT, 'Payout'),
     ]
 
     transaction_id = models.CharField(max_length=12, unique=True, editable=False, default='R000000000')
@@ -137,3 +140,17 @@ class TellerTransaction(models.Model):
 
     def __str__(self):
         return f"{self.transaction_id} | {self.user} | {self.transaction_type} | {self.amount} | {self.created_at}"
+
+
+class Event(models.Model):
+    name = models.CharField(max_length=200)
+    started_at = models.DateTimeField(default=now)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['-started_at']
+
+    def __str__(self):
+        status = 'Active' if self.is_active else 'Ended'
+        return f"{self.name} ({status}) — {self.started_at.strftime('%Y-%m-%d')}"

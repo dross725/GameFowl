@@ -218,7 +218,7 @@ a:hover {
   flex: 1;
   display: grid;
   /* Row 1: status bar | Row 2: labels | Row 3: wagers+pot */
-  grid-template-rows: 48px auto 1fr;
+  grid-template-rows: 72px auto 1fr;
   overflow: hidden;
   min-width: 0;
 }
@@ -229,7 +229,7 @@ a:hover {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  height: 48px;
+  height: 72px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -239,9 +239,9 @@ a:hover {
 #currentmatchnum {
   background: linear-gradient(90deg, #1d6b3e, var(--green));
   color: white;
-  padding: 6px 20px;
+  padding: 9px 30px;
   border-radius: 24px;
-  font-size: 14px;
+  font-size: 21px;
   font-weight: 800;
   white-space: nowrap;
   letter-spacing: 1px;
@@ -289,7 +289,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 80px; /* label card height — was 64px (+25%) */
+  height: 180px;
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
@@ -311,7 +311,7 @@ a:hover {
 }
 
 #M_Label h1 {
-  font-size: clamp(25px, 4.375vw, 50px); /* MERON/WALA text — was clamp(20px, 3.5vw, 40px) (+25%) */
+  font-size: clamp(57px, 9.75vw, 113px);
   font-weight: 900;
   color: white;
   letter-spacing: 10px;
@@ -329,7 +329,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 80px; /* label card height — was 64px (+25%) */
+  height: 180px;
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
@@ -351,7 +351,7 @@ a:hover {
 }
 
 #W_Label h1 {
-  font-size: clamp(25px, 4.375vw, 50px); /* MERON/WALA text — was clamp(20px, 3.5vw, 40px) (+25%) */
+  font-size: clamp(57px, 9.75vw, 113px);
   font-weight: 900;
   color: white;
   letter-spacing: 10px;
@@ -370,6 +370,40 @@ a:hover {
   background: none;
   background-image: none !important;
   min-height: 0;
+}
+
+/* ── Compact layout for 10" screens (~800 px tall) ──────── */
+@media (max-height: 820px) {
+  /* Shrink the fixed-height status bar */
+  #currentmatch {
+    height: 51px;
+  }
+  #main_content {
+    grid-template-rows: 51px auto 1fr;
+  }
+  #currentmatchnum,
+  #currentmatchstatus {
+    font-size: 18px;
+    padding: 6px 21px;
+  }
+  #ws_status {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  /* Shrink MERON / WALA header banners */
+  #labels {
+    margin: 2px 4px;
+  }
+  #M_Label,
+  #W_Label {
+    height: 144px;
+  }
+  #M_Label h1,
+  #W_Label h1 {
+    font-size: clamp(32px, 5.6vw, 63px);
+    letter-spacing: 4px;
+  }
 }
 
 /* ── Responsive ──────────────────────────────────────────── */
@@ -456,7 +490,7 @@ a:hover {
 
   #currentmatchnum,
   #currentmatchstatus {
-    font-size: 12px;
+    font-size: 18px;
     padding: 6px 12px;
   }
 
@@ -477,12 +511,12 @@ a:hover {
 
   #M_Label,
   #W_Label {
-    height: 56px;
+    height: 126px;
   }
 
   #M_Label h1,
   #W_Label h1 {
-    font-size: clamp(18px, 6vw, 32px);
+    font-size: clamp(41px, 13.5vw, 72px);
     letter-spacing: 4px;
   }
 

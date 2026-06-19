@@ -2,16 +2,36 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=19">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=20">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=reprint-1"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}?v=event-2"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=print-agent-11"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
+
+{% block nav %}
+    <header id="main-navigation">
+        <nav id="navbar">
+            <div id="nav-brand">SmartWagers</div>
+            <ul id="nav-links">
+                <li><a href="{% url 'index' %}">Main</a></li>
+                <li><a href="{% url 'user-page' %}">Teller</a></li>
+                <li><a href="{% url 'admin-page' %}">Admin</a></li>
+                <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
+            </ul>
+            <div id="nav-actions">
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="nav-logout-button" name="logout-button">Logout</button>
+                </form>
+            </div>
+        </nav>
+    </header>
+{% endblock nav %}
 
 {% block content %}
     <section id='content'>
@@ -64,6 +84,11 @@
                     </div>
                 </section>
             </div>
+        </section>
+        <section id="event-controls">
+            <div id="event-controls-label">EVENT</div>
+            <div class='button event-btn' id='start_event_button' onclick='openStartEventModal()'>Start Event</div>
+            <div class='button event-btn' id='end_event_button' onclick='openEndEventModal()'>End Event</div>
         </section>
         <section id="controls">
             <div class='button' id='startmatchbutton' onclick='openmodal("control_confirmationModal", "StartMatch")'>Start Match</div>
@@ -244,6 +269,36 @@
         </script>
     {% endif %}
 
+    <div id='starteventmodal' class='modal'>
+        <div class='modal-content'>
+            <h2>Start New Event</h2>
+            <br>
+            <p>Enter the event name. This will reset fight numbers and teller totals.</p>
+            <br>
+            <input type='text' id='event_name_input' placeholder='Event Name (e.g. "Derby June 2026")'
+                   autocomplete='off' style='width:100%;box-sizing:border-box;'
+                   onkeydown="if(event.key==='Enter')submitStartEvent()">
+            <br>
+            <p id='startevent_status_msg' style='min-height:1.2em;'></p>
+            <br>
+            <button id='startevent_confirm_btn' onclick='submitStartEvent()'>Start Event</button>
+            <button onclick='closemodal("starteventmodal")'>Cancel</button>
+        </div>
+    </div>
+
+    <div id='endeventmodal' class='modal'>
+        <div class='modal-content'>
+            <h2>End Event</h2>
+            <br>
+            <p>This will close the current event and generate a full teller totals report. Continue?</p>
+            <br>
+            <p id='endevent_status_msg' style='min-height:1.2em;'></p>
+            <br>
+            <button id='endevent_confirm_btn' onclick='submitEndEvent()'>End Event &amp; View Report</button>
+            <button onclick='closemodal("endeventmodal")'>Cancel</button>
+        </div>
+    </div>
+
     <script>
     const MARK_RECEIVED_URL = "{% url 'admin-mark-received' %}";
     const ADMIN_CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
@@ -301,7 +356,145 @@
             btn.disabled = false;
         }
     }
+
+    const START_EVENT_URL = "{% url 'admin-start-event' %}";
+    const END_EVENT_URL   = "{% url 'admin-end-event' %}";
+
+    function openStartEventModal() {
+        document.getElementById('event_name_input').value = '';
+        document.getElementById('startevent_status_msg').innerText = '';
+        document.getElementById('startevent_status_msg').style.color = '';
+        document.getElementById('startevent_confirm_btn').disabled = false;
+        document.getElementById('starteventmodal').style.display = 'flex';
+        setTimeout(() => document.getElementById('event_name_input').focus(), 80);
+    }
+
+    async function submitStartEvent() {
+        const eventName = document.getElementById('event_name_input').value.trim();
+        const statusEl  = document.getElementById('startevent_status_msg');
+        const btn       = document.getElementById('startevent_confirm_btn');
+
+        if (!eventName) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Please enter an event name.';
+            return;
+        }
+
+        btn.disabled = true;
+        statusEl.style.color = '';
+        statusEl.innerText = 'Starting event…';
+
+        const fd = new FormData();
+        fd.append('event_name', eventName);
+        fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
+
+        try {
+            const res  = await fetch(START_EVENT_URL, { method: 'POST', body: fd });
+            const data = await res.json();
+
+            if (!data.ok) {
+                statusEl.style.color = '#e74c3c';
+                statusEl.innerText = 'Error: ' + (data.error || 'Unknown error');
+                btn.disabled = false;
+                return;
+            }
+
+            closemodal('starteventmodal');
+            alert(`Event "${data.event_name}" started! Fight numbers reset to 1.`);
+
+        } catch (err) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Network error. Check connection.';
+            btn.disabled = false;
+        }
+    }
+
+    function openEndEventModal() {
+        document.getElementById('endevent_status_msg').innerText = '';
+        document.getElementById('endevent_status_msg').style.color = '';
+        document.getElementById('endevent_confirm_btn').disabled = false;
+        document.getElementById('endeventmodal').style.display = 'flex';
+    }
+
+    async function submitEndEvent() {
+        const statusEl = document.getElementById('endevent_status_msg');
+        const btn      = document.getElementById('endevent_confirm_btn');
+
+        btn.disabled = true;
+        statusEl.style.color = '';
+        statusEl.innerText = 'Ending event…';
+
+        const fd = new FormData();
+        fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
+
+        try {
+            const res  = await fetch(END_EVENT_URL, { method: 'POST', body: fd });
+            const data = await res.json();
+
+            if (!data.ok) {
+                const msgs = { no_active_event: 'No active event to end.' };
+                statusEl.style.color = '#e74c3c';
+                statusEl.innerText = msgs[data.error] || ('Error: ' + data.error);
+                btn.disabled = false;
+                return;
+            }
+
+            closemodal('endeventmodal');
+            window.location.href = data.report_url;
+
+        } catch (err) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Network error. Check connection.';
+            btn.disabled = false;
+        }
+    }
     </script>
+
+<style>
+#event-controls {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px;
+    margin-bottom: 6px;
+}
+
+#event-controls-label {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    color: rgba(255,255,255,0.35);
+    text-transform: uppercase;
+    white-space: nowrap;
+    margin-right: 4px;
+}
+
+.event-btn {
+    flex: 1;
+}
+
+#start_event_button {
+    background: linear-gradient(135deg, #1a7a4a, #0f4d2e) !important;
+    border-color: rgba(26,122,74,0.6) !important;
+}
+
+#start_event_button:hover {
+    background: linear-gradient(135deg, #22a05f, #146038) !important;
+}
+
+#end_event_button {
+    background: linear-gradient(135deg, #7a1a1a, #4d0f0f) !important;
+    border-color: rgba(122,26,26,0.6) !important;
+}
+
+#end_event_button:hover {
+    background: linear-gradient(135deg, #a02222, #601414) !important;
+}
+</style>
 
 {% endblock content %}
 

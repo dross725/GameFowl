@@ -34,6 +34,7 @@ ALLOWED_HOSTS = [
     'daphne.local',
     '192.168.1.6',
     '192.168.1.2',
+    '192.168.0.63',
 ]
 
 
@@ -65,7 +66,7 @@ MIDDLEWARE = [
 CSRF_TRUSTED_ORIGINS = [
     'https://weer-melba-reduplicative.ngrok-free.dev',
     'http://daphne.local',
-    'http://192.168.1.6',
+    'http://192.168.0.63',
     'http://192.168.1.2',
     'http://localhost',
     'http://127.0.0.1',
@@ -187,7 +188,7 @@ WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
 
 
 ###
-# import os
+# impor os
 # os.environ.setdefault("DJANGO_SETTINGS_MODULE", "your_project.settings")
 
 # import django
