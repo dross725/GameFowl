@@ -21,6 +21,9 @@ urlpatterns = [
     path("administrator/tellers/", views.admin_tellers, name="admin-tellers"),
     path("administrator/teller-txn/", views.admin_teller_txn, name="admin-teller-txn"),
     path("administrator/mark-received/", views.admin_mark_received, name="admin-mark-received"),
+    path("administrator/start-event/", views.start_event_view, name="admin-start-event"),
+    path("administrator/end-event/", views.end_event_view, name="admin-end-event"),
+    path("administrator/event-report/", views.admin_event_report, name="admin-event-report"),
     #path("get_button_state_view/<str:side>/", views.get_button_state_view)
     #path("reports", views.Reports, name="reports-page"),
     #path("su_admin/<slug:slug>", views.SuperUser, name="su_admin")

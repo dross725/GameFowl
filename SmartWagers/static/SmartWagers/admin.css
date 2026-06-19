@@ -2,6 +2,11 @@
 /* Compact pot strip + wager inputs + fight controls          */
 /* Subtle logo backdrop behind controls                       */
 
+/* Hide the display-board MERON/WALA label banners on admin page */
+#labels {
+  display: none;
+}
+
 #wagers_section {
   display: flex;
   flex-direction: column;
