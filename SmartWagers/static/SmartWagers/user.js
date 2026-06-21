@@ -216,6 +216,14 @@ async function get_fightstatus(){
     const data = await response.json();
     console.log("Fight status data received: ", data);
 
+    const event_active = data.event_active;
+    applyEventState(event_active);
+
+    if (!event_active) {
+        update_disp_FightStatus('NO EVENT');
+        return;
+    }
+
     let fight_num = data.fightnum;
     let fight_status = data.overall_status;
     let m_status = data.meron_status;
@@ -225,7 +233,6 @@ async function get_fightstatus(){
 
     if (fight_status == "OPEN"){
         if (normalizeBettingStatus(m_status) == "OPEN"){
-            //console.log ("Meron open");
             openMeronUser();
         }else if (normalizeBettingStatus(m_status) == "CLOSED"){
             console.log ("Meron close");
@@ -233,10 +240,8 @@ async function get_fightstatus(){
         }
 
         if(normalizeBettingStatus(w_status) == "OPEN"){
-            //console.log ("wala open");
             openWalaUser();
         }else if (normalizeBettingStatus(w_status) == "CLOSED"){
-            //console.log ("wala close");
             closeWalaUser();
         }
     } else {
@@ -246,7 +251,25 @@ async function get_fightstatus(){
         if (submitButton) submitButton.onclick = () => openmodal('matchclosedmodal', 'null');
     }
     update_disp_FightStatus(fight_status);
+    updateFightnum(fight_num);
 };
+
+function applyEventState(event_active) {
+    const ids = ['Usersubmit', 'payout_button', 'cancel_bet', 'reprint_button'];
+    if (!event_active) {
+        ids.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) { btn.onclick = null; btn.classList.add('btn-event-disabled'); }
+        });
+        closeMeronUser();
+        closeWalaUser();
+    } else {
+        ids.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.classList.remove('btn-event-disabled');
+        });
+    }
+}
 
 async function fetchButtonState() {
     console.log("Fetching button state from server...");

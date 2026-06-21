@@ -1,0 +1,363 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Event Report — SmartWagers{% endblock title %}
+
+{% block nav %}
+    <header id="main-navigation">
+        <nav id="navbar">
+            <div id="nav-brand">SmartWagers</div>
+            <ul id="nav-links">
+                <li><a href="{% url 'index' %}">Main</a></li>
+                <li><a href="{% url 'user-page' %}">Teller</a></li>
+                <li><a href="{% url 'admin-page' %}">Admin</a></li>
+                <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
+            </ul>
+            <div id="nav-actions">
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="nav-logout-button" name="logout-button">Logout</button>
+                </form>
+            </div>
+        </nav>
+    </header>
+{% endblock nav %}
+
+{% block css_files %}
+<style>
+  #wagers_section {
+    overflow-y: auto !important;
+    background: none !important;
+    padding: 0 !important;
+    margin: 0 4px 4px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    min-height: 0;
+  }
+  #wagers_section::before { display: none !important; }
+
+  #er-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px 18px 24px;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ── Top bar ─── */
+  #er-topbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  #er-title {
+    font-size: 18px;
+    font-weight: 900;
+    color: white;
+    letter-spacing: 0.4px;
+  }
+
+  #er-event-name {
+    font-size: 24px;
+    font-weight: 900;
+    color: #f1c40f;
+    margin-top: 2px;
+  }
+
+  #er-meta {
+    font-size: 12px;
+    color: rgba(255,255,255,0.45);
+    margin-top: 4px;
+  }
+
+  #er-status-badge {
+    display: inline-block;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    margin-left: 10px;
+  }
+  .badge-active { background: rgba(26,122,74,0.25); color: #2ecc71; border: 1px solid rgba(46,204,113,0.35); }
+  .badge-ended  { background: rgba(122,26,26,0.25); color: #e74c3c; border: 1px solid rgba(231,76,60,0.35); }
+
+  /* ── Event selector ─── */
+  #er-event-select-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #er-event-select-wrap label {
+    font-size: 12px;
+    color: rgba(255,255,255,0.45);
+    white-space: nowrap;
+  }
+  #er-event-select {
+    background: #1b1e27;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: white;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  /* ── Summary cards ─── */
+  #er-summary {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .er-card {
+    background: #1b1e27;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 10px;
+    padding: 12px 20px;
+    min-width: 160px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+  }
+  .er-card-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.40);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+  .er-card-value {
+    font-size: 22px;
+    font-weight: 900;
+    color: #f1c40f;
+    line-height: 1.1;
+  }
+  .er-card-value.white { color: white; }
+
+  /* ── Table ─── */
+  #er-table-container {
+    flex: 1;
+    overflow-y: auto;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.09);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.40);
+  }
+
+  #er-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  #er-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  #er-table thead th {
+    background: #12151c;
+    color: rgba(255,255,255,0.50);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.10);
+    white-space: nowrap;
+  }
+
+  #er-table thead th:not(:first-child) { text-align: right; }
+
+  #er-table tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.12s;
+  }
+  #er-table tbody tr:last-child { border-bottom: none; }
+  #er-table tbody tr:hover { background: rgba(255,255,255,0.04); }
+
+  #er-table td {
+    padding: 10px 14px;
+    color: rgba(255,255,255,0.88);
+    vertical-align: middle;
+  }
+  #er-table td:not(:first-child) { text-align: right; }
+
+  .td-teller-name {
+    font-weight: 700;
+    color: white !important;
+  }
+
+  .td-amount {
+    font-weight: 700;
+    color: #f1c40f !important;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .td-balance-positive { color: #2ecc71 !important; font-weight: 700; }
+  .td-balance-zero     { color: rgba(255,255,255,0.40) !important; }
+  .td-balance-negative { color: #e74c3c !important; font-weight: 700; }
+
+  #er-table tfoot td {
+    padding: 10px 14px;
+    background: #12151c;
+    border-top: 2px solid rgba(255,255,255,0.12);
+    font-weight: 800;
+    font-size: 14px;
+    color: rgba(255,255,255,0.70);
+    position: sticky;
+    bottom: 0;
+  }
+  #er-table tfoot td:not(:first-child) { text-align: right; }
+  #er-table tfoot .td-amount { font-size: 16px; }
+
+  /* ── Empty / no event ─── */
+  #er-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: rgba(255,255,255,0.30);
+    gap: 8px;
+    font-size: 14px;
+  }
+
+  /* ── Back link ─── */
+  #er-back {
+    display: inline-block;
+    font-size: 13px;
+    color: rgba(255,255,255,0.45);
+    text-decoration: none;
+    margin-top: 4px;
+  }
+  #er-back:hover { color: white; }
+
+  @media (max-width: 768px) {
+    #er-wrapper { padding: 10px 10px 16px; gap: 10px; }
+    .er-card { flex: 1; min-width: 120px; padding: 10px 14px; }
+    .er-card-value { font-size: 18px; }
+    #er-table thead th, #er-table td { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+{% endblock css_files %}
+
+{% block label %}{% endblock label %}
+{% block pot_block %}{% endblock pot_block %}
+
+{% block content %}
+<div id="er-wrapper">
+
+  <div id="er-topbar">
+    <div>
+      <div id="er-title">Event Report</div>
+      {% if event %}
+        <div id="er-event-name">
+          {{ event.name }}
+          {% if event.is_active %}
+            <span id="er-status-badge" class="badge-active">Active</span>
+          {% else %}
+            <span id="er-status-badge" class="badge-ended">Ended</span>
+          {% endif %}
+        </div>
+        <div id="er-meta">
+          Started: {{ event.started_at|date:"Y-m-d H:i" }}
+          {% if event.ended_at %}&nbsp;·&nbsp;Ended: {{ event.ended_at|date:"Y-m-d H:i" }}{% endif %}
+        </div>
+      {% else %}
+        <div id="er-event-name" style="color:rgba(255,255,255,0.35);">No events recorded</div>
+      {% endif %}
+    </div>
+
+    {% if all_events %}
+    <div id="er-event-select-wrap">
+      <label for="er-event-select">Switch Event:</label>
+      <select id="er-event-select" onchange="navigateToEvent(this.value)">
+        {% for ev in all_events %}
+          <option value="{{ ev.id }}" {% if event and ev.id == event.id %}selected{% endif %}>
+            {{ ev.name }} ({{ ev.started_at|date:"Y-m-d" }}{% if ev.is_active %} · Active{% endif %})
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if event %}
+
+  <div id="er-summary">
+    <div class="er-card">
+      <div class="er-card-label">Total Tellers</div>
+      <div class="er-card-value white">{{ teller_data|length }}</div>
+    </div>
+    <div class="er-card">
+      <div class="er-card-label">Grand Total (All Tellers)</div>
+      <div class="er-card-value">₱ {{ grand_total_all|floatformat:2 }}</div>
+    </div>
+  </div>
+
+  {% if teller_data %}
+  <div id="er-table-container">
+    <table id="er-table">
+      <thead>
+        <tr>
+          <th>Teller</th>
+          <th>Grand Total Collected</th>
+          <th>Total Remitted</th>
+          <th>On-Hand Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in teller_data %}
+        <tr>
+          <td class="td-teller-name">{{ t.display_name }}</td>
+          <td class="td-amount">₱ {{ t.grand_total|floatformat:2 }}</td>
+          <td style="text-align:right; color:rgba(255,255,255,0.60);">₱ {{ t.remit_total|floatformat:2 }}</td>
+          <td class="{% if t.balance > 0 %}td-balance-positive{% elif t.balance == 0 %}td-balance-zero{% else %}td-balance-negative{% endif %}">
+            ₱ {{ t.balance|floatformat:2 }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>Total ({{ teller_data|length }} tellers)</td>
+          <td class="td-amount">₱ {{ grand_total_all|floatformat:2 }}</td>
+          <td></td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div id="er-empty">
+    <p>No teller activity recorded for this event.</p>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div id="er-empty">
+    <p>No events have been started yet.</p>
+    <p style="margin-top:8px;"><a href="{% url 'admin-page' %}" style="color:#f1c40f;">Go to Admin page to start an event</a></p>
+  </div>
+  {% endif %}
+
+  <a href="{% url 'admin-page' %}" id="er-back">← Back to Admin</a>
+
+</div>
+
+<script>
+function navigateToEvent(eventId) {
+    window.location.href = "{% url 'admin-event-report' %}?event_id=" + eventId;
+}
+</script>
+{% endblock content %}

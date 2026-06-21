@@ -143,29 +143,7 @@ document.addEventListener("DOMContentLoaded", () => {
     update_trends();
 });
 
-document.addEventListener('keydown', function(event) {
-    if (event.key === 'Enter') {
-        const payoutModal = document.getElementById('payoutmodal');
-        const errorModal = document.getElementById('payout_error_modal');
-        const cancelBetModal = document.getElementById('cancelbetmodal');
-
-        if (payoutModal && payoutModal.style.display === 'flex') {
-            const okayButton = document.getElementById('payout_yes');
-            if (okayButton) okayButton.click();
-        } else if (errorModal && errorModal.style.display === 'flex') {
-            const closeButton = document.getElementById('payout_error_button');
-            if (closeButton) closeButton.click();
-        }
-
-        if (cancelBetModal && cancelBetModal.style.display === 'flex') {
-            const cancelButton = document.getElementById('cancelbet_yes');
-            if (cancelButton) cancelButton.click();
-        } else if (errorModal && errorModal.style.display === 'flex') {
-            const closeButton = document.getElementById('payout_error_button');
-            if (closeButton) closeButton.click();
-        }
-    }
-});
+/* Modal keyboard shortcuts are handled centrally in submit_wagers.js */
 
 
 //start of betting functions 
@@ -248,19 +226,13 @@ function SuperCloseBetting() {
     closeMeron();
     closeWala();
     console.log("Super closing betting for both sides");
-    //disable buttons in the admin page
     const mopenButton = document.getElementById("M_OpenButton");
     const wopenButton = document.getElementById("W_OpenButton");
-    const msubmitButton = document.getElementById("M_SubmitButton");
-    const wsubmitButton = document.getElementById("W_SubmitButton");
-    
-    mopenButton.disable = true;
-    mopenButton.onclick = null; // Disable the open button
-    wopenButton.disable = true;
-    wopenButton.onclick = null; // Disable the open button
-    msubmitButton.onclick = () => openmodal('matchclosedmodal','null'); 
-    wsubmitButton.onclick = () => openmodal('matchclosedmodal','null'); 
-    
+    const submitButton = document.getElementById("SubmitButton");
+
+    if (mopenButton) { mopenButton.disabled = true; mopenButton.onclick = null; }
+    if (wopenButton) { wopenButton.disabled = true; wopenButton.onclick = null; }
+    if (submitButton) submitButton.onclick = () => openmodal('matchclosedmodal', 'null');
 }
 
 function SuperOpenBetting() {
@@ -268,17 +240,13 @@ function SuperOpenBetting() {
     openMeron();
     openWala();
     console.log("Super Open betting for both sides");
-    //disable buttons in the admin page
-    const msubmitButton = document.getElementById("M_SubmitButton");
-    const wsubmitButton = document.getElementById("W_SubmitButton");
+    const submitButton = document.getElementById("SubmitButton");
     const mopenButton = document.getElementById("M_OpenButton");
     const wopenButton = document.getElementById("W_OpenButton");
 
-    mopenButton.onclick = () => null; // Disable the open button
-    wopenButton.onclick = () => null; // Disable the open button
-    msubmitButton.onclick = () => check_total("MERON"); 
-    wsubmitButton.onclick = () => check_total("WALA"); 
-    
+    if (mopenButton) mopenButton.onclick = () => null;
+    if (wopenButton) wopenButton.onclick = () => null;
+    if (submitButton) submitButton.onclick = () => check_total();
 }
 
 function openBetting(side){
@@ -415,6 +383,16 @@ function openmodal(modalid, buttonid, side=null) {
         document.getElementById(modalid).style.display = 'flex';
         document.getElementById('cancelbet_barcode').value='';
 
+    } else if (modalid == 'reprintmodal') {
+        document.getElementById(modalid).style.display = 'flex';
+        document.getElementById('reprint_transaction_id').value = '';
+        document.getElementById('reprint_status_message').innerText = '';
+        const btn = document.getElementById('reprint_search_button');
+        if (btn) { btn.disabled = false; }
+        setTimeout(() => {
+            document.getElementById('reprint_transaction_id').focus();
+        }, 100);
+
     } else {
         console.log("Opening modal with ID: " + modalid);
         document.getElementById(modalid).style.display = 'flex';
@@ -441,18 +419,14 @@ async function payout() {
 
 
 function closeadminbetting() {
-    console.log('Close admin betting')
-    const msubmitButton = document.getElementById('M_SubmitButton');
-    const wsubmitButton = document.getElementById('W_SubmitButton');
-    msubmitButton.onclick = () => null;
-    wsubmitButton.onclick = () => null;
+    console.log('Close admin betting');
+    const submitButton = document.getElementById('SubmitButton');
+    if (submitButton) submitButton.onclick = () => null;
 }
 
 function openadminbetting() {
-    const msubmitButton = document.getElementById('M_SubmitButton');
-    const wsubmitButton = document.getElementById('W_SubmitButton');
-    msubmitButton.onclick = () => check_total("MERON");
-    wsubmitButton.onclick = () => check_total("WALA");
+    const submitButton = document.getElementById('SubmitButton');
+    if (submitButton) submitButton.onclick = () => check_total();
 }
 
 function closemodal(modalid) {
@@ -541,8 +515,36 @@ async function get_fightstatus(){
     let fight_status = data.overall_status;
     let m_status = data.meron_status;
     let w_status = data.wala_status;
+    const event_active = data.event_active;
 
-    get_status_for_display(fight_num, fight_status, m_status, w_status);
+    applyEventState(event_active);
+
+    if (event_active) {
+        get_status_for_display(fight_num, fight_status, m_status, w_status);
+    }
+}
+
+function applyEventState(event_active) {
+    const startBtn = document.getElementById('start_event_button');
+    const endBtn   = document.getElementById('end_event_button');
+
+    if (event_active) {
+        // Event running: disable Start Event, re-enable End Event
+        if (startBtn) { startBtn.classList.add('btn-event-disabled'); startBtn.onclick = null; }
+        if (endBtn)   { endBtn.classList.remove('btn-event-disabled'); endBtn.onclick = () => openEndEventModal(); }
+    } else {
+        // No active event: enable Start Event, disable End Event,
+        // and freeze every other operational button.
+        if (startBtn) { startBtn.classList.remove('btn-event-disabled'); startBtn.onclick = () => openStartEventModal(); }
+        if (endBtn)   { endBtn.classList.add('btn-event-disabled'); endBtn.onclick = null; }
+
+        document.querySelectorAll('.button').forEach(btn => {
+            if (btn.id !== 'start_event_button' && btn.id !== 'end_event_button') {
+                btn.onclick = null;
+                btn.classList.add('btn-event-disabled');
+            }
+        });
+    }
 }
 
 
@@ -598,6 +600,71 @@ function cancelbet(){
         closemodal('cancelbetmodal');
    }
 
+}
+
+async function reprintReceipt() {
+    const transactionId = document.getElementById('reprint_transaction_id').value.trim();
+    const statusMsg = document.getElementById('reprint_status_message');
+    const searchBtn = document.getElementById('reprint_search_button');
+
+    if (!transactionId) {
+        statusMsg.innerText = 'Please enter a Transaction ID.';
+        return;
+    }
+
+    statusMsg.innerText = 'Searching...';
+    searchBtn.disabled = true;
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+    try {
+        const response = await fetch('/reprint_wager/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: `transaction_id=${encodeURIComponent(transactionId)}`,
+        });
+
+        const data = await response.json();
+
+        if (!data.ok) {
+            closemodal('reprintmodal');
+            document.getElementById('payout_error_header').innerText = 'Reprint Error';
+            if (data.error === 'notfound') {
+                document.getElementById('payout_error_message').innerText = 'Transaction ID not found. Please check and try again.';
+            } else {
+                document.getElementById('payout_error_message').innerText = 'An error occurred. Please try again.';
+            }
+            document.getElementById('payout_error_modal').style.display = 'flex';
+            return;
+        }
+
+        statusMsg.innerText = 'Transaction found. Sending to printer...';
+
+        const printResult = await printWagerReceipt(data.receipt);
+
+        closemodal('reprintmodal');
+        document.getElementById('payout_success_header').innerText = 'Reprint Receipt';
+        document.getElementById('payout_message1').innerText = 'Transaction ID: ' + transactionId;
+        document.getElementById('payout_message2').innerText = printResult.ok
+            ? 'Receipt sent to printer successfully.'
+            : 'Print failed: ' + printResult.message;
+        document.getElementById('payout_message3').innerText = '';
+        document.getElementById('payout_print_modal').style.display = 'flex';
+
+    } catch (error) {
+        console.error('Reprint error:', error);
+        closemodal('reprintmodal');
+        document.getElementById('payout_error_header').innerText = 'Reprint Error';
+        document.getElementById('payout_error_message').innerText = 'Network error. Please try again.';
+        document.getElementById('payout_error_modal').style.display = 'flex';
+    } finally {
+        searchBtn.disabled = false;
+        statusMsg.innerText = '';
+    }
 }
 async function update_trends() {
     //console.log("Updating trends");

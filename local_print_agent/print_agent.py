@@ -44,6 +44,7 @@ def receipt_type(receipt):
 
 def escpos_receipt(receipt, code_page="cp437"):
     transaction_id = str(receipt.get("transaction_id", ""))
+    event_name = str(receipt.get("event_name", "")).strip()
     side = str(receipt.get("side", "")).upper()
     odds = str(receipt.get("odds", ""))
     multiplier = str(receipt.get("multiplier", ""))
@@ -57,6 +58,11 @@ def escpos_receipt(receipt, code_page="cp437"):
     output = bytearray()
     output += b"\x1b@"  # Initialize printer
     output += b"\x1ba\x01"  # Center alignment
+    if event_name:
+        output += b"\x1bE\x01"
+        output += text_line(event_name, code_page)
+        output += b"\x1bE\x00"
+        output += text_line("", code_page)
     output += text_line(date, code_page)
     output += b"\x1bE\x01"
     if is_wager:
@@ -244,6 +250,7 @@ def print_windows_driver(printer_name, receipt):
     win32ui = get_win32ui()
     win32con = get_win32con()
     transaction_id = str(receipt.get("transaction_id", ""))
+    event_name = str(receipt.get("event_name", "")).strip()
     side = str(receipt.get("side", "")).upper()
     odds = str(receipt.get("odds", ""))
     multiplier = str(receipt.get("multiplier", ""))
@@ -299,6 +306,9 @@ def print_windows_driver(printer_name, receipt):
     dc.StartDoc("SmartWagers Receipt")
     try:
         dc.StartPage()
+        if event_name:
+            draw_centered(event_name, bold_font)
+            y += line_gap
         draw_centered(date, normal_font)
         draw_centered("BET RECEIPT" if is_wager else "CONGRATULATIONS!", bold_font)
         draw_centered(f"Fight Number: {fightnum}", bold_font)
