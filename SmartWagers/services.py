@@ -649,6 +649,23 @@ def payout_request(transaction_id):
         payout_data.save()
         return (payout_result)
 
+    if payout_fightresult_side.upper() == "DRAW":
+        payout_result['side'] = "DRAW"
+        payout_result['wager'] = format(payout_data.wager, ',')
+        payout_data.cashed_out = True
+        payout_data.save()
+        # Record the refund against the cashier's teller balance
+        try:
+            cashier_user = User.objects.get(username=payout_data.cashier)
+            TellerTransaction.objects.create(
+                user=cashier_user,
+                transaction_type=TellerTransaction.PAYOUT,
+                amount=payout_data.wager,
+            )
+        except User.DoesNotExist:
+            pass
+        return (payout_result)
+
     if payout_fightresult_side != payout_data.side:
         if debug:
             print("The side for this wager did not win.")

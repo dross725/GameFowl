@@ -127,7 +127,7 @@
   }
 
   #report-table thead th:last-child {
-    text-align: right;
+    text-align: center;
   }
 
   #report-table tbody tr {
@@ -169,6 +169,12 @@
   }
 
   #report-table td:last-child {
+    text-align: center;
+    font-weight: normal;
+    color: rgba(255, 255, 255, 0.88);
+  }
+
+  .td-wager {
     text-align: right;
     font-weight: 700;
     color: #f1c40f;
@@ -244,6 +250,75 @@
     font-size: 15px;
   }
 
+  /* ── Reprint button ────────────────────────────────────── */
+  .btn-reprint {
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.70);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    padding: 4px 10px;
+    text-transform: uppercase;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+  }
+
+  .btn-reprint:hover {
+    background: rgba(241, 196, 15, 0.15);
+    border-color: rgba(241, 196, 15, 0.45);
+    color: #f1c40f;
+  }
+
+  .btn-reprint:active {
+    transform: scale(0.96);
+  }
+
+  .btn-reprint:disabled {
+    cursor: not-allowed;
+    opacity: 0.40;
+  }
+
+  /* ── Toast notification ─────────────────────────────────── */
+  #reprint-toast {
+    align-items: center;
+    border-radius: 10px;
+    bottom: 24px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+    display: flex;
+    font-size: 13px;
+    font-weight: 600;
+    gap: 10px;
+    left: 50%;
+    max-width: 340px;
+    opacity: 0;
+    padding: 12px 18px;
+    pointer-events: none;
+    position: fixed;
+    transform: translateX(-50%) translateY(12px);
+    transition: opacity 0.25s, transform 0.25s;
+    z-index: 9999;
+  }
+
+  #reprint-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  #reprint-toast.success {
+    background: #1a3c2a;
+    border: 1px solid rgba(46, 204, 113, 0.45);
+    color: #2ecc71;
+  }
+
+  #reprint-toast.error {
+    background: #3c1a1a;
+    border: 1px solid rgba(231, 76, 60, 0.45);
+    color: #e74c3c;
+  }
+
   /* ── Responsive ────────────────────────────────────────── */
   @media (max-width: 768px) {
     #report-wrapper {
@@ -274,11 +349,71 @@
 </style>
 {% endblock css_files %}
 
+{% block script_files %}
+<script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
+<script>
+async function reprintFromReport(btn, transactionId) {
+    btn.disabled = true;
+    const originalText = btn.innerText;
+    btn.innerText = '...';
+
+    const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+    try {
+        const response = await fetch('/reprint_wager/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-CSRFToken': csrfToken,
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: `transaction_id=${encodeURIComponent(transactionId)}`,
+        });
+
+        const data = await response.json();
+
+        if (!data.ok) {
+            showReprintToast(
+                data.error === 'notfound'
+                    ? 'Transaction not found.'
+                    : 'Reprint failed. Please try again.',
+                'error'
+            );
+            return;
+        }
+
+        const printResult = await printWagerReceipt(data.receipt);
+        showReprintToast(
+            printResult.ok ? 'Receipt sent to printer.' : 'Print failed: ' + printResult.message,
+            printResult.ok ? 'success' : 'error'
+        );
+
+    } catch (err) {
+        console.error('Reprint error:', err);
+        showReprintToast('Network error. Please try again.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerText = originalText;
+    }
+}
+
+function showReprintToast(message, type) {
+    const toast = document.getElementById('reprint-toast');
+    toast.innerText = message;
+    toast.className = 'show ' + type;
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => { toast.className = ''; }, 3000);
+}
+</script>
+{% endblock script_files %}
+
 {% block label %}{% endblock label %}
 
 {% block pot_block %}{% endblock pot_block %}
 
 {% block content %}
+{% csrf_token %}
+<div id="reprint-toast"></div>
 <div id="report-wrapper">
 
   <div id="report-header">
@@ -310,6 +445,7 @@
           <th>Side</th>
           <th>Timestamp</th>
           <th>Bet Amount</th>
+          <th>Reprint</th>
         </tr>
       </thead>
       <tbody>
@@ -322,14 +458,16 @@
             <span class="side-badge {{ w.side|lower }}">{{ w.side }}</span>
           </td>
           <td class="td-timestamp">{{ w.created_at|date:"Y-m-d" }} {{ w.created_at|time:"H:i:s" }}</td>
-          <td>₱ {{ w.wager|floatformat:0 }}</td>
+          <td class="td-wager">₱ {{ w.wager|floatformat:0 }}</td>
+          <td><button class="btn-reprint" onclick="reprintFromReport(this, '{{ w.transactionid }}')"{% if w.fightnum in completed_fights %} disabled title="Fight already completed"{% endif %}>Reprint</button></td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr>
           <td colspan="5">Total ({{ total_count }} transactions)</td>
-          <td>₱ {{ total_amount|floatformat:0 }}</td>
+          <td class="td-wager">₱ {{ total_amount|floatformat:0 }}</td>
+          <td></td>
         </tr>
       </tfoot>
     </table>
