@@ -22,7 +22,7 @@ function focusBetInput() {
 }
 
 function addValue(value) {
-    bet_total += value;
+    bet_total = value;
     const textarea = document.getElementById('bet_textinput');
     if (textarea) textarea.value = formatNumber(bet_total);
     focusBetInput();

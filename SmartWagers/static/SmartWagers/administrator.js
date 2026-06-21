@@ -55,6 +55,12 @@ administratorSocket.onmessage = async (event) => {
             document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
             document.getElementById('payout_message3').innerText = "";
             document.getElementById('payout_print_modal').style.display = 'flex';
+        } else if ("side" in data && data.side === "DRAW") {
+            document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
+            document.getElementById('payout_message1').innerText = "Fight result is a draw.";
+            document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
+            document.getElementById('payout_message3').innerText = "";
+            document.getElementById('payout_print_modal').style.display = 'flex';
         }
     }else if ("cancel_bet" in data){
         console.log("Cancel bet result received:", data.cancel_bet);

@@ -6,7 +6,7 @@ from . import services as services
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
-from .models import SessionLog, TellerTransaction, Wagers, Event
+from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
@@ -291,12 +291,20 @@ def teller_report(request):
     total_amount = wagers.aggregate(total=Sum('wager'))['total'] or 0.0
     total_count = wagers.count()
 
+    # Build the set of fight numbers that have a recorded result so the
+    # template can disable the reprint button for completed fights.
+    result_qs = Fight_Results.objects.all()
+    if active_event is not None:
+        result_qs = result_qs.filter(event=active_event)
+    completed_fights = set(result_qs.values_list('fightnum', flat=True))
+
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
         'total_amount': total_amount,
         'total_count': total_count,
         'teller_name': str(request.user),
         'active_event': active_event,
+        'completed_fights': completed_fights,
     })
 
 
