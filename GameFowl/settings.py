@@ -35,6 +35,7 @@ ALLOWED_HOSTS = [
     '192.168.1.6',
     '192.168.1.2',
     '192.168.0.63',
+    '10.0.0.7',
 ]
 
 
@@ -71,6 +72,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost',
     'http://127.0.0.1',
     'http://daphne',
+    'http://10.0.0.7',
 ]
 
 ROOT_URLCONF = 'GameFowl.urls'
@@ -174,16 +176,16 @@ CHANNEL_LAYERS = {
 LOGIN_URL = '/login'  # Redirect here if not authenticated
 LOGIN_REDIRECT_URL = '/index'  # Where to go after login
 
-SESSION_EXPIRE_AT_BROWSER_CLOSE = True
-SESSION_COOKIE_AGE = 900  # 15 minutes (in seconds)
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+SESSION_COOKIE_AGE = 86400  # 24 hours (in seconds)
 
 # Set to False, or set WAGER_RECEIPT_PRINTING_ENABLED=false in the environment,
 # to register bets without requiring receipt printing.
-WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
-    "WAGER_RECEIPT_PRINTING_ENABLED",
-    "true",
-).lower() in ("1", "true", "yes", "on")
-#WAGER_RECEIPT_PRINTING_ENABLED = False
+#WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
+#    "WAGER_RECEIPT_PRINTING_ENABLED",
+#    "true",
+#).lower() in ("1", "true", "yes", "on")
+WAGER_RECEIPT_PRINTING_ENABLED = False
 
 
 

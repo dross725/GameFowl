@@ -362,7 +362,6 @@ def update_control_status(side, status):
         print('Updating control status')
         print('side: ' +str(side))
         print('status: ' +str(status))
-    #update_status = Settings.objects.filter(id=1).first()
     update_status = Fight_Status.objects.filter(id=1).first()
     if update_status is None:
         if debug:
@@ -373,13 +372,19 @@ def update_control_status(side, status):
     if side == 'MERON':
         update_status.meron_status = status
     elif side == 'WALA':
-        update_status.wala_status=status
+        update_status.wala_status = status
     elif side == 'BOTH':
         update_status.meron_status = status
         update_status.wala_status = status
     else:
-        if debug: 
+        if debug:
             print("Error updating control status")
+
+    # When sides are reopened and the fight is in a bettable state (CLOSED),
+    # restore overall_status to OPEN so the server accepts new bets.
+    # CANCELLED and COMPLETE are terminal — never reopen those.
+    if status == 'OPEN' and update_status.overall_status == 'CLOSED':
+        update_status.overall_status = 'OPEN'
 
     update_status.save()
     return

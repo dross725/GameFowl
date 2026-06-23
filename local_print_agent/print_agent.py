@@ -80,7 +80,7 @@ def escpos_receipt(receipt, code_page="cp437"):
     output += b"\x1bE\x00"
     output += text_line("", code_page)
     output += text_line(f"Cashier: {cashier}", code_page)
-    output += text_line(f"Transaction ID: {transaction_id}", code_page)
+    output += text_line(f"{transaction_id}", code_page)
     output += text_line("", code_page)
 
     if transaction_id:
