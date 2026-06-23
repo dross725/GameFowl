@@ -620,3 +620,18 @@ textarea {
     font-size: 18px;
   }
 }
+
+/* ── Bet input disabled state ────────────────────────────── */
+.btn-bet-disabled {
+  opacity: 0.25 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(0.7) brightness(0.7);
+}
+
+#bet_textinput:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.30);
+}

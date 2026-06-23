@@ -739,3 +739,27 @@ textarea {
     height: 44px;
   }
 }
+
+/* ── Disabled button states ──────────────────────────────── */
+.btn-ctrl-disabled,
+.btn-event-disabled {
+  opacity: 0.28 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(0.6);
+}
+
+/* Bet input buttons (amount, submit, reset) disabled when betting is closed */
+.btn-bet-disabled {
+  opacity: 0.25 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(0.7) brightness(0.7);
+}
+
+#bet_textinput:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.30);
+}

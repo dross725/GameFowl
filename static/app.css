@@ -105,6 +105,89 @@ a:hover {
   color: white;
 }
 
+/* ── Navbar Dropdown ─────────────────────────────────────── */
+.nav-dropdown {
+  position: relative;
+}
+
+.nav-dropdown-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.nav-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  list-style: none;
+  padding: 4px;
+  min-width: 180px;
+  z-index: 1000;
+  white-space: nowrap;
+}
+
+.nav-dropdown-menu li a {
+  display: block;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.12s;
+}
+
+.nav-dropdown-menu li a:hover {
+  background: rgba(255, 255, 255, 0.10);
+  color: white;
+}
+
+.nav-dropdown-menu.open {
+  display: block;
+}
+
+.nav-dropdown-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 4px 6px;
+  pointer-events: none;
+}
+
+.nav-dropdown-action {
+  font-weight: 600 !important;
+}
+
+.start-event-action {
+  color: #2ecc71 !important;
+}
+.start-event-action:hover {
+  background: rgba(39,174,96,0.15) !important;
+  color: #2ecc71 !important;
+}
+
+.end-event-action {
+  color: #e74c3c !important;
+}
+.end-event-action:hover {
+  background: rgba(192,57,43,0.15) !important;
+  color: #e74c3c !important;
+}
+
+.nav-event-disabled {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
 /* Actions / logout on the right */
 #nav-actions {
   display: flex;
@@ -289,7 +372,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 180px;
+  height: 120px;
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
@@ -311,7 +394,7 @@ a:hover {
 }
 
 #M_Label h1 {
-  font-size: clamp(57px, 9.75vw, 113px);
+  font-size: clamp(38px, 6.5vw, 75px);
   font-weight: 900;
   color: white;
   letter-spacing: 10px;
@@ -329,7 +412,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 180px;
+  height: 120px;
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
@@ -351,7 +434,7 @@ a:hover {
 }
 
 #W_Label h1 {
-  font-size: clamp(57px, 9.75vw, 113px);
+  font-size: clamp(38px, 6.5vw, 75px);
   font-weight: 900;
   color: white;
   letter-spacing: 10px;
@@ -397,11 +480,11 @@ a:hover {
   }
   #M_Label,
   #W_Label {
-    height: 144px;
+    height: 96px;
   }
   #M_Label h1,
   #W_Label h1 {
-    font-size: clamp(32px, 5.6vw, 63px);
+    font-size: clamp(21px, 3.75vw, 42px);
     letter-spacing: 4px;
   }
 }
@@ -511,12 +594,12 @@ a:hover {
 
   #M_Label,
   #W_Label {
-    height: 126px;
+    height: 84px;
   }
 
   #M_Label h1,
   #W_Label h1 {
-    font-size: clamp(41px, 13.5vw, 72px);
+    font-size: clamp(27px, 9vw, 48px);
     letter-spacing: 4px;
   }
 
