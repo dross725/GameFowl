@@ -75,7 +75,7 @@ function updateStatus(status) {
 };
 
 function updateFightnum(fightnum){
-    document.getElementById("currentmatchnum").innerText = "FIGHT # "+fightnum;
+    document.getElementById("currentmatchnum").innerText = fightnum;
 };
 
 function normalizeBettingStatus(status) {

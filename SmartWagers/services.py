@@ -156,7 +156,11 @@ def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
     return pending_wager
 
 def confirm_wager_receipt(transaction_id):
-    pending_wager = Wagers.objects.filter(transactionid=transaction_id, registered=False).first()
+    active_event = get_active_event()
+    qs = Wagers.objects.filter(transactionid=transaction_id, registered=False)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    pending_wager = qs.first()
     if pending_wager is None:
         return None
 
@@ -170,7 +174,11 @@ def confirm_wager_receipt(transaction_id):
     return pending_wager
 
 def cancel_wager_receipt(transaction_id):
-    pending_wager = Wagers.objects.filter(transactionid=transaction_id, registered=False).first()
+    active_event = get_active_event()
+    qs = Wagers.objects.filter(transactionid=transaction_id, registered=False)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    pending_wager = qs.first()
     if pending_wager is not None:
         pending_wager.delete()
 
@@ -181,9 +189,69 @@ def get_active_event():
     return Event.objects.filter(is_active=True).order_by('-started_at').first()
 
 
+def _get_teller_outstanding_balance(user, event=None):
+    """Return the outstanding balance for a teller, optionally scoped to an event."""
+    from django.db.models import Sum
+    wager_qs = Wagers.objects.filter(cashier=str(user), registered=True)
+    txn_qs   = TellerTransaction.objects.filter(user=user)
+
+    if event is not None:
+        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
+        txn_qs   = txn_qs.filter(created_at__gte=event.started_at)
+        if event.ended_at:
+            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+            txn_qs   = txn_qs.filter(created_at__lte=event.ended_at)
+
+    grand_total   = wager_qs.aggregate(t=Sum('wager'))['t']  or 0.0
+    remit_total   = txn_qs.filter(transaction_type=TellerTransaction.REMIT  ).aggregate(t=Sum('amount'))['t'] or 0.0
+    collect_total = txn_qs.filter(transaction_type=TellerTransaction.COLLECT).aggregate(t=Sum('amount'))['t'] or 0.0
+    payout_total  = txn_qs.filter(transaction_type=TellerTransaction.PAYOUT ).aggregate(t=Sum('amount'))['t'] or 0.0
+
+    return grand_total - remit_total + collect_total - payout_total
+
+
+def _reset_teller_balances():
+    """Create a settlement transaction for every teller who has a non-zero
+    outstanding balance.  These are created NOW (before the new event is
+    opened) so they fall inside the closing event's time-window and the new
+    event starts at zero for every teller.
+
+    Positive balance  → teller owes the house  → record a REMIT to clear it.
+    Negative balance  → house owes the teller  → record a COLLECT to clear it.
+    """
+    active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+    tellers = User.objects.filter(groups__name='teller')
+
+    for teller in tellers:
+        balance = _get_teller_outstanding_balance(teller, event=active_event)
+        if balance == 0:
+            continue
+        if balance > 0:
+            TellerTransaction.objects.create(
+                user=teller,
+                transaction_type=TellerTransaction.REMIT,
+                amount=round(balance, 2),
+            )
+        else:
+            TellerTransaction.objects.create(
+                user=teller,
+                transaction_type=TellerTransaction.COLLECT,
+                amount=round(abs(balance), 2),
+            )
+
+
 def start_event(name):
     """Deactivate any running event, create a new one, and reset the fight counter to 0
-    so the first call to startnewmatch() produces fight #1."""
+    so the first call to startnewmatch() produces fight #1.
+
+    Teller balances are settled before the new event opens so every teller
+    starts the new event at zero and the outgoing event's report is clean.
+    """
+    # Settle all outstanding teller balances against the closing event FIRST,
+    # before we change is_active.  This ensures the transactions fall inside
+    # the old event's time window and are excluded from the new event.
+    _reset_teller_balances()
+
     Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
 
     event = Event.objects.create(name=name, is_active=True)
@@ -455,21 +523,12 @@ def startnewmatch():
     if debug:
         print('Starting new match')
 
-    last_match_datetime = Wagers.objects.order_by('-created_at').first()
-    fightnum = 0
-    fn = 0
-    if last_match_datetime:
-        time_diff = now() - last_match_datetime.created_at
-        print(time_diff)
-        if time_diff > timedelta(hours=24):
-            #New Derby
-            fightnum=initialize_fightnum()
-        else:
-            fn = get_fightnum()
-            fightnum = fn + 1
+    fn = get_fightnum()
+    if fn == 0:
+        fightnum = initialize_fightnum()
     else:
-        fightnum=initialize_fightnum()
-    
+        fightnum = fn + 1
+
     if debug:
         print('New fight number: ' + str(fightnum))
     
@@ -593,7 +652,11 @@ def update_fight_status(fightstatus, side = None):
 
 def payout_request(transaction_id):
     comm = get_comm_val()
-    payout_data = Wagers.objects.filter(transactionid=transaction_id, registered=True).first()
+    active_event = get_active_event()
+    qs = Wagers.objects.filter(transactionid=transaction_id, registered=True)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    payout_data = qs.first()
     payout_result = {}
     payout_result['payout'] = True
     
@@ -732,7 +795,11 @@ def payout_request(transaction_id):
     return (payout_result)
 
 def lookup_wager_for_reprint(transaction_id):
-    wager = Wagers.objects.filter(transactionid=transaction_id, registered=True).first()
+    active_event = get_active_event()
+    qs = Wagers.objects.filter(transactionid=transaction_id, registered=True)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    wager = qs.first()
     if wager is None:
         return None
     return build_wager_receipt_payload(wager)
@@ -746,7 +813,11 @@ def get_fight_results(*args):
 
 def cancel_bet(transaction_id):
     debug = True
-    cancel_data = Wagers.objects.filter(transactionid=transaction_id, registered=True).first()
+    active_event = get_active_event()
+    qs = Wagers.objects.filter(transactionid=transaction_id, registered=True)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    cancel_data = qs.first()
     cancel_result = {}
     cancel_result["cancel_bet"] = True
     print ("cancel bet" , transaction_id)

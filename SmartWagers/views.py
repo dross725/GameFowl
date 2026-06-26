@@ -401,7 +401,12 @@ def admin_tellers(request):
     teller_data = []
     for teller in tellers:
         balance, grand_total = _compute_teller_balance(teller, event=active_event)
-        transactions = TellerTransaction.objects.filter(user=teller).order_by('-created_at')
+        txn_qs = TellerTransaction.objects.filter(user=teller)
+        if active_event is not None:
+            txn_qs = txn_qs.filter(created_at__gte=active_event.started_at)
+            if active_event.ended_at:
+                txn_qs = txn_qs.filter(created_at__lte=active_event.ended_at)
+        transactions = txn_qs.order_by('-created_at')
         teller_data.append({
             'user': teller,
             'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
@@ -474,9 +479,12 @@ def admin_mark_received(request):
     if not transaction_id:
         return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
 
-    try:
-        txn = TellerTransaction.objects.select_related('user').get(transaction_id=transaction_id)
-    except TellerTransaction.DoesNotExist:
+    active_event = services.get_active_event()
+    qs = TellerTransaction.objects.select_related('user').filter(transaction_id=transaction_id)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    txn = qs.first()
+    if txn is None:
         return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
 
     if txn.transaction_type != TellerTransaction.REMIT:

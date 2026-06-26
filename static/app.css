@@ -218,8 +218,8 @@ a:hover {
 #container {
   display: flex;
   flex-direction: row;
-  height: calc(100vh - 42px);
-  height: calc(100dvh - 42px);
+  height: calc(100vh - 42px - 72px);
+  height: calc(100dvh - 42px - 72px);
   width: 100%;
   overflow: hidden;
 }
@@ -237,12 +237,12 @@ a:hover {
 }
 
 #sidebar h1 {
-  font-size: 10px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 2px;
   text-transform: uppercase;
   color: white;
-  background: linear-gradient(90deg, var(--green), var(--wala));
+  background: linear-gradient(90deg, var(--meron), var(--wala));
   text-align: center;
   padding: 8px 4px;
   border-radius: 0;
@@ -251,12 +251,12 @@ a:hover {
 .sidebar-header {
   display: grid;
   grid-template-columns: 28px auto 44px;
-  font-size: 10px;
+  font-size: clamp(16px, 1.68vw, 19px);
   font-weight: 700;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
-  padding: 4px 2px;
+  padding: 5px 2px;
 }
 
 .sidebar-header > div,
@@ -268,8 +268,8 @@ a:hover {
   display: grid;
   grid-template-columns: 28px auto 44px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-size: 11px;
-  padding: 3px 2px;
+  font-size: clamp(16px, 1.68vw, 19px);
+  padding: 5px 2px;
 }
 
 .fightnum {
@@ -293,15 +293,16 @@ a:hover {
 }
 
 .winner {
-  font-size: 11px;
+  font-size: clamp(16px, 1.68vw, 19px);
+  font-weight: 700;
 }
 
 /* ── Main Content ────────────────────────────────────────── */
 #main_content {
   flex: 1;
   display: grid;
-  /* Row 1: status bar | Row 2: labels | Row 3: wagers+pot */
-  grid-template-rows: 72px auto 1fr;
+  /* Row 1: labels | Row 2: wagers+pot */
+  grid-template-rows: auto 1fr;
   overflow: hidden;
   min-width: 0;
 }
@@ -320,15 +321,23 @@ a:hover {
 }
 
 #currentmatchnum {
-  background: linear-gradient(90deg, #1d6b3e, var(--green));
+  background-color: rgba(0, 0, 0, 0.55);
+  background-image: none;
   color: white;
-  padding: 9px 30px;
-  border-radius: 24px;
-  font-size: 21px;
-  font-weight: 800;
-  white-space: nowrap;
-  letter-spacing: 1px;
-  box-shadow: 0 0 12px rgba(39, 174, 96, 0.30);
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(48px, 8vw, 110px);
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.80);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-top: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius);
+  margin: 4px;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
 #currentmatchstatus {
@@ -457,14 +466,19 @@ a:hover {
 
 /* ── Compact layout for 10" screens (~800 px tall) ──────── */
 @media (max-height: 820px) {
-  /* Shrink the fixed-height status bar */
   #currentmatch {
     height: 51px;
   }
-  #main_content {
-    grid-template-rows: 51px auto 1fr;
+
+  #container {
+    height: calc(100vh - 42px - 51px);
+    height: calc(100dvh - 42px - 51px);
   }
-  #currentmatchnum,
+
+  #main_content {
+    grid-template-rows: auto 1fr;
+  }
+
   #currentmatchstatus {
     font-size: 18px;
     padding: 6px 21px;
@@ -472,6 +486,12 @@ a:hover {
   #ws_status {
     font-size: 10px;
     padding: 3px 8px;
+  }
+
+  /* Shrink fight number to match compact label height */
+  #currentmatchnum {
+    height: 96px;
+    font-size: clamp(38px, 6.5vw, 88px);
   }
 
   /* Shrink MERON / WALA header banners */
@@ -540,33 +560,10 @@ a:hover {
     font-size: 14px;
   }
 
-  #container {
-    flex-direction: column;
-    height: auto;
-    min-height: calc(100vh - 42px);
-    min-height: calc(100dvh - 42px);
-    overflow: visible;
-  }
-
-  #sidebar {
-    width: 100%;
-    min-width: unset;
-    max-height: 120px;
-    order: -1;
-    flex-shrink: 0;
-  }
-
-  #main_content {
-    width: 100%;
-    overflow: visible;
-    grid-template-rows: auto auto 1fr;
-    min-height: 0;
-  }
-
   #currentmatch {
     flex-wrap: wrap;
     height: auto;
-    min-height: 48px;
+    min-height: 72px;
     padding: 8px 10px;
     gap: 6px;
   }
@@ -585,6 +582,29 @@ a:hover {
   #ws_status {
     font-size: 10px;
     flex: 1 1 auto;
+  }
+
+  #container {
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100vh - 42px - 72px);
+    min-height: calc(100dvh - 42px - 72px);
+    overflow: visible;
+  }
+
+  #sidebar {
+    width: 100%;
+    min-width: unset;
+    max-height: 120px;
+    order: -1;
+    flex-shrink: 0;
+  }
+
+  #main_content {
+    width: 100%;
+    overflow: visible;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
   }
 
   #labels {
