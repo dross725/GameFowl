@@ -159,7 +159,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 //start of betting functions 
 function update_disp_Fightnum(fightnum) {
-    document.getElementById("currentmatchnum").innerText = "FIGHT # " + fightnum;
+    document.getElementById("currentmatchnum").innerText = fightnum;
 }
 
 function update_disp_FightStatus(status) {

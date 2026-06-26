@@ -64,11 +64,11 @@ function closeadminbetcontrolModal() {
 }
 
 function updateStatus(status) {
-    document.getElementById("ws_status").innerText = "Status: " + status;
+    document.getElementById("ws_status").innerText = "Fight Status: " + status;
 }
 
 function updateFightnum(fightnum){
-    document.getElementById("currentmatchnum").innerText = "FIGHT # "+fightnum;
+    document.getElementById("currentmatchnum").innerText = fightnum;
 }
 
 function openmodal(modalid, buttonid) {
@@ -329,7 +329,7 @@ async function get_fightstatus() {
         const mbettingstatus = document.getElementById("meron-betting-status"); 
         const wbettingstatus = document.getElementById("wala-betting-status");
 
-        currentmatchnum.innerText = "FIGHT # " + data.fightnum;
+        currentmatchnum.innerText = data.fightnum;
         currentmatchstatus.innerHTML = data.overall_status;
 
         if (data.fight_status === 'START') {
