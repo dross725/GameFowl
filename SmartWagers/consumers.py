@@ -161,7 +161,9 @@ class WagersConsumer(AsyncWebsocketConsumer):
 
             elif "barcode" in data:
                 transaction_id = data["barcode"]
-                payout_data = await self.payout_request(transaction_id)
+                # Tellers may only pay out bets made at their own terminal
+                requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
+                payout_data = await self.payout_request(transaction_id, requesting_cashier)
                 await self.channel_layer.group_send(self.page, {
                     'type': 'send_data',
                     'payout': True,
@@ -276,8 +278,8 @@ class WagersConsumer(AsyncWebsocketConsumer):
         return services.get_fight_status()
     
     @database_sync_to_async
-    def payout_request(self, transaction_id):
-        return services.payout_request(transaction_id)
+    def payout_request(self, transaction_id, requesting_cashier=None):
+        return services.payout_request(transaction_id, requesting_cashier=requesting_cashier)
     
     @database_sync_to_async
     def cancel_bet(self, transaction_id):

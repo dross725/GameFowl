@@ -48,6 +48,11 @@ userSocket.onmessage = (event) => {
     if ("overall_status" in data) {
         update_disp_FightStatus(data.overall_status);
     }
+
+    if ("payout" in data) {
+        console.log("[user.js] payout message received:", data);
+        handlePayoutMessage(data);
+    }
 }; 
 
 userSocket.onopen = () => {
@@ -290,7 +295,7 @@ async function get_fightstatus(){
 };
 
 function applyEventState(event_active) {
-    const ids = ['Usersubmit', 'payout_button', 'cancel_bet', 'reprint_button'];
+    const ids = ['Usersubmit'];
     if (!event_active) {
         ids.forEach(id => {
             const btn = document.getElementById(id);

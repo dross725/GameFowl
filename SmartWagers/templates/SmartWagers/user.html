@@ -7,9 +7,9 @@
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=bet-disable-2"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}?v=wrong-teller-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
-    <script src="{% static 'SmartWagers/user.js' %}?v=bet-disable-2"></script>
+    <script src="{% static 'SmartWagers/user.js' %}?v=wrong-teller-1"></script>
 {% endblock script_files %}
 
 {% block content %}
@@ -139,6 +139,18 @@
                 <br>
                 
                 <button id='payout_error_button' onclick='closemodal("payout_error_modal")'>Close</button>
+            </div>
+        </div>
+
+        <div id='wrong_teller_modal' class='modal'>
+            <div class='modal-content'>
+                <h2>Wrong Teller</h2>
+                <br>
+                <p>Payout cannot be processed at this teller.</p>
+                <br>
+                <p>Please proceed to teller: <strong id='wrong_teller_name'></strong></p>
+                <br>
+                <button onclick='closemodal("wrong_teller_modal")'>Close</button>
             </div>
         </div>
         <div id='payout_print_modal' class='modal'>
