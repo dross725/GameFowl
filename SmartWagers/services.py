@@ -9,6 +9,7 @@ from django.contrib.auth.models import User
 from datetime import timedelta
 from django.conf import settings
 from django.utils.timezone import now
+from django.db import transaction as db_transaction
 import barcode
 import os
 import shutil
@@ -127,24 +128,38 @@ def compute_payout(m_total, w_total, total_pot):
     return (m_payout, w_payout)
 
 def add_total(amount, side):
-    m_total, m_payout, w_total, w_payout, total_pot, fn = get_Totals()
+    with db_transaction.atomic():
+        # Lock the current latest row so concurrent bet registrations are
+        # serialized and cannot read a stale snapshot of the totals.
+        latest = Totals.objects.select_for_update().order_by('-id').first()
+        if latest:
+            m_total   = latest.mtotal
+            w_total   = latest.wtotal
+            total_pot = latest.totalpot
+            fn        = latest.fightnum
+        else:
+            m_total = w_total = total_pot = 0
+            fn = 0
 
-    if side.upper() == "MERON":
-        m_total += amount
-    elif side.upper() == "WALA":
-        w_total += amount
+        if side.upper() == "MERON":
+            m_total += amount
+        elif side.upper() == "WALA":
+            w_total += amount
 
-    total_pot += amount
-    
-    m_payout, w_payout = compute_payout(m_total, w_total, total_pot)
-    addtotal = Totals(fightnum=fn, mtotal=m_total, wtotal=w_total, mpayout=m_payout, wpayout=w_payout, totalpot=total_pot)
-    addtotal.save()
+        total_pot += amount
+
+        m_payout, w_payout = compute_payout(m_total, w_total, total_pot)
+        Totals.objects.create(
+            fightnum=fn, mtotal=m_total, wtotal=w_total,
+            mpayout=m_payout, wpayout=w_payout, totalpot=total_pot,
+        )
     return
 
 def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
-    addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=True)
-    addwager.save()
-    add_total(amount, side)
+    with db_transaction.atomic():
+        addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=True)
+        addwager.save()
+        add_total(amount, side)
     return addwager
 
 def is_wager_receipt_printing_enabled():
@@ -157,20 +172,21 @@ def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
 
 def confirm_wager_receipt(transaction_id):
     active_event = get_active_event()
-    qs = Wagers.objects.filter(transactionid=transaction_id, registered=False)
-    if active_event:
-        qs = qs.filter(created_at__gte=active_event.started_at)
-    pending_wager = qs.first()
-    if pending_wager is None:
-        return None
+    with db_transaction.atomic():
+        qs = Wagers.objects.select_for_update().filter(transactionid=transaction_id, registered=False)
+        if active_event:
+            qs = qs.filter(created_at__gte=active_event.started_at)
+        pending_wager = qs.first()
+        if pending_wager is None:
+            return None
 
-    if not is_betting_open(pending_wager.side):
-        pending_wager.delete()
-        return None
+        if not is_betting_open(pending_wager.side):
+            pending_wager.delete()
+            return None
 
-    pending_wager.registered = True
-    pending_wager.save(update_fields=['registered'])
-    add_total(pending_wager.wager, pending_wager.side)
+        pending_wager.registered = True
+        pending_wager.save(update_fields=['registered'])
+        add_total(pending_wager.wager, pending_wager.side)
     return pending_wager
 
 def cancel_wager_receipt(transaction_id):
@@ -651,148 +667,131 @@ def update_fight_status(fightstatus, side = None):
 
 
 def payout_request(transaction_id):
+    from django.db.models import Q
+
+    payout_result = {'payout': True}
     comm = get_comm_val()
     active_event = get_active_event()
-    qs = Wagers.objects.filter(transactionid=transaction_id, registered=True)
-    if active_event:
-        qs = qs.filter(created_at__gte=active_event.started_at)
-    payout_data = qs.first()
-    payout_result = {}
-    payout_result['payout'] = True
-    
-    if payout_data == None:
-        if debug:
-            print("No payout data found for transaction ID: " + str(transaction_id))
-        payout_result['error'] = 'notfound'
-        return (payout_result)
-    
-    if payout_data.transactionid == None:
-        if debug:
-            print("No payout data found for transaction ID: " + str(transaction_id))
-        payout_result['error'] = 'notfound'
-        return (payout_result)
-    
-    payout_data_fn = payout_data.fightnum
-    cashed_out = payout_data.cashed_out
-   
-    if cashed_out:
-        if debug:
-            print("This transaction has already been cashed out.")
-        payout_result['error'] = 'alreadypaid'
-        #print (str(payout_result))
-        return (payout_result)
-    
-    from django.db.models import Q
-    wager_datetime = payout_data.created_at
-    event = Event.objects.filter(
-        started_at__lte=wager_datetime
-    ).filter(
-        Q(ended_at__isnull=True) | Q(ended_at__gte=wager_datetime)
-    ).order_by('-started_at').first()
 
-    if event:
-        # Bet placed within a tracked event — only use results from that event
-        payout_fightresults = Fight_Results.objects.filter(
-            fightnum=payout_data_fn,
-            event=event
-        ).order_by('id').first()
-    else:
-        # Legacy bet (placed before event tracking) — use most recent result for that fightnum
-        payout_fightresults = Fight_Results.objects.filter(
-            fightnum=payout_data_fn
-        ).order_by('-id').first()
-    
-    if payout_fightresults is None:
-        if debug:
-            print("No fight results found for fight number: " + str(payout_data_fn))
-        payout_result['error'] = 'notfound'
-        return (payout_result)
-    
-    payout_fightresult_side = payout_fightresults.side
+    with db_transaction.atomic():
+        # Lock the wager row so two simultaneous barcode scans cannot both
+        # pass the cashed_out check and issue a double payout.
+        qs = Wagers.objects.select_for_update().filter(
+            transactionid=transaction_id, registered=True
+        )
+        if active_event:
+            qs = qs.filter(created_at__gte=active_event.started_at)
+        payout_data = qs.first()
 
-    if payout_fightresult_side.upper() == "CANCELLED":
-        payout_result['side'] = "CANCELLED"
-        payout_result['wager'] = format(payout_data.wager, ',')
+        if payout_data is None or payout_data.transactionid is None:
+            payout_result['error'] = 'notfound'
+            return payout_result
+
+        if payout_data.cashed_out:
+            payout_result['error'] = 'alreadypaid'
+            return payout_result
+
+        payout_data_fn = payout_data.fightnum
+        wager_datetime = payout_data.created_at
+        event = Event.objects.filter(
+            started_at__lte=wager_datetime
+        ).filter(
+            Q(ended_at__isnull=True) | Q(ended_at__gte=wager_datetime)
+        ).order_by('-started_at').first()
+
+        if event:
+            payout_fightresults = Fight_Results.objects.filter(
+                fightnum=payout_data_fn, event=event
+            ).order_by('id').first()
+        else:
+            payout_fightresults = Fight_Results.objects.filter(
+                fightnum=payout_data_fn
+            ).order_by('-id').first()
+
+        if payout_fightresults is None:
+            payout_result['error'] = 'notfound'
+            return payout_result
+
+        payout_fightresult_side = payout_fightresults.side
+
+        if payout_fightresult_side.upper() == "CANCELLED":
+            payout_data.cashed_out = True
+            payout_data.save(update_fields=['cashed_out'])
+            payout_result['side'] = "CANCELLED"
+            payout_result['wager'] = format(payout_data.wager, ',')
+            return payout_result
+
+        if payout_fightresult_side.upper() == "DRAW":
+            payout_data.cashed_out = True
+            payout_data.save(update_fields=['cashed_out'])
+            try:
+                cashier_user = User.objects.get(username=payout_data.cashier)
+                TellerTransaction.objects.create(
+                    user=cashier_user,
+                    transaction_type=TellerTransaction.PAYOUT,
+                    amount=payout_data.wager,
+                )
+            except User.DoesNotExist:
+                pass
+            payout_result['side'] = "DRAW"
+            payout_result['wager'] = format(payout_data.wager, ',')
+            return payout_result
+
+        if payout_fightresult_side != payout_data.side:
+            payout_result['error'] = 'wrongside'
+            return payout_result
+
+        # Winning ticket — compute payout
+        wager = payout_data.wager
+        if payout_fightresult_side == "MERON":
+            payout_multiplier = payout_fightresults.mpayout
+        elif payout_fightresult_side == "WALA":
+            payout_multiplier = payout_fightresults.wpayout
+        else:
+            payout_multiplier = 100
+
+        payout_multiplier = round(payout_multiplier / 100, 2)
+        total_payout = wager * payout_multiplier
+
+        # Mark paid and record teller transaction inside the same atomic block
+        # so neither can succeed without the other.
         payout_data.cashed_out = True
-        payout_data.save()
-        return (payout_result)
+        payout_data.save(update_fields=['cashed_out'])
 
-    if payout_fightresult_side.upper() == "DRAW":
-        payout_result['side'] = "DRAW"
-        payout_result['wager'] = format(payout_data.wager, ',')
-        payout_data.cashed_out = True
-        payout_data.save()
-        # Record the refund against the cashier's teller balance
         try:
             cashier_user = User.objects.get(username=payout_data.cashier)
             TellerTransaction.objects.create(
                 user=cashier_user,
                 transaction_type=TellerTransaction.PAYOUT,
-                amount=payout_data.wager,
+                amount=total_payout,
             )
         except User.DoesNotExist:
             pass
-        return (payout_result)
 
-    if payout_fightresult_side != payout_data.side:
-        if debug:
-            print("The side for this wager did not win.")
-        payout_result['error'] = 'wrongside'
-        return (payout_result)
-    
-    # If all checks passed, prepare payout data
-    wager = payout_data.wager
-    payout_result['transaction_id'] = transaction_id
-    payout_result['fightnum'] = payout_data_fn
-    payout_result['side'] = payout_fightresult_side
-    payout_result['wager'] = wager
-    payout_result['odds'] = payout_fightresults.odds
-    payout_result['cashier'] = payout_data.cashier
-    payout_result['receipt_date'] = now().strftime("%Y-%m-%d %H:%M:%S")
-
-    if payout_fightresult_side == "MERON":
-        payout_multiplier = payout_fightresults.mpayout
-    elif payout_fightresult_side == "WALA":
-        payout_multiplier = payout_fightresults.wpayout
-    else:
-        payout_multiplier = 100  # In case of DRAW or CANCELLED, return the original wager amount
-
-    #Commission has been deducted from the main payout computation
-    payout_multiplier = round(payout_multiplier / 100, 2)
-
-    total_payout = wager * payout_multiplier
-    # print ("wager: " +str(wager))
-    # print ("multiplier: " +str(payout_multiplier))
-    # print (total_payout)
-
-    payout_result['Total_Payout'] = format(total_payout, '.2f')
-    payout_result['multiplier'] = format(payout_multiplier, '.2f')
-    payout_result['receipt'] = {
-        'receipt_type': 'payout',
+    receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
+    payout_result.update({
         'transaction_id': transaction_id,
         'fightnum': payout_data_fn,
         'side': payout_fightresult_side,
+        'wager': wager,
         'odds': payout_fightresults.odds,
-        'multiplier': payout_result['multiplier'],
-        'Total_Payout': payout_result['Total_Payout'],
         'cashier': payout_data.cashier,
-        'date': payout_result['receipt_date'],
-    }
-    payout_data.cashed_out = True
-    payout_data.save()
-
-    # Deduct payout amount from the cashier's teller balance
-    try:
-        cashier_user = User.objects.get(username=payout_data.cashier)
-        TellerTransaction.objects.create(
-            user=cashier_user,
-            transaction_type=TellerTransaction.PAYOUT,
-            amount=total_payout,
-        )
-    except User.DoesNotExist:
-        pass  # Cashier not found (e.g. admin-placed bet), skip balance deduction
-
-    return (payout_result)
+        'receipt_date': receipt_date,
+        'Total_Payout': format(total_payout, '.2f'),
+        'multiplier': format(payout_multiplier, '.2f'),
+        'receipt': {
+            'receipt_type': 'payout',
+            'transaction_id': transaction_id,
+            'fightnum': payout_data_fn,
+            'side': payout_fightresult_side,
+            'odds': payout_fightresults.odds,
+            'multiplier': format(payout_multiplier, '.2f'),
+            'Total_Payout': format(total_payout, '.2f'),
+            'cashier': payout_data.cashier,
+            'date': receipt_date,
+        },
+    })
+    return payout_result
 
 def lookup_wager_for_reprint(transaction_id):
     active_event = get_active_event()
@@ -869,15 +868,26 @@ def cancel_bet(transaction_id):
 
 #update totals due to cancelled bet
 def deduct_totals(side, amount):
-    m_total, m_payout, w_total, w_payout, total_pot, fn = get_Totals()
+    with db_transaction.atomic():
+        latest = Totals.objects.select_for_update().order_by('-id').first()
+        if latest:
+            m_total   = latest.mtotal
+            w_total   = latest.wtotal
+            total_pot = latest.totalpot
+            fn        = latest.fightnum
+        else:
+            m_total = w_total = total_pot = 0
+            fn = 0
 
-    if side.upper() == "MERON":
-        m_total -= amount
-    elif side.upper() == "WALA":
-        w_total -= amount
+        if side.upper() == "MERON":
+            m_total -= amount
+        elif side.upper() == "WALA":
+            w_total -= amount
 
-    total_pot -= amount
-    m_payout, w_payout = compute_payout(m_total, w_total, total_pot)
-    total = Totals(fightnum=fn, mtotal=m_total, wtotal=w_total, mpayout=m_payout, wpayout=w_payout, totalpot=total_pot)
-    total.save()
+        total_pot -= amount
+        m_payout, w_payout = compute_payout(m_total, w_total, total_pot)
+        Totals.objects.create(
+            fightnum=fn, mtotal=m_total, wtotal=w_total,
+            mpayout=m_payout, wpayout=w_payout, totalpot=total_pot,
+        )
 

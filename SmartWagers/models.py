@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction as db_transaction
 from datetime import datetime
 from django.utils.timezone import now
 from django.contrib.auth.models import User
@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 
 # Create your models here.
 class Wagers (models.Model):
-    transactionid = models.CharField(max_length=10, unique=False, editable=False, default='000000')
+    transactionid = models.CharField(max_length=10, unique=True, editable=False, default='000000')
     fightnum = models.IntegerField(default=0)
     side = models.CharField(max_length=10)
     wager = models.FloatField()
@@ -18,21 +18,26 @@ class Wagers (models.Model):
     def save(self, *args, **kwargs):
         if self.pk is None and self.cashier != 'System':
             from django.apps import apps
-            Event = apps.get_model('SmartWagers', 'Event')
-            active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
-            qs = Wagers.objects.exclude(cashier='System')
-            if active_event:
-                qs = qs.filter(created_at__gte=active_event.started_at)
-            last_number = 0
-            for tid in qs.order_by('-id').values_list('transactionid', flat=True):
-                try:
-                    n = int(tid)
-                    if 0 < n < 1_000_000:
-                        last_number = n
-                        break
-                except (ValueError, TypeError):
-                    continue
-            self.transactionid = str(last_number + 1).zfill(6)
+            with db_transaction.atomic():
+                Event = apps.get_model('SmartWagers', 'Event')
+                active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+                # Lock the latest non-system wager row so concurrent saves
+                # cannot read the same "last" ID and produce a duplicate.
+                qs = Wagers.objects.select_for_update().exclude(cashier='System')
+                if active_event:
+                    qs = qs.filter(created_at__gte=active_event.started_at)
+                last_number = 0
+                for tid in qs.order_by('-id').values_list('transactionid', flat=True):
+                    try:
+                        n = int(tid)
+                        if 0 < n < 1_000_000:
+                            last_number = n
+                            break
+                    except (ValueError, TypeError):
+                        continue
+                self.transactionid = str(last_number + 1).zfill(6)
+                super().save(*args, **kwargs)
+            return
         super().save(*args, **kwargs)
 
     def formatted_time(self):
@@ -120,7 +125,7 @@ class TellerTransaction(models.Model):
         (PAYOUT, 'Payout'),
     ]
 
-    transaction_id = models.CharField(max_length=12, unique=False, editable=False, default='R000000')
+    transaction_id = models.CharField(max_length=12, unique=True, editable=False, default='R000000')
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='teller_transactions')
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.FloatField()
@@ -136,21 +141,26 @@ class TellerTransaction(models.Model):
     def save(self, *args, **kwargs):
         if self.pk is None:
             from django.apps import apps
-            Event = apps.get_model('SmartWagers', 'Event')
-            active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
-            qs = TellerTransaction.objects.all()
-            if active_event:
-                qs = qs.filter(created_at__gte=active_event.started_at)
-            last_number = 0
-            for tid in qs.order_by('-id').values_list('transaction_id', flat=True):
-                try:
-                    n = int(tid[1:])  # strip leading 'R'
-                    if 0 < n < 1_000_000:
-                        last_number = n
-                        break
-                except (ValueError, TypeError, IndexError):
-                    continue
-            self.transaction_id = f"R{str(last_number + 1).zfill(6)}"
+            with db_transaction.atomic():
+                Event = apps.get_model('SmartWagers', 'Event')
+                active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+                # Lock the latest transaction row to prevent concurrent saves
+                # from reading the same last ID and generating a duplicate.
+                qs = TellerTransaction.objects.select_for_update()
+                if active_event:
+                    qs = qs.filter(created_at__gte=active_event.started_at)
+                last_number = 0
+                for tid in qs.order_by('-id').values_list('transaction_id', flat=True):
+                    try:
+                        n = int(tid[1:])  # strip leading 'R'
+                        if 0 < n < 1_000_000:
+                            last_number = n
+                            break
+                    except (ValueError, TypeError, IndexError):
+                        continue
+                self.transaction_id = f"R{str(last_number + 1).zfill(6)}"
+                super().save(*args, **kwargs)
+            return
         super().save(*args, **kwargs)
 
     def __str__(self):
