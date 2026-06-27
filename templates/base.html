@@ -21,7 +21,15 @@
                 <ul id="nav-links">
                     <li><a href="{% url "index" %}">Main</a></li>
                     <li><a href="{% url "user-page" %}">Teller</a></li>
-                    <li><a href="{% url "admin-page" %}">Admin</a></li>
+                    <li class="nav-dropdown">
+                        <a href="{% url "admin-page" %}" class="nav-dropdown-toggle">Admin ▾</a>
+                        <ul class="nav-dropdown-menu">
+                            <li><a href="{% url "admin-page" %}">Admin</a></li>
+                            <li><a href="{% url "admin-teller-transactions" %}">Teller Transactions</a></li>
+                            <li><a href="{% url "admin-commission" %}">Commission Total</a></li>
+                            <li><a href="{% url "admin-settings" %}">Settings</a></li>
+                        </ul>
+                    </li>
                     <li><a href="{% url "teller-report" %}">Reports</a></li>
                 </ul>
                 <div id="nav-actions">
@@ -33,25 +41,25 @@
             </nav>
         </header>
     {% endblock nav %}
+    <div id="currentmatch">
+        <div id="currentmatchstatus">Status : Ongoing</div>
+        <div id="ws_status">Status: Connecting...</div>
+    </div>
     <div id="container">
         <aside id="sidebar">
+            <div id="currentmatchnum">-</div>
             <h1>TRENDS</h1>
             <ul id="trends">
             </ul>
         </aside>
 
         <main id="main_content">
-            <div id="currentmatch">
-                <div id="currentmatchnum">FIGHT #</div>
-                <div id="currentmatchstatus">Status : Ongoing</div>
-                <div id="ws_status">Status: Connecting...</div>
-            </div>
+
             {% block label %}
                 <section id='labels'>
                     <div id='M_Label'><h1>MERON</h1></div>
                     <div id="W_Label"><h1>WALA</h1></div>
                 </section>
-                
             {% endblock label %}
             <section id="wagers_section">
                 {% block pot_block %}
@@ -69,10 +77,48 @@
                     </section>
                 {% endblock pot_block %}
                 {% block content %}
-                
                 {% endblock content %}
             </section>
         </main>
+    </div>
 
+<script>
+(function () {
+    function initDropdowns() {
+        document.querySelectorAll('.nav-dropdown').forEach(function (dropdown) {
+            var toggle = dropdown.querySelector('.nav-dropdown-toggle');
+            var menu   = dropdown.querySelector('.nav-dropdown-menu');
+            if (!toggle || !menu) return;
+
+            toggle.addEventListener('click', function (e) {
+                e.preventDefault();
+                var isOpen = menu.classList.contains('open');
+                closeAll();
+                if (!isOpen) menu.classList.add('open');
+            });
+        });
+
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest('.nav-dropdown')) closeAll();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeAll();
+        });
+    }
+
+    function closeAll() {
+        document.querySelectorAll('.nav-dropdown-menu.open').forEach(function (m) {
+            m.classList.remove('open');
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initDropdowns);
+    } else {
+        initDropdowns();
+    }
+})();
+</script>
 </body>
 </html>

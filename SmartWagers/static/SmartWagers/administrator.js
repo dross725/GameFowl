@@ -24,6 +24,11 @@ administratorSocket.onmessage = async (event) => {
     const data = JSON.parse(event.data);
     console.log("Data received on message:", data);
 
+    if ("fight_status" in data &&
+        (data.fight_status === "END" || data.fight_status === "CANCEL")) {
+        update_trends();
+    }
+
     if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
         document.getElementById("M_payout").innerText = data.mpayout;
@@ -32,36 +37,7 @@ administratorSocket.onmessage = async (event) => {
         document.getElementById("ws_status").innerText = "Status: Connected";
 
     }else if ("payout" in data) {
-        console.log("Payout result received:", data.payout_result);
-        if ("error" in data){
-            console.log("Payout error:", data.error);
-            document.getElementById('payout_error_header').innerText = "Payout Error";  
-            openmodal('payout_error_modal', data.error);
-
-        } else if ("transaction_id" in data && "Total_Payout" in data) {
-            document.getElementById('payout_success_header').innerText = "Payout request valid!";
-            document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
-            document.getElementById('payout_message2').innerText = "Total Payout Amount: " + data.Total_Payout;
-            document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
-            document.getElementById('payout_print_modal').style.display = 'flex';
-
-            const printResult = await printPayoutReceipt(data);
-            document.getElementById('payout_message3').innerText = printResult.ok
-                ? printResult.message
-                : "Receipt print failed: " + printResult.message;
-        } else if ("side" in data && data.side === "CANCELLED") {
-            document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
-            document.getElementById('payout_message1').innerText = "Please refund the bettor.";
-            document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
-            document.getElementById('payout_message3').innerText = "";
-            document.getElementById('payout_print_modal').style.display = 'flex';
-        } else if ("side" in data && data.side === "DRAW") {
-            document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
-            document.getElementById('payout_message1').innerText = "Fight result is a draw.";
-            document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
-            document.getElementById('payout_message3').innerText = "";
-            document.getElementById('payout_print_modal').style.display = 'flex';
-        }
+        await handlePayoutMessage(data);
     }else if ("cancel_bet" in data){
         console.log("Cancel bet result received:", data.cancel_bet);
         console.log("Cancel bet data:", data);
@@ -154,7 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 //start of betting functions 
 function update_disp_Fightnum(fightnum) {
-    document.getElementById("currentmatchnum").innerText = "FIGHT # " + fightnum;
+    document.getElementById("currentmatchnum").innerText = fightnum;
 }
 
 function update_disp_FightStatus(status) {
@@ -173,46 +149,108 @@ async function update_disp_Pot(){
     document.getElementById("W_payout").innerText = data.W_payout
 }
 
-function disableadminButtons() {
-    console.log("Disable admin buttons")
-    const admincontrol = document.getElementById("controls");
-    const admincontrolbuttons = admincontrol.querySelectorAll(".button")
-    admincontrolbuttons.forEach(button => {
-        button.onclick = () => null;
-    })
-}
-
-function disableAllButtons() {
-    const buttons = document.querySelectorAll(".button");
-    buttons.forEach(button => {
-        button.onclick = () => null; // Disable all admin buttons
+// ── Bet input enable/disable ──────────────────────────────
+// Disables/enables all amount buttons, Submit, Reset, and the textarea
+// inside #unified-wagers when overall betting is closed.
+function setBetInputsDisabled(disabled) {
+    const container = document.getElementById('unified-wagers');
+    if (!container) return;
+    container.querySelectorAll('.button').forEach(btn => {
+        if (disabled) {
+            btn.classList.add('btn-bet-disabled');
+        } else {
+            btn.classList.remove('btn-bet-disabled');
+        }
     });
+    const textarea = document.getElementById('bet_textinput');
+    if (textarea) textarea.disabled = disabled;
 }
 
-function setStartMatchButton() {
-    console.log("Setting start match button");
-    const startmatchButton = document.getElementById("startmatchbutton");
-    startmatchButton.onclick = () => openmodal('control_confirmationModal', 'StartMatch'); // Enable the start match button
+// ── Match button state machine ────────────────────────────
+// Tracks whether admin has manually re-opened betting after a CLOSED state.
+// Resets whenever the fight moves to a non-CLOSED server state.
+let bettingReopened = false;
+
+// Enable/disable a single control button and re-attach its action.
+function _setMatchBtn(id, enabled, action) {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    if (enabled) {
+        btn.onclick = action;
+        btn.classList.remove('btn-ctrl-disabled');
+    } else {
+        btn.onclick = null;
+        btn.classList.add('btn-ctrl-disabled');
+    }
 }
 
-function setEndMatchButton() {
-    console.log("Setting end match button");
-    const endmatchButton = document.getElementById("endmatchbutton");
-    endmatchButton.onclick = () => openmodal('control_confirmationModal', 'EndMatch'); // Enable the end match button
+/*  State rules
+ *  ─────────────────────────────────────────────────────────
+ *  IDLE / COMPLETE / CANCELLED  →  only Start Match active
+ *  OPEN                         →  Close Betting + Cancel active
+ *  CLOSED                       →  Re-Open + Cancel + End Match active
+ *  REOPENED (local flag)        →  Close Betting + Cancel + End Match active
+ */
+function applyMatchState(serverStatus) {
+    if (serverStatus !== 'CLOSED') bettingReopened = false;
+    const state = (serverStatus === 'CLOSED' && bettingReopened) ? 'REOPENED' : serverStatus;
+
+    const start  = () => openmodal('control_confirmationModal', 'StartMatch');
+    const close  = () => openmodal('control_confirmationModal', 'CloseBetting');
+    const reopen = () => openmodal('control_confirmationModal', 'ReopenBetting');
+    const cancel = () => openmodal('control_confirmationModal', 'CancelMatch');
+    const end    = () => openmodal('control_confirmationModal', 'EndMatch');
+
+    switch (state) {
+        case 'OPEN':
+            _setMatchBtn('startmatchbutton',    false, null);
+            _setMatchBtn('closebettingbutton',  true,  close);
+            _setMatchBtn('reopenbettingbutton', false, null);
+            _setMatchBtn('cancelmatchbutton',   true,  cancel);
+            _setMatchBtn('endmatchbutton',      false, null);
+            setBetInputsDisabled(false);
+            break;
+        case 'CLOSED':
+            _setMatchBtn('startmatchbutton',    false, null);
+            _setMatchBtn('closebettingbutton',  false, null);
+            _setMatchBtn('reopenbettingbutton', true,  reopen);
+            _setMatchBtn('cancelmatchbutton',   true,  cancel);
+            _setMatchBtn('endmatchbutton',      true,  end);
+            setBetInputsDisabled(true);
+            break;
+        case 'REOPENED':
+            _setMatchBtn('startmatchbutton',    false, null);
+            _setMatchBtn('closebettingbutton',  true,  close);
+            _setMatchBtn('reopenbettingbutton', false, null);
+            _setMatchBtn('cancelmatchbutton',   true,  cancel);
+            _setMatchBtn('endmatchbutton',      true,  end);
+            setBetInputsDisabled(false);
+            break;
+        default: // IDLE / COMPLETE / CANCELLED
+            _setMatchBtn('startmatchbutton',    true,  start);
+            _setMatchBtn('closebettingbutton',  false, null);
+            _setMatchBtn('reopenbettingbutton', false, null);
+            _setMatchBtn('cancelmatchbutton',   false, null);
+            _setMatchBtn('endmatchbutton',      false, null);
+            setBetInputsDisabled(true);
+    }
 }
 
-function setCloseBettingButton() {
-    console.log("Setting close betting button");
-    const closebettingButton = document.getElementById("closebettingbutton");
-    //closebettingButton.onclick = () => null; // Enable the close betting button
-    closebettingButton.onclick = () => openmodal('control_confirmationModal', 'AdminCloseBetting'); // Enable the close betting button
+function reopenBetting() {
+    bettingReopened = true;
+    openBetting("BOTH");
+    closemodal("control_confirmationModal");
+    applyMatchState('CLOSED');
+    update_disp_FightStatus("OPEN");
 }
 
-function setCancelMatchButton() {
-    console.log("Setting cancel match button");
-    const cancelmatchButton = document.getElementById("cancelmatchbutton");
-    cancelmatchButton.onclick = () => openmodal('control_confirmationModal', 'CancelMatch'); // Enable the cancel match button
-}
+// Legacy stubs kept so any remaining call-sites don't throw.
+function disableadminButtons() {}
+function disableAllButtons() {}
+function setStartMatchButton() { applyMatchState('COMPLETE'); }
+function setEndMatchButton() {}
+function setCloseBettingButton() {}
+function setCancelMatchButton() {}
 
 function closeBetting(side){
     console.log("CLOSE BETTING: Closing betting for " +side)
@@ -231,6 +269,7 @@ function SuperCloseBetting() {
     closemodal("control_confirmationModal");
     closeMeron();
     closeWala();
+    setBetInputsDisabled(true);
     console.log("Super closing betting for both sides");
     const mopenButton = document.getElementById("M_OpenButton");
     const wopenButton = document.getElementById("W_OpenButton");
@@ -245,6 +284,7 @@ function SuperOpenBetting() {
     closemodal("control_confirmationModal");
     openMeron();
     openWala();
+    setBetInputsDisabled(false);
     console.log("Super Open betting for both sides");
     const submitButton = document.getElementById("SubmitButton");
     const mopenButton = document.getElementById("M_OpenButton");
@@ -346,7 +386,12 @@ function openmodal(modalid, buttonid, side=null) {
         cm_message.innerHTML = "Are you sure you want to <strong>CANCEL</strong> the match?";
         cm_yesbutton.onclick = () => cancelMatch();
         cm_nobutton.onclick = () => closemodal('control_confirmationModal');
-    } 
+    } else if (buttonid === 'ReopenBetting') {
+        cm_headermessage.innerHTML = "Re-Open Betting";
+        cm_message.innerHTML = "Are you sure you want to re-open betting?";
+        cm_yesbutton.onclick = () => reopenBetting();
+        cm_nobutton.onclick = () => closemodal('control_confirmationModal');
+    }
 
     if (modalid == 'control_confirmationModal') {
         document.getElementById('control_confirmationModal').style.display = 'flex';
@@ -407,20 +452,62 @@ function openmodal(modalid, buttonid, side=null) {
 
 
 
+// Shared payout response handler — called by both administratorSocket and userSocket.
+async function handlePayoutMessage(data) {
+    console.log("Payout result received:", data);
+    if ("error" in data) {
+        console.log("Payout error:", data.error);
+        if (data.error === 'wrong_teller') {
+            document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
+            document.getElementById('wrong_teller_modal').style.display = 'flex';
+        } else {
+            document.getElementById('payout_error_header').innerText = "Payout Error";
+            openmodal('payout_error_modal', data.error);
+        }
+    } else if ("transaction_id" in data && "Total_Payout" in data) {
+        document.getElementById('payout_success_header').innerText = "Payout request valid!";
+        document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
+        document.getElementById('payout_message2').innerText = "Total Payout Amount: " + data.Total_Payout;
+        document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
+        document.getElementById('payout_print_modal').style.display = 'flex';
+
+        const printResult = await printPayoutReceipt(data);
+        document.getElementById('payout_message3').innerText = printResult.ok
+            ? printResult.message
+            : "Receipt print failed: " + printResult.message;
+    } else if ("side" in data && data.side === "CANCELLED") {
+        document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
+        document.getElementById('payout_message1').innerText = "Please refund the bettor.";
+        document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
+        document.getElementById('payout_message3').innerText = "";
+        document.getElementById('payout_print_modal').style.display = 'flex';
+    } else if ("side" in data && data.side === "DRAW") {
+        document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
+        document.getElementById('payout_message1').innerText = "Fight result is a draw.";
+        document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
+        document.getElementById('payout_message3').innerText = "";
+        document.getElementById('payout_print_modal').style.display = 'flex';
+    }
+}
+
 async function payout() {
    const barcode = document.getElementById('payout_barcode').value;
    closemodal('payoutmodal');
    if (barcode === 0 || barcode === '' || isNaN(barcode)) {
         openmodal('payout_error_modal', 'invalid_barcode');
    } else {
+        // Teller pages use userSocket; admin pages use administratorSocket.
+        const socket = (typeof userSocket !== 'undefined' && userSocket.readyState === WebSocket.OPEN)
+            ? userSocket
+            : administratorSocket;
+        console.log("[payout] socket selected:", socket === (typeof userSocket !== 'undefined' ? userSocket : null) ? "userSocket" : "administratorSocket", "readyState:", socket.readyState);
         try {
-            administratorSocket.send(JSON.stringify({barcode: barcode}));
+            socket.send(JSON.stringify({barcode: barcode}));
         }catch (error){
             console.error("websocket send failed: ", error);
             openmodal('payout_error_modal', 'web_socket_error');
         }
    }
-
 }
 
 
@@ -453,6 +540,7 @@ function startMatch(){
         console.error("websocket send failed: ", error)
         return
     }
+    applyMatchState('OPEN');
     get_fightstatus();
     openBetting("BOTH");
     openadminbetting();
@@ -472,6 +560,8 @@ function closeMatch(){
         console.error("websocket send failed: ", error)
         return
     }
+    bettingReopened = false;
+    applyMatchState('CLOSED');
     get_fightstatus();
     SuperCloseBetting();
     closemodal("control_confirmationModal");
@@ -479,6 +569,7 @@ function closeMatch(){
 
 function cancelMatch(){
     administratorSocket.send(JSON.stringify({fight_status: "CANCEL"}));
+    applyMatchState('CANCELLED');
     get_fightstatus();
     closemodal("control_confirmationModal");
 }
@@ -486,26 +577,34 @@ function cancelMatch(){
 function endMatch(winner){
     console.log("Ending Match");
     administratorSocket.send(JSON.stringify({fight_status: "END", Winner: winner}));
+    applyMatchState('COMPLETE');
     get_fightstatus();
+    update_trends();
     closemodal("control_confirmationModal");
     closemodal("whowonmodal")
 }
 
 async function get_status_for_display(fight_num=null, fight_status=null, m_status=null, w_status=null) {
-    update_disp_FightStatus(fight_status);
+    // When admin has re-opened betting, treat the display as OPEN even though
+    // the server still records the fight as CLOSED.
+    const effectiveStatus = (fight_status === 'CLOSED' && bettingReopened) ? 'OPEN' : fight_status;
+
+    update_disp_FightStatus(effectiveStatus);
     update_disp_Fightnum(fight_num);
-    if (fight_status === "OPEN"){
-        if (m_status === "OPEN") {
+    applyMatchState(fight_status);
+
+    if (effectiveStatus === "OPEN") {
+        if (m_status === "OPEN" || bettingReopened) {
             openMeron();
         } else {
             closeMeron();
         }
-        if (w_status === "OPEN") {
+        if (w_status === "OPEN" || bettingReopened) {
             openWala();
         } else {
             closeWala();
         }
-    }else {
+    } else {
         closeMeron();
         closeWala();
     }
@@ -513,70 +612,58 @@ async function get_status_for_display(fight_num=null, fight_status=null, m_statu
 
 async function get_fightstatus(){
     const response = await fetch(`/get_fight_status_view/`);
-    console.log('response: ' +response);
     const data = await response.json();
     console.log("Fight status data received: ", data);
 
-    let fight_num = data.fightnum;
-    let fight_status = data.overall_status;
-    let m_status = data.meron_status;
-    let w_status = data.wala_status;
+    const fight_num    = data.fightnum;
+    const fight_status = data.overall_status;
+    const m_status     = data.meron_status;
+    const w_status     = data.wala_status;
     const event_active = data.event_active;
 
     applyEventState(event_active);
 
     if (event_active) {
         get_status_for_display(fight_num, fight_status, m_status, w_status);
+    } else {
+        applyMatchState('IDLE');
     }
 }
 
 function applyEventState(event_active) {
-    const startBtn = document.getElementById('start_event_button');
-    const endBtn   = document.getElementById('end_event_button');
+    const startLink = document.querySelector('.start-event-action');
+    const endLink   = document.querySelector('.end-event-action');
 
     if (event_active) {
-        // Event running: disable Start Event, re-enable End Event
-        if (startBtn) { startBtn.classList.add('btn-event-disabled'); startBtn.onclick = null; }
-        if (endBtn)   { endBtn.classList.remove('btn-event-disabled'); endBtn.onclick = () => openEndEventModal(); }
+        // Event running: disable Start Event, enable End Event
+        if (startLink) {
+            startLink.classList.add('nav-event-disabled');
+            startLink.onclick = e => e.preventDefault();
+        }
+        if (endLink) {
+            endLink.classList.remove('nav-event-disabled');
+            endLink.onclick = e => { e.preventDefault(); openEndEventModal(); };
+        }
     } else {
         // No active event: enable Start Event, disable End Event,
         // and freeze every other operational button.
-        if (startBtn) { startBtn.classList.remove('btn-event-disabled'); startBtn.onclick = () => openStartEventModal(); }
-        if (endBtn)   { endBtn.classList.add('btn-event-disabled'); endBtn.onclick = null; }
+        if (startLink) {
+            startLink.classList.remove('nav-event-disabled');
+            startLink.onclick = e => { e.preventDefault(); openStartEventModal(); };
+        }
+        if (endLink) {
+            endLink.classList.add('nav-event-disabled');
+            endLink.onclick = e => e.preventDefault();
+        }
 
         document.querySelectorAll('.button').forEach(btn => {
-            if (btn.id !== 'start_event_button' && btn.id !== 'end_event_button') {
-                btn.onclick = null;
-                btn.classList.add('btn-event-disabled');
-            }
+            btn.onclick = null;
+            btn.classList.add('btn-event-disabled');
         });
     }
 }
 
 
-function fightupdateStatus(fight_status){
-    if (fight_status === "OPEN"){
-        disableadminButtons();
-        setCloseBettingButton();
-    } else if (fight_status === "CLOSED") {
-        console.log("Fight status is CLOSED");
-        disableadminButtons();
-        setCancelMatchButton();
-        setEndMatchButton();
-        closeBetting("BOTH")
-        console.log("closed!")
-    } else if (fight_status === "CANCELLED"){
-        console.log("Fight Cancelled")
-        disableadminButtons();
-        setStartMatchButton();
-        closeBetting("BOTH");
-    } else if (fight_status === "COMPLETE"){
-        console.log("Fight Complete")
-        disableadminButtons();
-        setStartMatchButton();
-        closeBetting("BOTH");
-    }
-}
 
 function openadminbetcontrolModal(side, action) {
     const modalmessage = document.getElementById("modal-message");

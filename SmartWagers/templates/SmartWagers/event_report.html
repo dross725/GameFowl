@@ -10,7 +10,15 @@
             <ul id="nav-links">
                 <li><a href="{% url 'index' %}">Main</a></li>
                 <li><a href="{% url 'user-page' %}">Teller</a></li>
-                <li><a href="{% url 'admin-page' %}">Admin</a></li>
+                <li class="nav-dropdown">
+                    <a href="{% url 'admin-page' %}" class="nav-dropdown-toggle">Admin ▾</a>
+                    <ul class="nav-dropdown-menu">
+                        <li><a href="{% url 'admin-page' %}">Admin</a></li>
+                        <li><a href="{% url 'admin-teller-transactions' %}">Teller Transactions</a></li>
+                        <li><a href="{% url 'admin-commission' %}">Commission Total</a></li>
+                        <li><a href="{% url 'admin-settings' %}">Settings</a></li>
+                    </ul>
+                </li>
                 <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
             </ul>
             <div id="nav-actions">
@@ -140,7 +148,100 @@
     color: #f1c40f;
     line-height: 1.1;
   }
-  .er-card-value.white { color: white; }
+  .er-card-value.white  { color: white; }
+  .er-card-value.green  { color: #2ecc71; }
+
+  /* ── Commission section ── */
+  #er-commission {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  #er-commission-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #er-commission-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.40);
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+  }
+
+  #er-commission-rate {
+    font-size: 11px;
+    color: rgba(255,255,255,0.35);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 20px;
+    padding: 3px 10px;
+  }
+
+  #er-commission-table-wrap {
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden;
+  }
+
+  #er-comm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  #er-comm-table thead th {
+    background: #12151c;
+    color: rgba(255,255,255,0.40);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 7px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+  }
+  #er-comm-table thead th:not(:first-child):not(:nth-child(2)) { text-align: right; }
+
+  #er-comm-table tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.10s;
+  }
+  #er-comm-table tbody tr:last-child { border-bottom: none; }
+  #er-comm-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+  #er-comm-table td {
+    padding: 7px 12px;
+    color: rgba(255,255,255,0.75);
+    vertical-align: middle;
+  }
+  #er-comm-table td:not(:first-child):not(:nth-child(2)) { text-align: right; }
+
+  .comm-fn   { font-weight: 800; color: white !important; }
+  .comm-pot  { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.55) !important; }
+  .comm-val  { font-weight: 700; color: #2ecc71 !important; font-variant-numeric: tabular-nums; }
+  .comm-side-meron { font-weight: 700; color: #e74c3c !important; font-size: 11px; }
+  .comm-side-wala  { font-weight: 700; color: #3498db !important; font-size: 11px; }
+  .comm-side-draw  { font-weight: 700; color: #f1c40f !important; font-size: 11px; }
+
+  #er-comm-table tfoot td {
+    padding: 7px 12px;
+    background: #12151c;
+    border-top: 2px solid rgba(255,255,255,0.10);
+    font-weight: 800;
+    font-size: 13px;
+    color: rgba(255,255,255,0.65);
+    position: sticky;
+    bottom: 0;
+  }
+  #er-comm-table tfoot td:not(:first-child):not(:nth-child(2)) { text-align: right; }
+  #er-comm-table tfoot .comm-val { font-size: 14px; }
 
   /* ── Table ─── */
   #er-table-container {
@@ -303,6 +404,14 @@
       <div class="er-card-label">Grand Total (All Tellers)</div>
       <div class="er-card-value">₱ {{ grand_total_all|floatformat:2 }}</div>
     </div>
+    <div class="er-card">
+      <div class="er-card-label">Total Pot ({{ fight_commissions|length }} fights)</div>
+      <div class="er-card-value">₱ {{ total_pot_all|floatformat:2 }}</div>
+    </div>
+    <div class="er-card">
+      <div class="er-card-label">Commission ({{ plasada_pct|floatformat:1 }}%)</div>
+      <div class="er-card-value green">₱ {{ total_commission|floatformat:2 }}</div>
+    </div>
   </div>
 
   {% if teller_data %}
@@ -341,6 +450,51 @@
   {% else %}
   <div id="er-empty">
     <p>No teller activity recorded for this event.</p>
+  </div>
+  {% endif %}
+
+  {% if fight_commissions %}
+  <div id="er-commission">
+    <div id="er-commission-header">
+      <span id="er-commission-label">Commission Breakdown by Fight</span>
+      <span id="er-commission-rate">Plasada {{ plasada_pct|floatformat:1 }}% · {{ fight_commissions|length }} fight{{ fight_commissions|length|pluralize }}</span>
+    </div>
+    <div id="er-commission-table-wrap">
+      <table id="er-comm-table">
+        <thead>
+          <tr>
+            <th>Fight #</th>
+            <th>Winner</th>
+            <th>Total Pot</th>
+            <th>Commission</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fc in fight_commissions %}
+          <tr>
+            <td class="comm-fn">{{ fc.fightnum }}</td>
+            <td>
+              {% if fc.side == 'MERON' %}<span class="comm-side-meron">MERON</span>
+              {% elif fc.side == 'WALA' %}<span class="comm-side-wala">WALA</span>
+              {% else %}<span class="comm-side-draw">{{ fc.side }}</span>{% endif %}
+            </td>
+            <td class="comm-pot">₱ {{ fc.totalpot|floatformat:2 }}</td>
+            <td class="comm-val">₱ {{ fc.commission|floatformat:2 }}</td>
+            <td style="font-size:11px;color:rgba(255,255,255,0.35);">{{ fc.date }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2">Total ({{ fight_commissions|length }} fights)</td>
+            <td class="comm-pot" style="text-align:right;">₱ {{ total_pot_all|floatformat:2 }}</td>
+            <td class="comm-val">₱ {{ total_commission|floatformat:2 }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   </div>
   {% endif %}
 

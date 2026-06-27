@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction as db_transaction
 from datetime import datetime
 from django.utils.timezone import now
 from django.contrib.auth.models import User
@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 
 # Create your models here.
 class Wagers (models.Model):
-    transactionid = models.CharField(max_length=10, unique=True, editable=False, default='000000')  # Default value and auto-increment
+    transactionid = models.CharField(max_length=10, unique=True, editable=False, default='000000')
     fightnum = models.IntegerField(default=0)
     side = models.CharField(max_length=10)
     wager = models.FloatField()
@@ -16,18 +16,29 @@ class Wagers (models.Model):
     registered = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
-        #if not self.transactionid:  # Only generate the code on creation
-        if self.pk is None:
-            current_year = datetime.now().year
-            last_entry = Wagers.objects.order_by('-id').first()  # Get the latest entry
-            if last_entry and last_entry.transactionid[:4] == str(current_year):
-                # Increment based on the last entry
-                last_number = int(last_entry.transactionid[4:]) + 1
-            else:
-                last_number = 1  # Start fresh for the year
-            
-            self.transactionid = f"{current_year}{str(last_number).zfill(6)}"
-        super().save(*args, **kwargs)  # Call the parent save method
+        if self.pk is None and self.cashier != 'System':
+            from django.apps import apps
+            with db_transaction.atomic():
+                Event = apps.get_model('SmartWagers', 'Event')
+                active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+                # Lock the latest non-system wager row so concurrent saves
+                # cannot read the same "last" ID and produce a duplicate.
+                qs = Wagers.objects.select_for_update().exclude(cashier='System')
+                if active_event:
+                    qs = qs.filter(created_at__gte=active_event.started_at)
+                last_number = 0
+                for tid in qs.order_by('-id').values_list('transactionid', flat=True):
+                    try:
+                        n = int(tid)
+                        if 0 < n < 1_000_000:
+                            last_number = n
+                            break
+                    except (ValueError, TypeError):
+                        continue
+                self.transactionid = str(last_number + 1).zfill(6)
+                super().save(*args, **kwargs)
+            return
+        super().save(*args, **kwargs)
 
     def formatted_time(self):
         return (self.created_at).strftime("%Y-%m-%d %H:%M:%S")
@@ -114,7 +125,7 @@ class TellerTransaction(models.Model):
         (PAYOUT, 'Payout'),
     ]
 
-    transaction_id = models.CharField(max_length=12, unique=True, editable=False, default='R000000000')
+    transaction_id = models.CharField(max_length=12, unique=True, editable=False, default='R000000')
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='teller_transactions')
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.FloatField()
@@ -129,13 +140,27 @@ class TellerTransaction(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk is None:
-            current_year = datetime.now().year
-            last_entry = TellerTransaction.objects.order_by('-id').first()
-            if last_entry and last_entry.transaction_id[1:5] == str(current_year):
-                last_number = int(last_entry.transaction_id[5:]) + 1
-            else:
-                last_number = 1
-            self.transaction_id = f"R{current_year}{str(last_number).zfill(6)}"
+            from django.apps import apps
+            with db_transaction.atomic():
+                Event = apps.get_model('SmartWagers', 'Event')
+                active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+                # Lock the latest transaction row to prevent concurrent saves
+                # from reading the same last ID and generating a duplicate.
+                qs = TellerTransaction.objects.select_for_update()
+                if active_event:
+                    qs = qs.filter(created_at__gte=active_event.started_at)
+                last_number = 0
+                for tid in qs.order_by('-id').values_list('transaction_id', flat=True):
+                    try:
+                        n = int(tid[1:])  # strip leading 'R'
+                        if 0 < n < 1_000_000:
+                            last_number = n
+                            break
+                    except (ValueError, TypeError, IndexError):
+                        continue
+                self.transaction_id = f"R{str(last_number + 1).zfill(6)}"
+                super().save(*args, **kwargs)
+            return
         super().save(*args, **kwargs)
 
     def __str__(self):

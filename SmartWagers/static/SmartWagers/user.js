@@ -24,7 +24,11 @@ userSocket.onmessage = (event) => {
         console.log("Changing status of ", side + " to " + status);
         updateUserBettingStatus(status, side);
         if (status === "CLOSED") {
+            bettingReopenedUser = false;
             openbettingdisabledModal();
+        } else if (status === "OPEN") {
+            bettingReopenedUser = true;
+            update_disp_FightStatus("OPEN");
         }
     }
 
@@ -36,10 +40,18 @@ userSocket.onmessage = (event) => {
 
     if ("fight_status" in data) {
         get_fightstatus();
+        if (data.fight_status === "END" || data.fight_status === "CANCEL") {
+            update_trends();
+        }
     }
 
     if ("overall_status" in data) {
         update_disp_FightStatus(data.overall_status);
+    }
+
+    if ("payout" in data) {
+        console.log("[user.js] payout message received:", data);
+        handlePayoutMessage(data);
     }
 }; 
 
@@ -68,7 +80,7 @@ function updateStatus(status) {
 };
 
 function updateFightnum(fightnum){
-    document.getElementById("currentmatchnum").innerText = "FIGHT # "+fightnum;
+    document.getElementById("currentmatchnum").innerText = fightnum;
 };
 
 function normalizeBettingStatus(status) {
@@ -108,6 +120,26 @@ function setBettingStatusText(element, status) {
 
 let meronBettingOpen = false;
 let walaBettingOpen = false;
+
+// Mirrors the admin's bettingReopened flag so the teller page stays in sync
+// when the admin re-opens betting on a server-CLOSED fight.
+let bettingReopenedUser = false;
+
+// Disable/enable all bet input buttons and the amount textarea.
+// Defined here so it works even if administrator.js is cached at an old version.
+function setBetInputsDisabled(disabled) {
+    const container = document.getElementById('unified-wagers');
+    if (!container) return;
+    container.querySelectorAll('.button').forEach(btn => {
+        if (disabled) {
+            btn.classList.add('btn-bet-disabled');
+        } else {
+            btn.classList.remove('btn-bet-disabled');
+        }
+    });
+    const textarea = document.getElementById('bet_textinput');
+    if (textarea) textarea.disabled = disabled;
+}
 
 function updateUserSubmitButton() {
     const submitButton = document.getElementById("Usersubmit");
@@ -180,12 +212,14 @@ function openMeronUser() {
     console.log("openMeron user");
     meronBettingOpen = true;
     setBettingStatusText(document.getElementById("meron-betting-status"), "OPEN");
+    setBetInputsDisabled(false);
     updateUserSubmitButton();
 }
 
 function openWalaUser() {
     walaBettingOpen = true;
     setBettingStatusText(document.getElementById("wala-betting-status"), "OPEN");
+    setBetInputsDisabled(false);
     updateUserSubmitButton();
 }
 
@@ -197,6 +231,7 @@ function closeMeronUser() {
     const modalmessage = document.getElementById("modal-message");
     if (modalheader) modalheader.innerHTML = "Betting is currently disabled for <strong>MERON</strong>.";
     if (modalmessage) modalmessage.innerHTML = "DO NOT Accept bets for <strong>MERON</strong> until the betting is enabled again.";
+    if (!meronBettingOpen && !walaBettingOpen) setBetInputsDisabled(true);
     updateUserSubmitButton();
 }
 
@@ -207,6 +242,7 @@ function closeWalaUser() {
     const modalmessage = document.getElementById("modal-message");
     if (modalheader) modalheader.innerHTML = "Betting is currently disabled for <strong>WALA</strong>.";
     if (modalmessage) modalmessage.innerHTML = "DO NOT Accept bets for <strong>WALA</strong> until the betting is enabled again.";
+    if (!meronBettingOpen && !walaBettingOpen) setBetInputsDisabled(true);
     updateUserSubmitButton();
 }
 
@@ -231,17 +267,21 @@ async function get_fightstatus(){
 
     console.log("Fight status: ", fight_status);
 
-    if (fight_status == "OPEN"){
-        if (normalizeBettingStatus(m_status) == "OPEN"){
+    // Reset the reopen flag whenever the fight moves to any state other than CLOSED
+    if (fight_status !== 'CLOSED') bettingReopenedUser = false;
+
+    // Use the effective status for display — keep showing OPEN if admin re-opened
+    const effectiveStatus = (fight_status === 'CLOSED' && bettingReopenedUser) ? 'OPEN' : fight_status;
+
+    if (effectiveStatus === "OPEN") {
+        if (bettingReopenedUser || normalizeBettingStatus(m_status) === "OPEN") {
             openMeronUser();
-        }else if (normalizeBettingStatus(m_status) == "CLOSED"){
-            console.log ("Meron close");
+        } else {
             closeMeronUser();
         }
-
-        if(normalizeBettingStatus(w_status) == "OPEN"){
+        if (bettingReopenedUser || normalizeBettingStatus(w_status) === "OPEN") {
             openWalaUser();
-        }else if (normalizeBettingStatus(w_status) == "CLOSED"){
+        } else {
             closeWalaUser();
         }
     } else {
@@ -250,12 +290,12 @@ async function get_fightstatus(){
         const submitButton = document.getElementById("Usersubmit");
         if (submitButton) submitButton.onclick = () => openmodal('matchclosedmodal', 'null');
     }
-    update_disp_FightStatus(fight_status);
+    update_disp_FightStatus(effectiveStatus);
     updateFightnum(fight_num);
 };
 
 function applyEventState(event_active) {
-    const ids = ['Usersubmit', 'payout_button', 'cancel_bet', 'reprint_button'];
+    const ids = ['Usersubmit'];
     if (!event_active) {
         ids.forEach(id => {
             const btn = document.getElementById(id);

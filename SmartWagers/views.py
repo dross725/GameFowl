@@ -6,7 +6,7 @@ from . import services as services
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
-from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results
+from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results, Settings
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
@@ -192,6 +192,21 @@ def Main_admin(request):
 
         wager = int(request.POST.get('wager_value', 0))
         wager_id = request.POST.get('wager_id', None)
+
+        if not services.is_betting_open(wager_id):
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'betting_closed',
+                    'blocked_betting_side': wager_id,
+                }, status=409)
+            return render(request, 'SmartWagers/administrator.html', {
+                'M_total_bet': format(int(meron_total), ','),
+                'M_payout': meron_payout,
+                'W_total_bet': format(int(wala_total), ','),
+                'W_payout': wala_payout,
+                'blocked_betting_side': wager_id,
+            })
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
             return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
@@ -401,7 +416,12 @@ def admin_tellers(request):
     teller_data = []
     for teller in tellers:
         balance, grand_total = _compute_teller_balance(teller, event=active_event)
-        transactions = TellerTransaction.objects.filter(user=teller).order_by('-created_at')
+        txn_qs = TellerTransaction.objects.filter(user=teller)
+        if active_event is not None:
+            txn_qs = txn_qs.filter(created_at__gte=active_event.started_at)
+            if active_event.ended_at:
+                txn_qs = txn_qs.filter(created_at__lte=active_event.ended_at)
+        transactions = txn_qs.order_by('-created_at')
         teller_data.append({
             'user': teller,
             'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
@@ -474,9 +494,12 @@ def admin_mark_received(request):
     if not transaction_id:
         return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
 
-    try:
-        txn = TellerTransaction.objects.select_related('user').get(transaction_id=transaction_id)
-    except TellerTransaction.DoesNotExist:
+    active_event = services.get_active_event()
+    qs = TellerTransaction.objects.select_related('user').filter(transaction_id=transaction_id)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    txn = qs.first()
+    if txn is None:
         return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
 
     if txn.transaction_type != TellerTransaction.REMIT:
@@ -585,9 +608,144 @@ def admin_event_report(request):
         })
         grand_total_all += grand_total
 
+    # Commission totals
+    plasada = services.get_comm_val()
+    fight_results_qs = Fight_Results.objects.filter(event=event).order_by('fightnum')
+    fight_commissions = [
+        {
+            'fightnum': r.fightnum,
+            'side': r.side,
+            'totalpot': r.totalpot,
+            'commission': r.totalpot * plasada,
+            'date': r.date,
+        }
+        for r in fight_results_qs
+    ]
+    total_pot_all = sum(fc['totalpot'] for fc in fight_commissions)
+    total_commission = total_pot_all * plasada
+
     return render(request, 'SmartWagers/event_report.html', {
         'event': event,
         'all_events': all_events,
         'teller_data': teller_data,
         'grand_total_all': grand_total_all,
+        'fight_commissions': fight_commissions,
+        'total_pot_all': total_pot_all,
+        'total_commission': total_commission,
+        'plasada': plasada,
+        'plasada_pct': plasada * 100,
+    })
+
+
+@group_required('admin')
+def admin_teller_transactions(request):
+    """Admin view: all teller wagers with fight number, transaction ID, amount, side."""
+    active_event = services.get_active_event()
+
+    wager_qs = Wagers.objects.filter(registered=True).exclude(cashier='System').order_by('-created_at')
+    if active_event is not None:
+        wager_qs = wager_qs.filter(created_at__gte=active_event.started_at)
+
+    total_amount = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
+    total_count = wager_qs.count()
+
+    return render(request, 'SmartWagers/admin_teller_transactions.html', {
+        'wagers': wager_qs,
+        'total_amount': total_amount,
+        'total_count': total_count,
+        'active_event': active_event,
+    })
+
+
+@group_required('admin')
+def admin_commission(request):
+    """Admin view: total commission (plasada) collected from all completed fights."""
+    active_event = services.get_active_event()
+    plasada = services.get_comm_val()
+
+    result_qs = Fight_Results.objects.all().order_by('fightnum')
+    if active_event is not None:
+        result_qs = result_qs.filter(event=active_event)
+
+    fight_commissions = []
+    total_commission = 0.0
+    total_pot_all = 0.0
+
+    for result in result_qs:
+        commission = result.totalpot * plasada
+        fight_commissions.append({
+            'fightnum': result.fightnum,
+            'side': result.side,
+            'totalpot': result.totalpot,
+            'commission': commission,
+            'date': result.date,
+        })
+        total_commission += commission
+        total_pot_all += result.totalpot
+
+    return render(request, 'SmartWagers/admin_commission.html', {
+        'fight_commissions': fight_commissions,
+        'total_commission': total_commission,
+        'total_pot_all': total_pot_all,
+        'plasada': plasada,
+        'plasada_pct': plasada * 100,
+        'active_event': active_event,
+    })
+
+
+@group_required('admin')
+def admin_settings(request):
+    """Admin view: adjust plasada and change fight result winners."""
+    active_event = services.get_active_event()
+
+    if request.method == 'POST':
+        action = request.POST.get('action', '')
+
+        if action == 'update_plasada':
+            try:
+                new_plasada = float(request.POST.get('plasada', ''))
+                if not (0 < new_plasada < 1):
+                    return JsonResponse({'ok': False, 'error': 'Plasada must be between 0 and 1 (e.g. 0.05 for 5%)'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid plasada value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(plasada=new_plasada)
+            else:
+                setting.plasada = new_plasada
+            setting.save()
+            return JsonResponse({'ok': True, 'plasada': new_plasada, 'plasada_pct': new_plasada * 100})
+
+        if action == 'update_fight_result':
+            try:
+                result_id = int(request.POST.get('result_id', 0))
+                new_side = request.POST.get('side', '').strip().upper()
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid parameters'}, status=400)
+
+            if new_side not in ('MERON', 'WALA', 'DRAW'):
+                return JsonResponse({'ok': False, 'error': 'Side must be MERON, WALA, or DRAW'}, status=400)
+
+            try:
+                result = Fight_Results.objects.get(pk=result_id)
+            except Fight_Results.DoesNotExist:
+                return JsonResponse({'ok': False, 'error': 'Fight result not found'}, status=404)
+
+            result.side = new_side
+            result.save(update_fields=['side'])
+            return JsonResponse({'ok': True, 'result_id': result_id, 'side': new_side})
+
+        return JsonResponse({'ok': False, 'error': 'Unknown action'}, status=400)
+
+    plasada = services.get_comm_val()
+    fight_results = Fight_Results.objects.all().order_by('-fightnum')
+    if active_event is not None:
+        fight_results = fight_results.filter(event=active_event)
+
+    return render(request, 'SmartWagers/admin_settings.html', {
+        'plasada': plasada,
+        'plasada_pct': plasada * 100,
+        'fight_results': fight_results,
+        'active_event': active_event,
     })

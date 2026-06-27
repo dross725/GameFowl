@@ -5,31 +5,85 @@ from channels.db import database_sync_to_async
 from . import services
 from .models import Settings, Wagers, Totals
 
+# Maps each WebSocket endpoint to the groups that are allowed to connect.
+# An empty set means any authenticated user is permitted.
+ENDPOINT_ALLOWED_GROUPS = {
+    "administrator": {"admin"},
+    "user":          {"teller"},
+    "index":         {"admin", "teller", "display"},
+    "smartwagers":   {"admin"},
+}
+
+# Actions that only admins may trigger via WebSocket
+ADMIN_ONLY_ACTIONS = {"fight_status", "side_status"}
+
+# Actions that tellers or admins may trigger
+TELLER_OR_ADMIN_ACTIONS = {"barcode", "cancel_barcode"}
+
 class WagersConsumer(AsyncWebsocketConsumer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.debug = True
-            
+        self.debug = False
+
+    # ------------------------------------------------------------------
+    # Auth helpers
+    # ------------------------------------------------------------------
+
+    @database_sync_to_async
+    def _get_user_groups(self):
+        """Return the set of group names the connected user belongs to."""
+        user = self.scope.get("user")
+        if user is None or not user.is_authenticated:
+            return set()
+        return set(user.groups.values_list("name", flat=True))
+
+    async def _is_admin(self):
+        return "admin" in await self._get_user_groups()
+
+    async def _is_teller_or_admin(self):
+        groups = await self._get_user_groups()
+        return bool(groups & {"teller", "admin"})
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
     async def connect(self):
         # Extract the last part of the WebSocket URL
         self.page = self.scope.get("path", "").strip("/").split("/")[-1]
-        
+
         if not self.page or not self.page.isalnum():
             print(f"Invalid WebSocket group name: '{self.page}'")
             await self.close()
             return
-        
+
         if self.channel_layer is None:
             print("Channel layer is not available.")
             await self.close()
             return
-        
-        # Join the WebSocket group based on the page
-        print(f"Connecting to WebSocket group: {self.page}")
+
+        # --- Authentication check ---
+        user = self.scope.get("user")
+        if user is None or not user.is_authenticated:
+            print(f"Unauthenticated WebSocket connection attempt to /{self.page}/ — rejected.")
+            await self.close(code=4401)
+            return
+
+        # --- Authorization check ---
+        allowed_groups = ENDPOINT_ALLOWED_GROUPS.get(self.page.lower(), set())
+        user_groups = await self._get_user_groups()
+        if allowed_groups and not (user_groups & allowed_groups):
+            print(
+                f"User '{user.username}' (groups={user_groups}) not authorized "
+                f"for WebSocket /{self.page}/."
+            )
+            await self.close(code=4403)
+            return
+
+        print(f"User '{user.username}' connected to WebSocket group: {self.page}")
         await self.channel_layer.group_add(self.page, self.channel_name)
         await self.accept()
-        print(f"Connected to WebSocket group: {self.page}")
 
     async def disconnect(self, code):
         
@@ -47,16 +101,30 @@ class WagersConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data=None, bytes_data=None):
         if text_data:
             data = json.loads(text_data)
-            print("Received WebSocket data:", data)
 
             if self.channel_layer is None:
                 print("Channel layer is not available during receive.")
                 return
-            
+
+            # --- Per-action authorization ---
+            action_key = next((k for k in ADMIN_ONLY_ACTIONS | TELLER_OR_ADMIN_ACTIONS if k in data), None)
+
+            if action_key in ADMIN_ONLY_ACTIONS:
+                if not await self._is_admin():
+                    user = self.scope.get("user")
+                    print(f"Unauthorized action '{action_key}' by user '{getattr(user, 'username', '?')}' — ignored.")
+                    await self.send(text_data=json.dumps({"error": "unauthorized"}))
+                    return
+
+            if action_key in TELLER_OR_ADMIN_ACTIONS:
+                if not await self._is_teller_or_admin():
+                    user = self.scope.get("user")
+                    print(f"Unauthorized action '{action_key}' by user '{getattr(user, 'username', '?')}' — ignored.")
+                    await self.send(text_data=json.dumps({"error": "unauthorized"}))
+                    return
+
             if "fight_status" in data:
-                # Handle fight status updates
                 fight_status = data["fight_status"]
-                print(f"Received fight status: {fight_status}")
 
                 if fight_status == "START":
                     await self.startnewmatch()
@@ -69,21 +137,18 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     await self.endmatch(winner)
 
                 for group_name in ["index", "user", "administrator"]:
-                    print(f"Sending data to group: {group_name}")
                     await self.channel_layer.group_send(group_name, {
                         'type': 'send_data',
                         'fight_status': fight_status
                     })
-                
+
             elif "side_status" in data:
                 side_status = data["side_status"]
                 side = data["side"]
                 await self.update_control_status(side, side_status)
                 overall_status, meron_status, wala_status, fightnum = await self.get_fight_status()
-                print ("side status updated: ", side_status, "for side:", side)
 
                 for group_name in ["index", "user", "administrator"]:
-                    print(f"Sending data to group: {group_name}")
                     await self.channel_layer.group_send(group_name, {
                         'type': 'send_data',
                         'side': side,
@@ -96,15 +161,16 @@ class WagersConsumer(AsyncWebsocketConsumer):
 
             elif "barcode" in data:
                 transaction_id = data["barcode"]
-                payout_data = await self.payout_request(transaction_id)
+                # Tellers may only pay out bets made at their own terminal
+                requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
+                payout_data = await self.payout_request(transaction_id, requesting_cashier)
                 await self.channel_layer.group_send(self.page, {
                     'type': 'send_data',
                     'payout': True,
                     **payout_data
                 })
-            
+
             elif "cancel_barcode" in data:
-                print ("Cancel barcode received:", data["cancel_barcode"])
                 transaction_id = data["cancel_barcode"]
                 cancelbet_data = await self.cancel_bet(transaction_id)
                 await self.channel_layer.group_send(self.page, {
@@ -212,8 +278,8 @@ class WagersConsumer(AsyncWebsocketConsumer):
         return services.get_fight_status()
     
     @database_sync_to_async
-    def payout_request(self, transaction_id):
-        return services.payout_request(transaction_id)
+    def payout_request(self, transaction_id, requesting_cashier=None):
+        return services.payout_request(transaction_id, requesting_cashier=requesting_cashier)
     
     @database_sync_to_async
     def cancel_bet(self, transaction_id):

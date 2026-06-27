@@ -7,7 +7,7 @@
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=event-2"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}?v=wrong-teller-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -20,7 +20,18 @@
             <ul id="nav-links">
                 <li><a href="{% url 'index' %}">Main</a></li>
                 <li><a href="{% url 'user-page' %}">Teller</a></li>
-                <li><a href="{% url 'admin-page' %}">Admin</a></li>
+                <li class="nav-dropdown">
+                    <a href="{% url 'admin-page' %}" class="nav-dropdown-toggle">Admin ▾</a>
+                    <ul class="nav-dropdown-menu">
+                        <li><a href="{% url 'admin-page' %}">Admin</a></li>
+                        <li><a href="{% url 'admin-teller-transactions' %}">Teller Transactions</a></li>
+                        <li><a href="{% url 'admin-commission' %}">Commission Total</a></li>
+                        <li><a href="{% url 'admin-settings' %}">Settings</a></li>
+                        <li class="nav-dropdown-divider"></li>
+                        <li><a href="#" class="nav-dropdown-action start-event-action" onclick="event.preventDefault();openStartEventModal()">▶ Start Event</a></li>
+                        <li><a href="#" class="nav-dropdown-action end-event-action" onclick="event.preventDefault();openEndEventModal()">■ End Event</a></li>
+                    </ul>
+                </li>
                 <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
             </ul>
             <div id="nav-actions">
@@ -85,14 +96,10 @@
                 </section>
             </div>
         </section>
-        <section id="event-controls">
-            <div id="event-controls-label">EVENT</div>
-            <div class='button event-btn' id='start_event_button' onclick='openStartEventModal()'>Start Event</div>
-            <div class='button event-btn' id='end_event_button' onclick='openEndEventModal()'>End Event</div>
-        </section>
         <section id="controls">
             <div class='button' id='startmatchbutton' onclick='openmodal("control_confirmationModal", "StartMatch")'>Start Match</div>
             <div class='button' id='closebettingbutton' onclick='openmodal("control_confirmationModal", "CloseBetting")'>Close Betting</div>
+            <div class='button' id='reopenbettingbutton' onclick='openmodal("control_confirmationModal", "ReopenBetting")'>Re-Open Betting</div>
             <div class='button' id='cancelmatchbutton' onclick='openmodal("control_confirmationModal", "CancelMatch")'>Cancel Match</div>
             <div class='button' id='endmatchbutton' onclick='openmodal("control_confirmationModal", "EndMatch")'>End Match</div>
         </section>
@@ -204,6 +211,18 @@
                 <br>
                 
                 <button id='payout_error_button' onclick='closemodal("payout_error_modal")'>Close</button>
+            </div>
+        </div>
+
+        <div id='wrong_teller_modal' class='modal'>
+            <div class='modal-content'>
+                <h2>Wrong Teller</h2>
+                <br>
+                <p>Payout cannot be processed at this teller.</p>
+                <br>
+                <p>Please proceed to teller: <strong id='wrong_teller_name'></strong></p>
+                <br>
+                <button onclick='closemodal("wrong_teller_modal")'>Close</button>
             </div>
         </div>
         <div id='payout_print_modal' class='modal'>
@@ -401,6 +420,7 @@
 
             closemodal('starteventmodal');
             alert(`Event "${data.event_name}" started! Fight numbers reset to 1.`);
+            window.location.reload();
 
         } catch (err) {
             statusEl.style.color = '#e74c3c';
@@ -450,51 +470,6 @@
     }
     </script>
 
-<style>
-#event-controls {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 10px;
-    margin-bottom: 6px;
-}
-
-#event-controls-label {
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 1.2px;
-    color: rgba(255,255,255,0.35);
-    text-transform: uppercase;
-    white-space: nowrap;
-    margin-right: 4px;
-}
-
-.event-btn {
-    flex: 1;
-}
-
-#start_event_button {
-    background: linear-gradient(135deg, #1a7a4a, #0f4d2e) !important;
-    border-color: rgba(26,122,74,0.6) !important;
-}
-
-#start_event_button:hover {
-    background: linear-gradient(135deg, #22a05f, #146038) !important;
-}
-
-#end_event_button {
-    background: linear-gradient(135deg, #7a1a1a, #4d0f0f) !important;
-    border-color: rgba(122,26,26,0.6) !important;
-}
-
-#end_event_button:hover {
-    background: linear-gradient(135deg, #a02222, #601414) !important;
-}
-</style>
 
 {% endblock content %}
 

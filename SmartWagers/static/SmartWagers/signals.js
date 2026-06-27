@@ -3,29 +3,36 @@ const signalsWebsocketProtocol = window.location.protocol === "https:" ? "wss" :
 const socket = new WebSocket(`${signalsWebsocketProtocol}://${window.location.host}/ws/${pageType}/`); // Open correct WebSocket
 
 socket.onmessage = (event) => {
-    console.log("This is the signals.js file");
     const data = JSON.parse(event.data);
-    
-
-    console.log("Data received:", data);
+    console.log("signals.js received:", data);
 
     if ("fight_status" in data) {
-        let status = data.fight_status;
-        console.log("Fight status received:", fight_status);
-        document.getElementById("currentmatchstatus").innerText = "Status: " + status;
-        document.getElementById("currentmatchstatus").style.color = status === "OPEN" ? "green" : "red";
-        document.getElementById("currentmatchstatus").style.fontWeight = "bold";
+        // Fetch real status from server so display shows proper values
+        get_fightstatus();
+        // Refresh trends sidebar whenever a fight completes or is cancelled
+        if (data.fight_status === "END" || data.fight_status === "CANCEL") {
+            update_trends();
+        }
     } else if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
         document.getElementById("M_payout").innerText = data.mpayout;
         document.getElementById("W_total_bet").innerText = data.wtotal;
         document.getElementById("W_payout").innerText = data.wpayout;
-    } else if ("side" in data && "side_status" in data){
-        update_side_status (data.side, data.side_status)
+        if (data.fightnum != null) updateFightnum(data.fightnum);
+    } else if ("side" in data && "side_status" in data) {
+        const side   = data.side;
+        const status = data.side_status;
+        if (side === "BOTH") {
+            update_side_status("MERON", status);
+            update_side_status("WALA",  status);
+        } else {
+            update_side_status(side, status);
+        }
+        if (data.overall_status) update_disp_FightStatus(data.overall_status);
+        if (data.fightnum != null) updateFightnum(data.fightnum);
     }
+
     updateStatus("Connected");
-    updateFightnum(data.fightnum)
-    console.log("This is the signals.js file");
 };
 
 socket.onopen = () => {
@@ -54,7 +61,7 @@ function updateStatus(status) {
 };
 
 function updateFightnum(fightnum){
-    document.getElementById("currentmatchnum").innerText = "FIGHT # "+fightnum;
+    document.getElementById("currentmatchnum").innerText = fightnum;
 }
 
 function update_disp_FightStatus(status) {
@@ -102,6 +109,9 @@ async function get_fightstatus(){
 
 document.addEventListener("DOMContentLoaded", () => {
     get_fightstatus();
-    document.getElementById("payout_error_modal").style.display = "none"; // Hide the modal on page load
-    document.getElementById("payout_print_modal").style.display = "none"; // Hide the modal on page load    
-})
+    update_trends();
+    const errModal = document.getElementById("payout_error_modal");
+    const printModal = document.getElementById("payout_print_modal");
+    if (errModal)   errModal.style.display   = "none";
+    if (printModal) printModal.style.display = "none";
+});
