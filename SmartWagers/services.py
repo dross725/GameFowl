@@ -666,7 +666,7 @@ def update_fight_status(fightstatus, side = None):
     return
 
 
-def payout_request(transaction_id):
+def payout_request(transaction_id, requesting_cashier=None):
     from django.db.models import Q
 
     payout_result = {'payout': True}
@@ -689,6 +689,11 @@ def payout_request(transaction_id):
 
         if payout_data.cashed_out:
             payout_result['error'] = 'alreadypaid'
+            return payout_result
+
+        if requesting_cashier and payout_data.cashier != requesting_cashier:
+            payout_result['error'] = 'wrong_teller'
+            payout_result['original_cashier'] = payout_data.cashier
             return payout_result
 
         payout_data_fn = payout_data.fightnum

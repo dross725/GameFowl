@@ -37,36 +37,7 @@ administratorSocket.onmessage = async (event) => {
         document.getElementById("ws_status").innerText = "Status: Connected";
 
     }else if ("payout" in data) {
-        console.log("Payout result received:", data.payout_result);
-        if ("error" in data){
-            console.log("Payout error:", data.error);
-            document.getElementById('payout_error_header').innerText = "Payout Error";  
-            openmodal('payout_error_modal', data.error);
-
-        } else if ("transaction_id" in data && "Total_Payout" in data) {
-            document.getElementById('payout_success_header').innerText = "Payout request valid!";
-            document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
-            document.getElementById('payout_message2').innerText = "Total Payout Amount: " + data.Total_Payout;
-            document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
-            document.getElementById('payout_print_modal').style.display = 'flex';
-
-            const printResult = await printPayoutReceipt(data);
-            document.getElementById('payout_message3').innerText = printResult.ok
-                ? printResult.message
-                : "Receipt print failed: " + printResult.message;
-        } else if ("side" in data && data.side === "CANCELLED") {
-            document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
-            document.getElementById('payout_message1').innerText = "Please refund the bettor.";
-            document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
-            document.getElementById('payout_message3').innerText = "";
-            document.getElementById('payout_print_modal').style.display = 'flex';
-        } else if ("side" in data && data.side === "DRAW") {
-            document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
-            document.getElementById('payout_message1').innerText = "Fight result is a draw.";
-            document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
-            document.getElementById('payout_message3').innerText = "";
-            document.getElementById('payout_print_modal').style.display = 'flex';
-        }
+        await handlePayoutMessage(data);
     }else if ("cancel_bet" in data){
         console.log("Cancel bet result received:", data.cancel_bet);
         console.log("Cancel bet data:", data);
@@ -481,20 +452,62 @@ function openmodal(modalid, buttonid, side=null) {
 
 
 
+// Shared payout response handler — called by both administratorSocket and userSocket.
+async function handlePayoutMessage(data) {
+    console.log("Payout result received:", data);
+    if ("error" in data) {
+        console.log("Payout error:", data.error);
+        if (data.error === 'wrong_teller') {
+            document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
+            document.getElementById('wrong_teller_modal').style.display = 'flex';
+        } else {
+            document.getElementById('payout_error_header').innerText = "Payout Error";
+            openmodal('payout_error_modal', data.error);
+        }
+    } else if ("transaction_id" in data && "Total_Payout" in data) {
+        document.getElementById('payout_success_header').innerText = "Payout request valid!";
+        document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
+        document.getElementById('payout_message2').innerText = "Total Payout Amount: " + data.Total_Payout;
+        document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
+        document.getElementById('payout_print_modal').style.display = 'flex';
+
+        const printResult = await printPayoutReceipt(data);
+        document.getElementById('payout_message3').innerText = printResult.ok
+            ? printResult.message
+            : "Receipt print failed: " + printResult.message;
+    } else if ("side" in data && data.side === "CANCELLED") {
+        document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
+        document.getElementById('payout_message1').innerText = "Please refund the bettor.";
+        document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
+        document.getElementById('payout_message3').innerText = "";
+        document.getElementById('payout_print_modal').style.display = 'flex';
+    } else if ("side" in data && data.side === "DRAW") {
+        document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
+        document.getElementById('payout_message1').innerText = "Fight result is a draw.";
+        document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
+        document.getElementById('payout_message3').innerText = "";
+        document.getElementById('payout_print_modal').style.display = 'flex';
+    }
+}
+
 async function payout() {
    const barcode = document.getElementById('payout_barcode').value;
    closemodal('payoutmodal');
    if (barcode === 0 || barcode === '' || isNaN(barcode)) {
         openmodal('payout_error_modal', 'invalid_barcode');
    } else {
+        // Teller pages use userSocket; admin pages use administratorSocket.
+        const socket = (typeof userSocket !== 'undefined' && userSocket.readyState === WebSocket.OPEN)
+            ? userSocket
+            : administratorSocket;
+        console.log("[payout] socket selected:", socket === (typeof userSocket !== 'undefined' ? userSocket : null) ? "userSocket" : "administratorSocket", "readyState:", socket.readyState);
         try {
-            administratorSocket.send(JSON.stringify({barcode: barcode}));
+            socket.send(JSON.stringify({barcode: barcode}));
         }catch (error){
             console.error("websocket send failed: ", error);
             openmodal('payout_error_modal', 'web_socket_error');
         }
    }
-
 }
 
 
