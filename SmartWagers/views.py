@@ -193,6 +193,21 @@ def Main_admin(request):
         wager = int(request.POST.get('wager_value', 0))
         wager_id = request.POST.get('wager_id', None)
 
+        if not services.is_betting_open(wager_id):
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'betting_closed',
+                    'blocked_betting_side': wager_id,
+                }, status=409)
+            return render(request, 'SmartWagers/administrator.html', {
+                'M_total_bet': format(int(meron_total), ','),
+                'M_payout': meron_payout,
+                'W_total_bet': format(int(wala_total), ','),
+                'W_payout': wala_payout,
+                'blocked_betting_side': wager_id,
+            })
+
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
             return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
 
