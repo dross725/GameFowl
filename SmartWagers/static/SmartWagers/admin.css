@@ -167,32 +167,12 @@ textarea {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.13);
   transition: border-color 0.25s, box-shadow 0.25s;
+  position: relative;
+  z-index: 2;
 }
 
-/* Pulse outline when no side is selected yet */
-#side-selector:has(#radio_none:checked) {
-  border-color: rgba(255, 255, 255, 0.28);
-  animation: sidePromptPulse 1.8s ease-in-out infinite;
-}
-
-@keyframes sidePromptPulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.0); }
-  50%       { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.10); }
-}
-
-/* Hint text — hidden by default, visible when no side chosen */
 #side-hint {
   display: none;
-  margin: 2px 0 0;
-  font-size: 10px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.38);
-  text-align: center;
-}
-
-#unified-wagers:has(#radio_none:checked) #side-hint {
-  display: block;
 }
 
 .radio-label {
@@ -273,18 +253,26 @@ textarea {
 .bet-buttons {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   width: 100%;
   align-items: center;
 }
 
 #buttons_section1,
 #buttons_section2 {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, 96px);
+  gap: 6px;
   justify-content: center;
-  gap: 4px;
-  width: 100%;
+}
+
+.bet-buttons .button {
+  width: 96px;
+  height: 50px;
+  min-width: unset;
+  padding: 0;
+  font-size: 14px;
+  border-radius: 10px;
 }
 
 /* ── Generic button ──────────────────────────────────────── */
@@ -318,7 +306,7 @@ textarea {
   box-shadow: none;
 }
 
-#wagers .button {
+#wagers .button:not(.bet-buttons .button) {
   height: 31px;
   min-width: 62px;
   padding: 0 11px;
@@ -527,6 +515,7 @@ textarea {
 }
 
 #tellers_button {
+  text-decoration: none;
   background: linear-gradient(135deg, #6c3483, #4a235a);
   border-color: rgba(142, 68, 173, 0.55);
   font-size: 14px;
@@ -606,9 +595,20 @@ textarea {
     font-size: 17px;
   }
   .bet-buttons {
-    gap: 3px;
+    gap: 4px;
   }
-  #wagers .button {
+  .bet-buttons .button {
+    width: 87px;
+    height: 50px;
+    font-size: 13px;
+    padding: 0;
+  }
+  #buttons_section1,
+  #buttons_section2 {
+    grid-template-columns: repeat(4, 87px);
+    gap: 4px;
+  }
+  #wagers .button:not(.bet-buttons .button) {
     height: 26px;
     min-width: 54px;
     font-size: 12px;
@@ -684,6 +684,22 @@ textarea {
     min-width: 68px;
     font-size: 14px;
     padding: 0 12px;
+  }
+
+  #buttons_section1,
+  #buttons_section2 {
+    grid-template-columns: repeat(4, 96px);
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .bet-buttons .button {
+    width: 96px;
+    height: 56px;
+    min-height: unset;
+    min-width: unset;
+    font-size: 14px;
+    padding: 0;
   }
 
   #SubmitButton {

@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block title %}Commission Total — SmartWagers{% endblock title %}
 
@@ -271,11 +272,11 @@
   <div id="cm-summary">
     <div class="cm-card">
       <div class="cm-card-label">Total Commission</div>
-      <div class="cm-card-value">₱ {{ total_commission|floatformat:2 }}</div>
+      <div class="cm-card-value">₱ {{ total_commission|floatformat:2|intcomma }}</div>
     </div>
     <div class="cm-card">
       <div class="cm-card-label">Total Pot (All Fights)</div>
-      <div class="cm-card-value gold">₱ {{ total_pot_all|floatformat:2 }}</div>
+      <div class="cm-card-value gold">₱ {{ total_pot_all|floatformat:2|intcomma }}</div>
     </div>
     <div class="cm-card">
       <div class="cm-card-label">Plasada Rate</div>
@@ -316,8 +317,8 @@
               <span class="td-side-draw">{{ fc.side }}</span>
             {% endif %}
           </td>
-          <td class="td-pot">₱ {{ fc.totalpot|floatformat:2 }}</td>
-          <td class="td-commission">₱ {{ fc.commission|floatformat:2 }}</td>
+          <td class="td-pot">₱ {{ fc.totalpot|floatformat:2|intcomma }}</td>
+          <td class="td-commission">₱ {{ fc.commission|floatformat:2|intcomma }}</td>
           <td class="td-date">{{ fc.date }}</td>
         </tr>
         {% endfor %}
@@ -325,8 +326,8 @@
       <tfoot>
         <tr>
           <td colspan="2">Total ({{ fight_commissions|length }} fights)</td>
-          <td class="td-pot" style="text-align:right;">₱ {{ total_pot_all|floatformat:2 }}</td>
-          <td class="td-commission">₱ {{ total_commission|floatformat:2 }}</td>
+          <td class="td-pot" style="text-align:right;">₱ {{ total_pot_all|floatformat:2|intcomma }}</td>
+          <td class="td-commission">₱ {{ total_commission|floatformat:2|intcomma }}</td>
           <td></td>
         </tr>
       </tfoot>

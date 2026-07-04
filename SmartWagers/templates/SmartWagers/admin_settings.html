@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block title %}Settings — SmartWagers{% endblock title %}
 
@@ -352,7 +353,7 @@
                 <span class="side-badge badge-draw">{{ r.side }}</span>
               {% endif %}
             </td>
-            <td class="td-totalpot">₱ {{ r.totalpot|floatformat:2 }}</td>
+            <td class="td-totalpot">₱ {{ r.totalpot|floatformat:2|intcomma }}</td>
             <td class="td-date">{{ r.date }}</td>
             <td>
               <select class="winner-select" id="sel-{{ r.id }}">

@@ -182,7 +182,7 @@ def Main_admin(request):
             return JsonResponse({'ok': True})
 
         if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'confirm_print':
-            saved_wager = services.confirm_wager_receipt(request.POST.get('transaction_id', ''))
+            saved_wager = services.confirm_wager_receipt(request.POST.get('transaction_id', ''), admin=True)
             if saved_wager is None:
                 return JsonResponse({
                     'ok': False,
@@ -193,7 +193,7 @@ def Main_admin(request):
         wager = int(request.POST.get('wager_value', 0))
         wager_id = request.POST.get('wager_id', None)
 
-        if not services.is_betting_open(wager_id):
+        if not services.is_match_open():
             if request.headers.get('x-requested-with') == 'XMLHttpRequest':
                 return JsonResponse({
                     'ok': False,
