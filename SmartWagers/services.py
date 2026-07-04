@@ -682,12 +682,14 @@ def payout_request(transaction_id, requesting_cashier=None):
     with db_transaction.atomic():
         # Lock the wager row so two simultaneous barcode scans cannot both
         # pass the cashed_out check and issue a double payout.
-        qs = Wagers.objects.select_for_update().filter(
+        base_qs = Wagers.objects.select_for_update().filter(
             transactionid=transaction_id, registered=True
         )
+
         if active_event:
-            qs = qs.filter(created_at__gte=active_event.started_at)
-        payout_data = qs.first()
+            payout_data = base_qs.filter(created_at__gte=active_event.started_at).first()
+        else:
+            payout_data = base_qs.first()
 
         if payout_data is None or payout_data.transactionid is None:
             payout_result['error'] = 'notfound'
@@ -803,6 +805,125 @@ def payout_request(transaction_id, requesting_cashier=None):
         },
     })
     return payout_result
+
+def payout_old_ticket(event, teller_username, transaction_id):
+    """Process a payout for a winning ticket from a previous (ended) event.
+
+    This is an admin-only operation.  Unlike payout_request() it is explicitly
+    scoped to a known event + teller so there is no ambiguity between events
+    that share the same sequential transaction IDs.
+
+    Returns a dict with:
+      ok=True  + fight, side, wager, payout_amount, multiplier, odds
+      ok=False + error code (notfound | already_claimed | not_a_winner |
+                             no_result_yet | cancelled | draw)
+    For 'draw' and 'cancelled' the refund is also processed and ok=True is
+    returned so the caller can display the refund details.
+    """
+    wager_qs = Wagers.objects.filter(
+        transactionid=transaction_id,
+        cashier=teller_username,
+        registered=True,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+
+    with db_transaction.atomic():
+        wager = wager_qs.select_for_update().first()
+
+        if wager is None:
+            return {'ok': False, 'error': 'notfound'}
+
+        if wager.cashed_out:
+            return {'ok': False, 'error': 'already_claimed'}
+
+        fight_result = Fight_Results.objects.filter(
+            fightnum=wager.fightnum,
+            event=event,
+        ).order_by('id').first()
+
+        if fight_result is None:
+            return {'ok': False, 'error': 'no_result_yet'}
+
+        winner_side = fight_result.side.upper()
+
+        def _record_payout(amount):
+            try:
+                cashier_user = User.objects.get(username=teller_username)
+                TellerTransaction.objects.create(
+                    user=cashier_user,
+                    transaction_type=TellerTransaction.PAYOUT,
+                    amount=amount,
+                )
+            except User.DoesNotExist:
+                pass
+
+        if winner_side == 'CANCELLED':
+            wager.cashed_out = True
+            wager.save(update_fields=['cashed_out'])
+            _record_payout(wager.wager)
+            return {
+                'ok': True,
+                'result': 'cancelled',
+                'transaction_id': transaction_id,
+                'fight': wager.fightnum,
+                'side': wager.side,
+                'wager': wager.wager,
+                'payout_amount': wager.wager,
+                'odds': fight_result.odds,
+            }
+
+        if winner_side == 'DRAW':
+            wager.cashed_out = True
+            wager.save(update_fields=['cashed_out'])
+            _record_payout(wager.wager)
+            return {
+                'ok': True,
+                'result': 'draw',
+                'transaction_id': transaction_id,
+                'fight': wager.fightnum,
+                'side': wager.side,
+                'wager': wager.wager,
+                'payout_amount': wager.wager,
+                'odds': fight_result.odds,
+            }
+
+        if winner_side != wager.side.upper():
+            return {
+                'ok': False,
+                'error': 'not_a_winner',
+                'winner': winner_side,
+                'bet_side': wager.side,
+            }
+
+        # Winning ticket — compute payout
+        if winner_side == 'MERON':
+            payout_multiplier = fight_result.mpayout
+        elif winner_side == 'WALA':
+            payout_multiplier = fight_result.wpayout
+        else:
+            payout_multiplier = 100.0
+
+        payout_multiplier = round(payout_multiplier / 100, 4)
+        total_payout = wager.wager * payout_multiplier
+
+        wager.cashed_out = True
+        wager.save(update_fields=['cashed_out'])
+        _record_payout(total_payout)
+
+        return {
+            'ok': True,
+            'result': 'winner',
+            'transaction_id': transaction_id,
+            'fight': wager.fightnum,
+            'side': winner_side,
+            'wager': wager.wager,
+            'payout_amount': round(total_payout, 2),
+            'multiplier': round(payout_multiplier, 4),
+            'odds': fight_result.odds,
+        }
+
 
 def lookup_wager_for_reprint(transaction_id):
     active_event = get_active_event()

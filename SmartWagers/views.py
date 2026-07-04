@@ -1,7 +1,7 @@
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden
-from django.db.models import Sum
+from django.db.models import Sum, Count, Q
 from . import services as services
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -55,7 +55,7 @@ def group_required(group_name):
         def _wrapped_view(request, *args, **kwargs):
             if request.user.groups.filter(name=group_name).exists():
                 return view_func(request, *args, **kwargs)
-            return HttpResponseForbidden("You don't have access to this page.")
+            return render(request, '403.html', status=403)
         return _wrapped_view
     return decorator
 
@@ -585,36 +585,17 @@ def admin_event_report(request):
     except Group.DoesNotExist:
         tellers = []
 
-    teller_data = []
-    grand_total_all = 0.0
-    for teller in tellers:
-        balance, grand_total = _compute_teller_balance(teller, event=event)
-        txn_qs = TellerTransaction.objects.filter(
-            user=teller,
-            created_at__gte=event.started_at,
-        )
-        if event.ended_at:
-            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
-        remit_total = txn_qs.filter(
-            transaction_type=TellerTransaction.REMIT
-        ).aggregate(total=Sum('amount'))['total'] or 0.0
-
-        teller_data.append({
-            'user': teller,
-            'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
-            'grand_total': grand_total,
-            'remit_total': remit_total,
-            'balance': balance,
-        })
-        grand_total_all += grand_total
-
-    # Commission totals
+    # Commission / fight results
     plasada = services.get_comm_val()
     fight_results_qs = Fight_Results.objects.filter(event=event).order_by('fightnum')
     fight_commissions = [
         {
             'fightnum': r.fightnum,
             'side': r.side,
+            'mtotal': r.mtotal,
+            'wtotal': r.wtotal,
+            'mpayout': r.mpayout,
+            'wpayout': r.wpayout,
             'totalpot': r.totalpot,
             'commission': r.totalpot * plasada,
             'date': r.date,
@@ -624,17 +605,163 @@ def admin_event_report(request):
     total_pot_all = sum(fc['totalpot'] for fc in fight_commissions)
     total_commission = total_pot_all * plasada
 
+    # Build map of winning fights {fightnum: winning_side} for unclaimed bet detection.
+    # DRAW and CANCELLED are paid out immediately, so only MERON/WALA produce unclaimed tickets.
+    winning_fights = {
+        r.fightnum: r.side
+        for r in fight_results_qs
+        if r.side not in ('CANCELLED', 'DRAW')
+    }
+
+    # Fetch all unclaimed winning wagers for this event in one DB hit.
+    # Build both an aggregate dict (for the summary table) and a full list
+    # (for the detailed transaction-ID breakdown at the bottom).
+    unclaimed_by_cashier: dict = {}
+    unclaimed_detail_list: list = []
+    if winning_fights:
+        winning_filter = Q()
+        for fn, ws in winning_fights.items():
+            winning_filter |= Q(fightnum=fn, side=ws)
+
+        unclaimed_qs = Wagers.objects.filter(
+            winning_filter,
+            cashed_out=False,
+            registered=True,
+            created_at__gte=event.started_at,
+        ).exclude(cashier='System').order_by('cashier', 'fightnum', 'transactionid')
+
+        if event.ended_at:
+            unclaimed_qs = unclaimed_qs.filter(created_at__lte=event.ended_at)
+
+        # Aggregate totals per cashier for the summary table
+        for row in unclaimed_qs.values('cashier').annotate(
+            count=Count('id'), total=Sum('wager')
+        ):
+            unclaimed_by_cashier[row['cashier']] = {
+                'count': row['count'],
+                'total': row['total'] or 0.0,
+            }
+
+        # Full row-level detail for the transaction-ID breakdown section
+        for w in unclaimed_qs.values(
+            'transactionid', 'fightnum', 'side', 'wager', 'cashier', 'created_at'
+        ):
+            unclaimed_detail_list.append(w)
+
+    # Per-teller aggregates
+    teller_data = []
+    grand_total_all = 0.0
+    total_unclaimed_all = 0.0
+    total_bets_count_all = 0
+
+    for teller in tellers:
+        balance, grand_total = _compute_teller_balance(teller, event=event)
+        username = str(teller)
+
+        wager_qs = Wagers.objects.filter(
+            cashier=username, registered=True,
+            created_at__gte=event.started_at,
+        )
+        if event.ended_at:
+            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+
+        bet_stats = wager_qs.aggregate(
+            bet_count=Count('id'),
+            meron_total=Sum('wager', filter=Q(side='MERON')),
+            wala_total=Sum('wager', filter=Q(side='WALA')),
+            meron_count=Count('id', filter=Q(side='MERON')),
+            wala_count=Count('id', filter=Q(side='WALA')),
+        )
+        bet_count = bet_stats['bet_count'] or 0
+        meron_total = bet_stats['meron_total'] or 0.0
+        wala_total = bet_stats['wala_total'] or 0.0
+        meron_count = bet_stats['meron_count'] or 0
+        wala_count = bet_stats['wala_count'] or 0
+
+        txn_qs = TellerTransaction.objects.filter(
+            user=teller,
+            created_at__gte=event.started_at,
+        )
+        if event.ended_at:
+            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+        txn_stats = txn_qs.aggregate(
+            remit_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.REMIT)),
+            collect_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.COLLECT)),
+            payout_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.PAYOUT)),
+        )
+        remit_total   = txn_stats['remit_total']   or 0.0
+        collect_total = txn_stats['collect_total'] or 0.0
+        payout_total  = txn_stats['payout_total']  or 0.0
+
+        unclaimed_info = unclaimed_by_cashier.get(username, {'count': 0, 'total': 0.0})
+
+        teller_data.append({
+            'user': teller,
+            'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
+            'bet_count':      bet_count,
+            'meron_count':    meron_count,
+            'wala_count':     wala_count,
+            'grand_total':    grand_total,
+            'meron_total':    meron_total,
+            'wala_total':     wala_total,
+            'payout_total':   payout_total,
+            'remit_total':    remit_total,
+            'collect_total':  collect_total,
+            'unclaimed_count': unclaimed_info['count'],
+            'unclaimed_total': unclaimed_info['total'],
+            'balance':        balance,
+        })
+        grand_total_all       += grand_total
+        total_unclaimed_all   += unclaimed_info['total']
+        total_bets_count_all  += bet_count
+
     return render(request, 'SmartWagers/event_report.html', {
         'event': event,
         'all_events': all_events,
         'teller_data': teller_data,
         'grand_total_all': grand_total_all,
+        'total_unclaimed_all': total_unclaimed_all,
+        'total_bets_count_all': total_bets_count_all,
+        'unclaimed_detail_list': unclaimed_detail_list,
         'fight_commissions': fight_commissions,
         'total_pot_all': total_pot_all,
         'total_commission': total_commission,
         'plasada': plasada,
         'plasada_pct': plasada * 100,
     })
+
+
+@group_required('admin')
+def admin_claim_old_ticket(request):
+    """Admin-only: pay out a winning ticket from a specified past event and teller.
+
+    Accepts POST with: event_id, teller_username, transaction_id.
+    Returns JSON with the payout result or an error code.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    event_id       = request.POST.get('event_id', '').strip()
+    teller_username = request.POST.get('teller_username', '').strip()
+    transaction_id = request.POST.get('transaction_id', '').strip()
+
+    if not event_id or not teller_username or not transaction_id:
+        return JsonResponse({'ok': False, 'error': 'missing_params'}, status=400)
+
+    event = Event.objects.filter(pk=event_id).first()
+    if event is None:
+        return JsonResponse({'ok': False, 'error': 'event_not_found'}, status=404)
+
+    # Zero-pad to 6 digits to match stored format, but also allow the raw
+    # value in case the admin typed it without leading zeros.
+    padded_id = transaction_id.zfill(6)
+    result = services.payout_old_ticket(event, teller_username, padded_id)
+    if not result['ok'] and result.get('error') == 'notfound':
+        # Try without padding in case the stored ID is different.
+        result = services.payout_old_ticket(event, teller_username, transaction_id)
+
+    return JsonResponse(result)
 
 
 @group_required('admin')
