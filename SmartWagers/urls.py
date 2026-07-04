@@ -24,6 +24,7 @@ urlpatterns = [
     path("administrator/start-event/", views.start_event_view, name="admin-start-event"),
     path("administrator/end-event/", views.end_event_view, name="admin-end-event"),
     path("administrator/event-report/", views.admin_event_report, name="admin-event-report"),
+    path("administrator/claim-old-ticket/", views.admin_claim_old_ticket, name="admin-claim-old-ticket"),
     path("administrator/teller-transactions/", views.admin_teller_transactions, name="admin-teller-transactions"),
     path("administrator/commission/", views.admin_commission, name="admin-commission"),
     path("administrator/settings/", views.admin_settings, name="admin-settings"),
