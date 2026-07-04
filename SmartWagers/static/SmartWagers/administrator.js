@@ -31,9 +31,9 @@ administratorSocket.onmessage = async (event) => {
 
     if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
-        document.getElementById("M_payout").innerText = data.mpayout;
+        document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
         document.getElementById("W_total_bet").innerText = data.wtotal;
-        document.getElementById("W_payout").innerText = data.wpayout;
+        document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
         document.getElementById("ws_status").innerText = "Status: Connected";
 
     }else if ("payout" in data) {
@@ -144,9 +144,9 @@ async function update_disp_Pot(){
     const data = await response.json();
 
     document.getElementById("M_total_bet").innerText = data.M_total_bet;
-    document.getElementById("M_payout").innerText = data.M_payout;
+    document.getElementById("M_payout").innerText = "PAYOUT: " + data.M_payout;
     document.getElementById("W_total_bet").innerText = data.W_total_bet;
-    document.getElementById("W_payout").innerText = data.W_payout
+    document.getElementById("W_payout").innerText = "PAYOUT: " + data.W_payout
 }
 
 // ── Bet input enable/disable ──────────────────────────────
@@ -760,75 +760,44 @@ async function reprintReceipt() {
     }
 }
 async function update_trends() {
-    //console.log("Updating trends");
     const trends_response = await fetch(`/get_fight_results_view/`);
     const trend_data = await trends_response.json();
-    //console.log("Trends data received: ", trend_data);
 
     const trendsList = document.getElementById("trends");
-    trendsList.innerHTML = ''; // Clear existing rows
-    const headerRow = document.createElement("li");
-    headerRow.className = "sidebar-header";
-    headerRow.innerHTML = `
-        <div class="fightnum">FN</div>
-        <div class="winner">SIDE</div>
-        <div class="odds">Odds</div>
-    `;
-    trendsList.appendChild(headerRow);
+    trendsList.innerHTML = '';
+
 
     trend_data.forEach(match => {
-    const row = document.createElement("li");
-    let formattedOdds = '';
-    
-    if (match.odds === 'Llamado') { 
-      formattedOdds = 'L';
-    } else if (match.odds === 'Dehado') {
-      formattedOdds = 'D';
-    } else {
-      formattedOdds = "----";
-    }
+        const row = document.createElement("li");
+        row.className = "sidebar-row";
 
-    row.className = "sidebar-row";
+        let formattedOdds = '';
+        if (match.odds === 'Llamado') {
+            formattedOdds = 'L';
+        } else if (match.odds === 'Dehado') {
+            formattedOdds = 'D';
+        } else {
+            formattedOdds = "----";
+        }
 
-    const fightDiv = document.createElement("div");
-    fightDiv.className = "fightnum";
-    fightDiv.textContent = match.fightnum;
+        const fightDiv = document.createElement("div");
+        fightDiv.className = "fightnum";
+        fightDiv.textContent = match.fightnum;
 
-    const winnerDiv = document.createElement("div");
-    winnerDiv.className = "winner";
-    winnerDiv.textContent = match.side;
+        const oddsDiv = document.createElement("div");
+        oddsDiv.className = "odds";
+        oddsDiv.textContent = formattedOdds;
 
-    const oddsDiv = document.createElement("div");
-    oddsDiv.className = "odds";
-    oddsDiv.textContent = formattedOdds;
-
-    // 🎨 Apply background based on winner
-    if (match.side === "MERON") {
-        winnerDiv.style.background = "linear-gradient(to bottom, red, black)";
-        winnerDiv.style.color = "white";
-        oddsDiv.style.background = "linear-gradient(to bottom, red, black)";
+        // 🎨 Color coding based on winner
+        const colors = {
+            MERON: "linear-gradient(to bottom, red, black)",
+            WALA:  "linear-gradient(to bottom, blue, black)",
+        };
+        oddsDiv.style.background = colors[match.side] || "linear-gradient(to bottom, gray, black)";
         oddsDiv.style.color = "white";
-    } else if (match.side === "WALA") {
-        winnerDiv.style.background = "linear-gradient(to bottom, blue, black)";
-        winnerDiv.style.color = "white";
-        oddsDiv.style.background = "linear-gradient(to bottom, blue, black)";
-        oddsDiv.style.color = "white";
-    } else {
-        winnerDiv.style.background = "linear-gradient(to bottom, gray, black)";
-        winnerDiv.style.color = "white";
-        oddsDiv.style.background = "linear-gradient(to bottom, gray, black)";
-        oddsDiv.style.color = "white";
-    }
 
-    // 🧱 Append columns to row
-    row.appendChild(fightDiv);
-    row.appendChild(winnerDiv);
-    row.appendChild(oddsDiv);
-
-    // 📥 Add row to sidebar
-    trendsList.appendChild(row);
-
-  });
-
-
+        row.appendChild(fightDiv);
+        row.appendChild(oddsDiv);
+        trendsList.appendChild(row);
+    });
 }

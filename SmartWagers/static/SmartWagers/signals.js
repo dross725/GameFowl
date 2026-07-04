@@ -15,9 +15,9 @@ socket.onmessage = (event) => {
         }
     } else if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
-        document.getElementById("M_payout").innerText = data.mpayout;
+        document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
         document.getElementById("W_total_bet").innerText = data.wtotal;
-        document.getElementById("W_payout").innerText = data.wpayout;
+        document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
         if (data.fightnum != null) updateFightnum(data.fightnum);
     } else if ("side" in data && "side_status" in data) {
         const side   = data.side;
@@ -57,7 +57,7 @@ socket.onclose = () => {
 };
 
 function updateStatus(status) {
-    document.getElementById("ws_status").innerText = "Status: " + status;
+    document.getElementById("ws_status").innerText = "Fight Status: " + status;
 };
 
 function updateFightnum(fightnum){

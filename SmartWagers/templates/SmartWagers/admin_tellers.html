@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block title %}Teller Balances — SmartWagers{% endblock title %}
 
@@ -507,11 +508,11 @@
           <div class="teller-stats">
             <div class="teller-stat">
               <span class="teller-stat-label">Grand Total</span>
-              <span class="teller-stat-value neutral" id="gt-{{ td.user.pk }}">₱ {{ td.grand_total|floatformat:0 }}</span>
+              <span class="teller-stat-value neutral" id="gt-{{ td.user.pk }}">₱ {{ td.grand_total|floatformat:0|intcomma }}</span>
             </div>
             <div class="teller-stat">
               <span class="teller-stat-label">Balance</span>
-              <span class="teller-stat-value {% if td.balance < 0 %}negative{% endif %}" id="bal-{{ td.user.pk }}">₱ {{ td.balance|floatformat:0 }}</span>
+              <span class="teller-stat-value {% if td.balance < 0 %}negative{% endif %}" id="bal-{{ td.user.pk }}">₱ {{ td.balance|floatformat:0|intcomma }}</span>
             </div>
           </div>
 
@@ -550,7 +551,7 @@
                     <span class="type-badge {{ txn.transaction_type|lower }}">{{ txn.transaction_type }}</span>
                   </td>
                   <td class="td-ts">{{ txn.created_at|date:"Y-m-d" }} {{ txn.created_at|time:"H:i:s" }}</td>
-                  <td class="amount-{{ txn.transaction_type|lower }}">₱ {{ txn.amount|floatformat:0 }}</td>
+                  <td class="amount-{{ txn.transaction_type|lower }}">₱ {{ txn.amount|floatformat:0|intcomma }}</td>
                   <td>
                     {% if txn.transaction_type == 'REMIT' %}
                       {% if txn.received %}

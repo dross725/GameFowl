@@ -2,12 +2,12 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=18">
+    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=19">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=wrong-teller-1"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}?v=sidebar-v4"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
     <script src="{% static 'SmartWagers/user.js' %}?v=wrong-teller-1"></script>
 {% endblock script_files %}
@@ -38,16 +38,21 @@
                 <section class='bet-buttons'>
                     <section id='buttons_section1'>
                         <div class='button' onclick='addValue(100)'>100</div>
-                        <div class='button' onclick='addValue(200)'>200</div>
                         <div class='button' onclick='addValue(500)'>500</div>
                         <div class='button' onclick='addValue(1000)'>1,000</div>
-                    </section>
-                    <section id='buttons_section2'>
+                        <div class='button' onclick='addValue(1500)'>1,500</div>
                         <div class='button' onclick='addValue(2000)'>2,000</div>
+                        <div class='button' onclick='addValue(2500)'>2,500</div>
+                        <div class='button' onclick='addValue(3000)'>3,000</div>
+                        <div class='button' onclick='addValue(3500)'>3,500</div>
+                        <div class='button' onclick='addValue(4000)'>4,000</div>
+                        <div class='button' onclick='addValue(4500)'>4,500</div>
                         <div class='button' onclick='addValue(5000)'>5,000</div>
+                        <div class='button' onclick='addValue(6000)'>6,000</div>
+                        <div class='button' onclick='addValue(7000)'>7,000</div>
+                        <div class='button' onclick='addValue(8000)'>8,000</div>
+                        <div class='button' onclick='addValue(9000)'>9,000</div>
                         <div class='button' onclick='addValue(10000)'>10,000</div>
-                        <div class='button' onclick='addValue(15000)'>15,000</div>
-                        <div class='button' onclick='addValue(20000)'>20,000</div>
                     </section>
                 </section>
                 <section id='submitreset-button'>

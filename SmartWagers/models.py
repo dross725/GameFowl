@@ -1,7 +1,8 @@
-from django.db import models, transaction as db_transaction
+from django.db import models, transaction as db_transaction, IntegrityError
 from datetime import datetime
 from django.utils.timezone import now
 from django.contrib.auth.models import User
+import uuid
 
 
 # Create your models here.
@@ -16,28 +17,34 @@ class Wagers (models.Model):
     registered = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
-        if self.pk is None and self.cashier != 'System':
-            from django.apps import apps
-            with db_transaction.atomic():
-                Event = apps.get_model('SmartWagers', 'Event')
-                active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
-                # Lock the latest non-system wager row so concurrent saves
-                # cannot read the same "last" ID and produce a duplicate.
-                qs = Wagers.objects.select_for_update().exclude(cashier='System')
-                if active_event:
-                    qs = qs.filter(created_at__gte=active_event.started_at)
-                last_number = 0
-                for tid in qs.order_by('-id').values_list('transactionid', flat=True):
-                    try:
-                        n = int(tid)
-                        if 0 < n < 1_000_000:
-                            last_number = n
-                            break
-                    except (ValueError, TypeError):
-                        continue
-                self.transactionid = str(last_number + 1).zfill(6)
-                super().save(*args, **kwargs)
+        if self.pk is None and self.cashier == 'System':
+            # System wagers get a unique prefixed ID so they never collide with
+            # the sequential teller IDs (000001–999999).
+            self.transactionid = 'S' + uuid.uuid4().hex[:9].upper()
+            super().save(*args, **kwargs)
             return
+        if self.pk is None and self.cashier != 'System':
+            # SQLite ignores SELECT FOR UPDATE, so concurrent saves can race.
+            # Retry up to 5 times, re-reading the global max each attempt.
+            for _attempt in range(5):
+                with db_transaction.atomic():
+                    qs = Wagers.objects.select_for_update().exclude(cashier='System')
+                    last_number = 0
+                    for tid in qs.order_by('-id').values_list('transactionid', flat=True):
+                        try:
+                            n = int(tid)
+                            if 0 < n < 1_000_000:
+                                last_number = n
+                                break
+                        except (ValueError, TypeError):
+                            continue
+                    self.transactionid = str(last_number + 1).zfill(6)
+                    try:
+                        super().save(*args, **kwargs)
+                        return
+                    except IntegrityError:
+                        continue
+            raise IntegrityError("Could not assign a unique transactionid after 5 attempts.")
         super().save(*args, **kwargs)
 
     def formatted_time(self):
@@ -140,27 +147,27 @@ class TellerTransaction(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk is None:
-            from django.apps import apps
-            with db_transaction.atomic():
-                Event = apps.get_model('SmartWagers', 'Event')
-                active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
-                # Lock the latest transaction row to prevent concurrent saves
-                # from reading the same last ID and generating a duplicate.
-                qs = TellerTransaction.objects.select_for_update()
-                if active_event:
-                    qs = qs.filter(created_at__gte=active_event.started_at)
-                last_number = 0
-                for tid in qs.order_by('-id').values_list('transaction_id', flat=True):
+            # SQLite ignores SELECT FOR UPDATE, so concurrent saves can race.
+            # Retry up to 5 times, re-reading the global max each attempt.
+            for _attempt in range(5):
+                with db_transaction.atomic():
+                    qs = TellerTransaction.objects.select_for_update()
+                    last_number = 0
+                    for tid in qs.order_by('-id').values_list('transaction_id', flat=True):
+                        try:
+                            n = int(tid[1:])  # strip leading 'R'
+                            if 0 < n < 1_000_000:
+                                last_number = n
+                                break
+                        except (ValueError, TypeError, IndexError):
+                            continue
+                    self.transaction_id = f"R{str(last_number + 1).zfill(6)}"
                     try:
-                        n = int(tid[1:])  # strip leading 'R'
-                        if 0 < n < 1_000_000:
-                            last_number = n
-                            break
-                    except (ValueError, TypeError, IndexError):
+                        super().save(*args, **kwargs)
+                        return
+                    except IntegrityError:
                         continue
-                self.transaction_id = f"R{str(last_number + 1).zfill(6)}"
-                super().save(*args, **kwargs)
-            return
+            raise IntegrityError("Could not assign a unique transaction_id after 5 attempts.")
         super().save(*args, **kwargs)
 
     def __str__(self):

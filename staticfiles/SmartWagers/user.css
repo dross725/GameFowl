@@ -286,16 +286,16 @@ textarea {
 }
 
 .bet-buttons .button {
-  height: 38px;
-  min-width: 78px;
+  height: 18px;
+  min-width: 28px;
   padding: 0 14px;
   font-size: 16px;
 }
 
 /* ── Generic button ──────────────────────────────────────── */
 .button {
-  height: 33px;
-  min-width: 68px;
+  height: 18px;
+  min-width: 28px;
   color: white;
   padding: 0 12px;
   text-align: center;
