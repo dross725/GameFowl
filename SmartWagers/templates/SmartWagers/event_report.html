@@ -34,6 +34,7 @@
 
 {% block css_files %}
 <style>
+  /* ── Layout ── */
   #wagers_section {
     overflow-y: auto !important;
     background: none !important;
@@ -49,13 +50,13 @@
   #er-wrapper {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 16px 18px 24px;
+    gap: 16px;
+    padding: 16px 18px 28px;
     flex: 1;
     min-height: 0;
   }
 
-  /* ── Top bar ─── */
+  /* ── Top bar ── */
   #er-topbar {
     display: flex;
     align-items: flex-start;
@@ -64,12 +65,7 @@
     gap: 10px;
   }
 
-  #er-title {
-    font-size: 18px;
-    font-weight: 900;
-    color: white;
-    letter-spacing: 0.4px;
-  }
+  #er-title { font-size: 18px; font-weight: 900; color: white; letter-spacing: 0.4px; }
 
   #er-event-name {
     font-size: 24px;
@@ -78,11 +74,7 @@
     margin-top: 2px;
   }
 
-  #er-meta {
-    font-size: 12px;
-    color: rgba(255,255,255,0.45);
-    margin-top: 4px;
-  }
+  #er-meta { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 4px; }
 
   #er-status-badge {
     display: inline-block;
@@ -97,17 +89,9 @@
   .badge-active { background: rgba(26,122,74,0.25); color: #2ecc71; border: 1px solid rgba(46,204,113,0.35); }
   .badge-ended  { background: rgba(122,26,26,0.25); color: #e74c3c; border: 1px solid rgba(231,76,60,0.35); }
 
-  /* ── Event selector ─── */
-  #er-event-select-wrap {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  #er-event-select-wrap label {
-    font-size: 12px;
-    color: rgba(255,255,255,0.45);
-    white-space: nowrap;
-  }
+  /* ── Event selector ── */
+  #er-event-select-wrap { display: flex; align-items: center; gap: 8px; }
+  #er-event-select-wrap label { font-size: 12px; color: rgba(255,255,255,0.45); white-space: nowrap; }
   #er-event-select {
     background: #1b1e27;
     border: 1px solid rgba(255,255,255,0.15);
@@ -118,64 +102,61 @@
     cursor: pointer;
   }
 
-  /* ── Summary cards ─── */
-  #er-summary {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
+  /* ── Summary cards ── */
+  #er-summary { display: flex; gap: 10px; flex-wrap: wrap; }
 
   .er-card {
     background: #1b1e27;
     border: 1px solid rgba(255,255,255,0.09);
     border-radius: 10px;
     padding: 12px 20px;
-    min-width: 160px;
+    min-width: 150px;
+    flex: 1;
     display: flex;
     flex-direction: column;
     gap: 2px;
     box-shadow: 0 4px 16px rgba(0,0,0,0.35);
   }
   .er-card-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: rgba(255,255,255,0.40);
+    font-size: 10px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.38);
     text-transform: uppercase;
     letter-spacing: 0.8px;
   }
   .er-card-value {
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 900;
     color: #f1c40f;
-    line-height: 1.1;
+    line-height: 1.15;
   }
   .er-card-value.white  { color: white; }
   .er-card-value.green  { color: #2ecc71; }
-
-  /* ── Commission section ── */
-  #er-commission {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
+  .er-card-value.red    { color: #e74c3c; }
+  .er-card-value.blue   { color: #3498db; }
+  .er-card-sub {
+    font-size: 11px;
+    color: rgba(255,255,255,0.30);
+    margin-top: 1px;
   }
 
-  #er-commission-header {
+  /* ── Section headers ── */
+  .er-section-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 8px;
+    margin-bottom: 6px;
   }
-
-  #er-commission-label {
+  .er-section-label {
     font-size: 12px;
     font-weight: 700;
     color: rgba(255,255,255,0.40);
     text-transform: uppercase;
     letter-spacing: 0.9px;
   }
-
-  #er-commission-rate {
+  .er-section-badge {
     font-size: 11px;
     color: rgba(255,255,255,0.35);
     background: rgba(255,255,255,0.05);
@@ -184,16 +165,97 @@
     padding: 3px 10px;
   }
 
-  #er-commission-table-wrap {
+  /* ── Generic scrollable table wrap ── */
+  .er-table-wrap {
     border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.08);
     overflow: hidden;
+    overflow-x: auto;
   }
 
+  /* ── Teller table ── */
+  #er-teller-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 780px;
+  }
+
+  #er-teller-table thead th {
+    background: #12151c;
+    color: rgba(255,255,255,0.40);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+  }
+
+  .th-group-header {
+    background: #0e1118 !important;
+    color: rgba(255,255,255,0.25) !important;
+    font-size: 9px !important;
+    letter-spacing: 0.5px;
+    padding: 4px 12px !important;
+    border-bottom: none !important;
+    text-align: center !important;
+  }
+  .th-group-header.left { text-align: left !important; }
+
+  #er-teller-table thead th.num { text-align: right; }
+
+  #er-teller-table tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.10s;
+  }
+  #er-teller-table tbody tr:last-child { border-bottom: none; }
+  #er-teller-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+  #er-teller-table td {
+    padding: 8px 12px;
+    color: rgba(255,255,255,0.75);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  #er-teller-table td.num { text-align: right; }
+
+  #er-teller-table tfoot td {
+    padding: 8px 12px;
+    background: #12151c;
+    border-top: 2px solid rgba(255,255,255,0.10);
+    font-weight: 800;
+    font-size: 13px;
+    color: rgba(255,255,255,0.60);
+    position: sticky;
+    bottom: 0;
+    white-space: nowrap;
+  }
+  #er-teller-table tfoot td.num { text-align: right; }
+
+  /* cell colours */
+  .c-name     { font-weight: 700; color: white !important; }
+  .c-count    { font-size: 11px; color: rgba(255,255,255,0.45) !important; }
+  .c-meron    { color: #e74c3c !important; font-weight: 600; }
+  .c-wala     { color: #3498db !important; font-weight: 600; }
+  .c-total    { color: #f1c40f !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .c-payout   { color: rgba(255,255,255,0.55) !important; font-variant-numeric: tabular-nums; }
+  .c-remit    { color: rgba(255,255,255,0.55) !important; font-variant-numeric: tabular-nums; }
+  .c-collect  { color: #3498db !important; font-variant-numeric: tabular-nums; }
+  .c-unclaim  { color: #e74c3c !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .c-unclaim.zero { color: rgba(255,255,255,0.20) !important; font-weight: 400; }
+  .c-balance-pos { color: #2ecc71 !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .c-balance-zer { color: rgba(255,255,255,0.30) !important; }
+  .c-balance-neg { color: #e74c3c !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  /* ── Commission table ── */
   #er-comm-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
+    min-width: 600px;
   }
 
   #er-comm-table thead th {
@@ -208,7 +270,7 @@
     border-bottom: 1px solid rgba(255,255,255,0.08);
     white-space: nowrap;
   }
-  #er-comm-table thead th:not(:first-child):not(:nth-child(2)) { text-align: right; }
+  #er-comm-table thead th.num { text-align: right; }
 
   #er-comm-table tbody tr {
     border-bottom: 1px solid rgba(255,255,255,0.04);
@@ -221,8 +283,9 @@
     padding: 7px 12px;
     color: rgba(255,255,255,0.75);
     vertical-align: middle;
+    white-space: nowrap;
   }
-  #er-comm-table td:not(:first-child):not(:nth-child(2)) { text-align: right; }
+  #er-comm-table td.num { text-align: right; }
 
   .comm-fn   { font-weight: 800; color: white !important; }
   .comm-pot  { font-variant-numeric: tabular-nums; color: rgba(255,255,255,0.55) !important; }
@@ -230,6 +293,7 @@
   .comm-side-meron { font-weight: 700; color: #e74c3c !important; font-size: 11px; }
   .comm-side-wala  { font-weight: 700; color: #3498db !important; font-size: 11px; }
   .comm-side-draw  { font-weight: 700; color: #f1c40f !important; font-size: 11px; }
+  .comm-side-cancelled { font-weight: 700; color: rgba(255,255,255,0.30) !important; font-size: 11px; }
 
   #er-comm-table tfoot td {
     padding: 7px 12px;
@@ -240,89 +304,202 @@
     color: rgba(255,255,255,0.65);
     position: sticky;
     bottom: 0;
-  }
-  #er-comm-table tfoot td:not(:first-child):not(:nth-child(2)) { text-align: right; }
-  #er-comm-table tfoot .comm-val { font-size: 14px; }
-
-  /* ── Table ─── */
-  #er-table-container {
-    flex: 1;
-    overflow-y: auto;
-    border-radius: 10px;
-    border: 1px solid rgba(255,255,255,0.09);
-    box-shadow: 0 4px 20px rgba(0,0,0,0.40);
-  }
-
-  #er-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-
-  #er-table thead {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  #er-table thead th {
-    background: #12151c;
-    color: rgba(255,255,255,0.50);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    padding: 10px 14px;
-    text-align: left;
-    border-bottom: 1px solid rgba(255,255,255,0.10);
     white-space: nowrap;
   }
+  #er-comm-table tfoot td.num { text-align: right; }
+  #er-comm-table tfoot .comm-val { font-size: 14px; }
 
-  #er-table thead th:not(:first-child) { text-align: right; }
-
-  #er-table tbody tr {
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-    transition: background 0.12s;
+  /* ── Unclaimed bets highlight ── */
+  .unclaimed-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(231,76,60,0.12);
+    border: 1px solid rgba(231,76,60,0.25);
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: #e74c3c;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    user-select: none;
   }
-  #er-table tbody tr:last-child { border-bottom: none; }
-  #er-table tbody tr:hover { background: rgba(255,255,255,0.04); }
+  .unclaimed-pill:hover {
+    background: rgba(231,76,60,0.22);
+    border-color: rgba(231,76,60,0.50);
+  }
 
-  #er-table td {
+  /* ── Old-ticket claim modal ── */
+  #ot-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 9000;
+    align-items: center;
+    justify-content: center;
+  }
+  #ot-box {
+    background: #1b1e27;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 28px 32px 24px;
+    width: 420px;
+    max-width: 95vw;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.70);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  #ot-box h2 {
+    font-size: 16px;
+    font-weight: 900;
+    color: white;
+    margin: 0;
+  }
+  .ot-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
     padding: 10px 14px;
-    color: rgba(255,255,255,0.88);
-    vertical-align: middle;
+    font-size: 12px;
+    color: rgba(255,255,255,0.55);
   }
-  #er-table td:not(:first-child) { text-align: right; }
+  .ot-meta strong { color: white; }
 
-  .td-teller-name {
+  #ot-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  #ot-ticket-input {
+    flex: 1;
+    background: #12151c;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: white;
+    padding: 10px 14px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    outline: none;
+    font-family: monospace;
+  }
+  #ot-ticket-input:focus { border-color: rgba(241,196,15,0.60); }
+
+  #ot-status {
+    font-size: 12px;
+    min-height: 1.2em;
+  }
+
+  #ot-result-box {
+    display: none;
+    background: rgba(46,204,113,0.07);
+    border: 1px solid rgba(46,204,113,0.25);
+    border-radius: 8px;
+    padding: 14px 16px;
+    gap: 8px;
+    flex-direction: column;
+  }
+  #ot-result-box.show { display: flex; }
+  .ot-result-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: rgba(255,255,255,0.65);
+  }
+  .ot-result-row .val { font-weight: 700; color: white; }
+  .ot-result-row .val.green { color: #2ecc71; }
+  .ot-result-row .val.meron { color: #e74c3c; }
+  .ot-result-row .val.wala  { color: #3498db; }
+  .ot-result-row .val.draw  { color: #f1c40f; }
+
+  .ot-btn-row {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+  .ot-btn {
+    padding: 8px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s;
+  }
+  .ot-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .ot-btn-primary { background: #f1c40f; color: #12151c; }
+  .ot-btn-primary:hover:not(:disabled) { opacity: 0.85; }
+  .ot-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.65); border: 1px solid rgba(255,255,255,0.12); }
+  .ot-btn-secondary:hover { background: rgba(255,255,255,0.13); }
+
+  /* ── Unclaimed detail table ── */
+  #er-unclaimed-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 520px;
+  }
+
+  #er-unclaimed-table thead th {
+    background: #1a0f0f;
+    color: rgba(231,76,60,0.55);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+    padding: 7px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(231,76,60,0.15);
+    white-space: nowrap;
+  }
+  #er-unclaimed-table thead th.num { text-align: right; }
+
+  #er-unclaimed-table tbody tr {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.10s;
+  }
+  #er-unclaimed-table tbody tr:last-child { border-bottom: none; }
+  #er-unclaimed-table tbody tr:hover { background: rgba(231,76,60,0.05); }
+
+  #er-unclaimed-table td {
+    padding: 7px 12px;
+    color: rgba(255,255,255,0.70);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  #er-unclaimed-table td.num { text-align: right; }
+
+  #er-unclaimed-table tfoot td {
+    padding: 7px 12px;
+    background: #1a0f0f;
+    border-top: 2px solid rgba(231,76,60,0.18);
+    font-weight: 800;
+    font-size: 13px;
+    color: rgba(255,255,255,0.55);
+    white-space: nowrap;
+  }
+  #er-unclaimed-table tfoot td.num { text-align: right; }
+
+  .c-txnid {
+    font-family: monospace;
+    font-size: 13px;
     font-weight: 700;
     color: white !important;
+    letter-spacing: 0.5px;
   }
+  .c-tname  { color: rgba(255,255,255,0.80) !important; font-weight: 600; }
+  .c-fight  { font-weight: 800; color: rgba(255,255,255,0.65) !important; }
+  .c-date   { font-size: 11px; color: rgba(255,255,255,0.35) !important; }
 
-  .td-amount {
-    font-weight: 700;
-    color: #f1c40f !important;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .td-balance-positive { color: #2ecc71 !important; font-weight: 700; }
-  .td-balance-zero     { color: rgba(255,255,255,0.40) !important; }
-  .td-balance-negative { color: #e74c3c !important; font-weight: 700; }
-
-  #er-table tfoot td {
-    padding: 10px 14px;
-    background: #12151c;
-    border-top: 2px solid rgba(255,255,255,0.12);
-    font-weight: 800;
-    font-size: 14px;
-    color: rgba(255,255,255,0.70);
-    position: sticky;
-    bottom: 0;
-  }
-  #er-table tfoot td:not(:first-child) { text-align: right; }
-  #er-table tfoot .td-amount { font-size: 16px; }
-
-  /* ── Empty / no event ─── */
+  /* ── Empty / no event ── */
   #er-empty {
     display: flex;
     flex-direction: column;
@@ -334,7 +511,7 @@
     font-size: 14px;
   }
 
-  /* ── Back link ─── */
+  /* ── Back link ── */
   #er-back {
     display: inline-block;
     font-size: 13px;
@@ -344,11 +521,17 @@
   }
   #er-back:hover { color: white; }
 
+  /* ── Divider ── */
+  .er-divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.07);
+    margin: 0;
+  }
+
   @media (max-width: 768px) {
-    #er-wrapper { padding: 10px 10px 16px; gap: 10px; }
-    .er-card { flex: 1; min-width: 120px; padding: 10px 14px; }
-    .er-card-value { font-size: 18px; }
-    #er-table thead th, #er-table td { padding: 8px 10px; font-size: 12px; }
+    #er-wrapper { padding: 10px 10px 20px; gap: 12px; }
+    .er-card { min-width: 130px; padding: 10px 14px; }
+    .er-card-value { font-size: 17px; }
   }
 </style>
 {% endblock css_files %}
@@ -359,6 +542,7 @@
 {% block content %}
 <div id="er-wrapper">
 
+  <!-- Top bar: title + event switcher -->
   <div id="er-topbar">
     <div>
       <div id="er-title">Event Report</div>
@@ -396,13 +580,15 @@
 
   {% if event %}
 
+  <!-- ── Summary cards ── -->
   <div id="er-summary">
     <div class="er-card">
-      <div class="er-card-label">Total Tellers</div>
+      <div class="er-card-label">Tellers</div>
       <div class="er-card-value white">{{ teller_data|length }}</div>
+      <div class="er-card-sub">{{ total_bets_count_all }} total bets</div>
     </div>
     <div class="er-card">
-      <div class="er-card-label">Grand Total (All Tellers)</div>
+      <div class="er-card-label">Total Bets Collected</div>
       <div class="er-card-value">₱ {{ grand_total_all|floatformat:2|intcomma }}</div>
     </div>
     <div class="er-card">
@@ -413,61 +599,191 @@
       <div class="er-card-label">Commission ({{ plasada_pct|floatformat:1 }}%)</div>
       <div class="er-card-value green">₱ {{ total_commission|floatformat:2|intcomma }}</div>
     </div>
+    <div class="er-card">
+      <div class="er-card-label">Unclaimed Winning Bets</div>
+      <div class="er-card-value red">₱ {{ total_unclaimed_all|floatformat:2|intcomma }}</div>
+      <div class="er-card-sub">Not yet paid out to bettors</div>
+    </div>
   </div>
 
+  <hr class="er-divider">
+
+  <!-- ── Teller breakdown table ── -->
   {% if teller_data %}
-  <div id="er-table-container">
-    <table id="er-table">
-      <thead>
-        <tr>
-          <th>Teller</th>
-          <th>Grand Total Collected</th>
-          <th>Total Remitted</th>
-          <th>On-Hand Balance</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in teller_data %}
-        <tr>
-          <td class="td-teller-name">{{ t.display_name }}</td>
-          <td class="td-amount">₱ {{ t.grand_total|floatformat:2|intcomma }}</td>
-          <td style="text-align:right; color:rgba(255,255,255,0.60);">₱ {{ t.remit_total|floatformat:2|intcomma }}</td>
-          <td class="{% if t.balance > 0 %}td-balance-positive{% elif t.balance == 0 %}td-balance-zero{% else %}td-balance-negative{% endif %}">
-            ₱ {{ t.balance|floatformat:2|intcomma }}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-      <tfoot>
-        <tr>
-          <td>Total ({{ teller_data|length }} tellers)</td>
-          <td class="td-amount">₱ {{ grand_total_all|floatformat:2|intcomma }}</td>
-          <td></td>
-          <td></td>
-        </tr>
-      </tfoot>
-    </table>
+  <div>
+    <div class="er-section-header">
+      <span class="er-section-label">Teller Performance Breakdown</span>
+      <span class="er-section-badge">{{ teller_data|length }} teller{{ teller_data|length|pluralize }}</span>
+    </div>
+    <div class="er-table-wrap">
+      <table id="er-teller-table">
+        <thead>
+          <tr>
+            <th class="th-group-header left" rowspan="1">Teller</th>
+            <th class="th-group-header" colspan="3">Bets Placed</th>
+            <th class="th-group-header" colspan="3">Transactions</th>
+            <th class="th-group-header" colspan="2">Unclaimed Wins</th>
+            <th class="th-group-header">Balance</th>
+          </tr>
+          <tr>
+            <th>Name</th>
+            <th class="num">Count</th>
+            <th class="num">Meron</th>
+            <th class="num">Wala</th>
+            <th class="num">Gross Collected</th>
+            <th class="num">Payouts</th>
+            <th class="num">Remitted</th>
+            <th class="num">Count</th>
+            <th class="num">Amount</th>
+            <th class="num">On-Hand</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in teller_data %}
+          <tr>
+            <td class="c-name">{{ t.display_name }}</td>
+            <td class="num c-count">{{ t.bet_count }}</td>
+            <td class="num c-meron">
+              {% if t.meron_count > 0 %}
+                ₱ {{ t.meron_total|floatformat:0|intcomma }}
+                <span class="c-count">({{ t.meron_count }})</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num c-wala">
+              {% if t.wala_count > 0 %}
+                ₱ {{ t.wala_total|floatformat:0|intcomma }}
+                <span class="c-count">({{ t.wala_count }})</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num c-total">₱ {{ t.grand_total|floatformat:2|intcomma }}</td>
+            <td class="num c-payout">
+              {% if t.payout_total > 0 %}₱ {{ t.payout_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num c-remit">
+              {% if t.remit_total > 0 %}₱ {{ t.remit_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num">
+              {% if t.unclaimed_count > 0 %}
+                <span class="unclaimed-pill"
+                      title="Click to claim an old ticket for this teller"
+                      onclick="openOldTicketModal(
+                        '{{ t.user.username|escapejs }}',
+                        '{{ t.display_name|escapejs }}',
+                        '{{ event.id }}',
+                        '{{ event.name|escapejs }}'
+                      )">
+                  ▶ {{ t.unclaimed_count }} ticket{{ t.unclaimed_count|pluralize }}
+                </span>
+              {% else %}
+                <span style="color:rgba(255,255,255,0.20);">—</span>
+              {% endif %}
+            </td>
+            <td class="num {% if t.unclaimed_count > 0 %}c-unclaim{% else %}c-unclaim zero{% endif %}">
+              {% if t.unclaimed_count > 0 %}₱ {{ t.unclaimed_total|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num {% if t.balance > 0 %}c-balance-pos{% elif t.balance == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
+              ₱ {{ t.balance|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Totals ({{ teller_data|length }} tellers)</td>
+            <td class="num c-count">{{ total_bets_count_all }}</td>
+            <td></td>
+            <td></td>
+            <td class="num c-total">₱ {{ grand_total_all|floatformat:2|intcomma }}</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="num c-unclaim {% if total_unclaimed_all == 0 %}zero{% endif %}">
+              {% if total_unclaimed_all > 0 %}₱ {{ total_unclaimed_all|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
   </div>
+
+  <!-- ── Unclaimed wins detail table ── -->
+  {% if unclaimed_detail_list %}
+  <div>
+    <div class="er-section-header" style="margin-bottom:8px;">
+      <span class="er-section-label" style="color:#e74c3c;">Unclaimed Winning Tickets</span>
+      <span class="er-section-badge" style="border-color:rgba(231,76,60,0.25);color:#e74c3c;">
+        {{ unclaimed_detail_list|length }} ticket{{ unclaimed_detail_list|length|pluralize }} · ₱ {{ total_unclaimed_all|floatformat:2|intcomma }}
+      </span>
+    </div>
+    <div style="background:rgba(231,76,60,0.05);border:1px solid rgba(231,76,60,0.18);border-radius:8px;padding:8px 14px;font-size:11px;color:rgba(255,255,255,0.50);margin-bottom:8px;">
+      These winning tickets have not been presented for payout and remain outstanding.
+    </div>
+    <div class="er-table-wrap">
+      <table id="er-unclaimed-table">
+        <thead>
+          <tr>
+            <th>Transaction ID</th>
+            <th>Teller</th>
+            <th class="num">Fight #</th>
+            <th>Side</th>
+            <th class="num">Bet Amount</th>
+            <th>Date &amp; Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for w in unclaimed_detail_list %}
+          <tr>
+            <td class="c-txnid">{{ w.transactionid }}</td>
+            <td class="c-tname">{{ w.cashier }}</td>
+            <td class="num c-fight">{{ w.fightnum }}</td>
+            <td>
+              {% if w.side == 'MERON' %}<span class="comm-side-meron">MERON</span>
+              {% elif w.side == 'WALA' %}<span class="comm-side-wala">WALA</span>
+              {% else %}<span style="color:rgba(255,255,255,0.40);">{{ w.side }}</span>{% endif %}
+            </td>
+            <td class="num c-unclaim">₱ {{ w.wager|floatformat:2|intcomma }}</td>
+            <td class="c-date">{{ w.created_at|date:"Y-m-d H:i" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4">Total Unclaimed ({{ unclaimed_detail_list|length }} ticket{{ unclaimed_detail_list|length|pluralize }})</td>
+            <td class="num c-unclaim">₱ {{ total_unclaimed_all|floatformat:2|intcomma }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
   {% else %}
   <div id="er-empty">
     <p>No teller activity recorded for this event.</p>
   </div>
   {% endif %}
 
+  <hr class="er-divider">
+
+  <!-- ── Commission / fight results breakdown ── -->
   {% if fight_commissions %}
-  <div id="er-commission">
-    <div id="er-commission-header">
-      <span id="er-commission-label">Commission Breakdown by Fight</span>
-      <span id="er-commission-rate">Plasada {{ plasada_pct|floatformat:1 }}% · {{ fight_commissions|length }} fight{{ fight_commissions|length|pluralize }}</span>
+  <div>
+    <div class="er-section-header">
+      <span class="er-section-label">Commission Breakdown by Fight</span>
+      <span class="er-section-badge">Plasada {{ plasada_pct|floatformat:1 }}% · {{ fight_commissions|length }} fight{{ fight_commissions|length|pluralize }}</span>
     </div>
-    <div id="er-commission-table-wrap">
+    <div class="er-table-wrap">
       <table id="er-comm-table">
         <thead>
           <tr>
             <th>Fight #</th>
             <th>Winner</th>
-            <th>Total Pot</th>
-            <th>Commission</th>
+            <th class="num">Meron Pool</th>
+            <th class="num">Wala Pool</th>
+            <th class="num">Total Pot</th>
+            <th class="num">Commission</th>
             <th>Date</th>
           </tr>
         </thead>
@@ -478,10 +794,17 @@
             <td>
               {% if fc.side == 'MERON' %}<span class="comm-side-meron">MERON</span>
               {% elif fc.side == 'WALA' %}<span class="comm-side-wala">WALA</span>
-              {% else %}<span class="comm-side-draw">{{ fc.side }}</span>{% endif %}
+              {% elif fc.side == 'DRAW' %}<span class="comm-side-draw">DRAW</span>
+              {% else %}<span class="comm-side-cancelled">{{ fc.side }}</span>{% endif %}
             </td>
-            <td class="comm-pot">₱ {{ fc.totalpot|floatformat:2|intcomma }}</td>
-            <td class="comm-val">₱ {{ fc.commission|floatformat:2|intcomma }}</td>
+            <td class="num c-meron">
+              {% if fc.mtotal > 0 %}₱ {{ fc.mtotal|floatformat:0|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num c-wala">
+              {% if fc.wtotal > 0 %}₱ {{ fc.wtotal|floatformat:0|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num comm-pot">₱ {{ fc.totalpot|floatformat:2|intcomma }}</td>
+            <td class="num comm-val">₱ {{ fc.commission|floatformat:2|intcomma }}</td>
             <td style="font-size:11px;color:rgba(255,255,255,0.35);">{{ fc.date }}</td>
           </tr>
           {% endfor %}
@@ -489,8 +812,10 @@
         <tfoot>
           <tr>
             <td colspan="2">Total ({{ fight_commissions|length }} fights)</td>
-            <td class="comm-pot" style="text-align:right;">₱ {{ total_pot_all|floatformat:2|intcomma }}</td>
-            <td class="comm-val">₱ {{ total_commission|floatformat:2|intcomma }}</td>
+            <td></td>
+            <td></td>
+            <td class="num comm-pot">₱ {{ total_pot_all|floatformat:2|intcomma }}</td>
+            <td class="num comm-val">₱ {{ total_commission|floatformat:2|intcomma }}</td>
             <td></td>
           </tr>
         </tfoot>
@@ -510,9 +835,181 @@
 
 </div>
 
+<!-- ── Old-ticket claim modal ── -->
+<div id="ot-modal">
+  <div id="ot-box">
+    <h2>Claim Past Event Winning Ticket</h2>
+
+    <div class="ot-meta">
+      <span>Event: &nbsp;<strong id="ot-event-name"></strong></span>
+      <span>Teller: <strong id="ot-teller-name"></strong></span>
+    </div>
+
+    <div>
+      <label style="font-size:11px;color:rgba(255,255,255,0.40);text-transform:uppercase;letter-spacing:0.7px;display:block;margin-bottom:6px;">
+        Ticket Number
+      </label>
+      <div id="ot-input-row">
+        <input type="text" id="ot-ticket-input"
+               placeholder="e.g. 000042"
+               maxlength="10"
+               autocomplete="off"
+               onkeydown="if(event.key==='Enter')searchOldTicket()">
+      </div>
+    </div>
+
+    <div id="ot-status"></div>
+
+    <div id="ot-result-box">
+      <div class="ot-result-row"><span>Fight</span><span class="val" id="ot-r-fight"></span></div>
+      <div class="ot-result-row"><span>Bet Side</span><span class="val" id="ot-r-side"></span></div>
+      <div class="ot-result-row"><span>Odds</span><span class="val" id="ot-r-odds"></span></div>
+      <div class="ot-result-row"><span>Wager Amount</span><span class="val" id="ot-r-wager"></span></div>
+      <div class="ot-result-row"><span>Payout Amount</span><span class="val green" id="ot-r-payout"></span></div>
+    </div>
+
+    <div class="ot-btn-row">
+      <button class="ot-btn ot-btn-secondary" id="ot-cancel-btn" onclick="closeOldTicketModal()">Cancel</button>
+      <button class="ot-btn ot-btn-primary"   id="ot-search-btn" onclick="searchOldTicket()">Search &amp; Pay Out</button>
+    </div>
+  </div>
+</div>
+
 <script>
 function navigateToEvent(eventId) {
     window.location.href = "{% url 'admin-event-report' %}?event_id=" + eventId;
 }
+
+// ── Old-ticket claim modal ──────────────────────────────────────────────
+const CLAIM_URL  = "{% url 'admin-claim-old-ticket' %}";
+const CLAIM_CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+let _otUsername  = '';
+let _otEventId   = '';
+
+function openOldTicketModal(username, displayName, eventId, eventName) {
+    _otUsername = username;
+    _otEventId  = eventId;
+
+    document.getElementById('ot-event-name').innerText  = eventName;
+    document.getElementById('ot-teller-name').innerText = displayName;
+    document.getElementById('ot-ticket-input').value    = '';
+    _otReset();
+    document.getElementById('ot-modal').style.display = 'flex';
+    setTimeout(() => document.getElementById('ot-ticket-input').focus(), 80);
+}
+
+function closeOldTicketModal() {
+    document.getElementById('ot-modal').style.display = 'none';
+}
+
+function _otReset() {
+    const statusEl = document.getElementById('ot-status');
+    statusEl.innerText   = '';
+    statusEl.style.color = '';
+    document.getElementById('ot-result-box').classList.remove('show');
+    const btn = document.getElementById('ot-search-btn');
+    btn.disabled  = false;
+    btn.innerText = 'Search & Pay Out';
+    btn.onclick   = searchOldTicket;
+}
+
+function _sideClass(side) {
+    if (!side) return '';
+    const s = side.toUpperCase();
+    if (s === 'MERON') return 'meron';
+    if (s === 'WALA')  return 'wala';
+    return 'draw';
+}
+
+function _fmt(n) {
+    return '₱\u202f' + Number(n).toLocaleString('en-PH', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+async function searchOldTicket() {
+    const ticketNum = document.getElementById('ot-ticket-input').value.trim();
+    const statusEl  = document.getElementById('ot-status');
+    const btn       = document.getElementById('ot-search-btn');
+
+    if (!ticketNum) {
+        statusEl.style.color = '#e74c3c';
+        statusEl.innerText   = 'Please enter a ticket number.';
+        return;
+    }
+
+    btn.disabled  = true;
+    btn.innerText = 'Searching…';
+    statusEl.innerText   = '';
+    statusEl.style.color = '';
+    document.getElementById('ot-result-box').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('event_id',        _otEventId);
+    fd.append('teller_username', _otUsername);
+    fd.append('transaction_id',  ticketNum);
+    fd.append('csrfmiddlewaretoken', CLAIM_CSRF);
+
+    try {
+        const res  = await fetch(CLAIM_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+
+        if (!data.ok) {
+            const msgs = {
+                notfound:       `Ticket #${ticketNum} not found for this teller in this event.`,
+                already_claimed:`Ticket #${ticketNum} has already been claimed.`,
+                not_a_winner:   `This ticket did not win. Winning side was ${data.winner || '?'}.`,
+                no_result_yet:  'Fight result has not been recorded yet.',
+                missing_params: 'Internal error — missing parameters.',
+                event_not_found:'Event not found.',
+            };
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText   = msgs[data.error] || ('Error: ' + data.error);
+            btn.disabled  = false;
+            btn.innerText = 'Search & Pay Out';
+            return;
+        }
+
+        // Payout processed — show result
+        const side = data.side || '';
+        const cls  = _sideClass(side);
+        const resultLabel = data.result === 'draw'      ? 'DRAW (Refund)'
+                          : data.result === 'cancelled' ? 'CANCELLED (Refund)'
+                          : side;
+
+        document.getElementById('ot-r-fight').innerText = `Fight #${data.fight}`;
+        const sideEl = document.getElementById('ot-r-side');
+        sideEl.innerText  = resultLabel;
+        sideEl.className  = `val ${cls}`;
+        document.getElementById('ot-r-odds').innerText   = data.odds || '—';
+        document.getElementById('ot-r-wager').innerText  = _fmt(data.wager);
+        document.getElementById('ot-r-payout').innerText = _fmt(data.payout_amount);
+        document.getElementById('ot-result-box').classList.add('show');
+
+        statusEl.style.color = '#2ecc71';
+        statusEl.innerText   = '✓ Payout processed successfully.';
+
+        btn.innerText = 'Done — Close';
+        btn.disabled  = false;
+        btn.onclick   = () => { closeOldTicketModal(); location.reload(); };
+
+    } catch (err) {
+        statusEl.style.color = '#e74c3c';
+        statusEl.innerText   = 'Network error. Please try again.';
+        btn.disabled  = false;
+        btn.innerText = 'Search & Pay Out';
+    }
+}
+
+// Close modal on backdrop click
+document.getElementById('ot-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeOldTicketModal();
+});
+
+// Keyboard: Escape closes
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('ot-modal').style.display === 'flex') {
+        closeOldTicketModal();
+    }
+});
 </script>
 {% endblock content %}
