@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block title %}Event Report — SmartWagers{% endblock title %}
 
@@ -402,15 +403,15 @@
     </div>
     <div class="er-card">
       <div class="er-card-label">Grand Total (All Tellers)</div>
-      <div class="er-card-value">₱ {{ grand_total_all|floatformat:2 }}</div>
+      <div class="er-card-value">₱ {{ grand_total_all|floatformat:2|intcomma }}</div>
     </div>
     <div class="er-card">
       <div class="er-card-label">Total Pot ({{ fight_commissions|length }} fights)</div>
-      <div class="er-card-value">₱ {{ total_pot_all|floatformat:2 }}</div>
+      <div class="er-card-value">₱ {{ total_pot_all|floatformat:2|intcomma }}</div>
     </div>
     <div class="er-card">
       <div class="er-card-label">Commission ({{ plasada_pct|floatformat:1 }}%)</div>
-      <div class="er-card-value green">₱ {{ total_commission|floatformat:2 }}</div>
+      <div class="er-card-value green">₱ {{ total_commission|floatformat:2|intcomma }}</div>
     </div>
   </div>
 
@@ -429,10 +430,10 @@
         {% for t in teller_data %}
         <tr>
           <td class="td-teller-name">{{ t.display_name }}</td>
-          <td class="td-amount">₱ {{ t.grand_total|floatformat:2 }}</td>
-          <td style="text-align:right; color:rgba(255,255,255,0.60);">₱ {{ t.remit_total|floatformat:2 }}</td>
+          <td class="td-amount">₱ {{ t.grand_total|floatformat:2|intcomma }}</td>
+          <td style="text-align:right; color:rgba(255,255,255,0.60);">₱ {{ t.remit_total|floatformat:2|intcomma }}</td>
           <td class="{% if t.balance > 0 %}td-balance-positive{% elif t.balance == 0 %}td-balance-zero{% else %}td-balance-negative{% endif %}">
-            ₱ {{ t.balance|floatformat:2 }}
+            ₱ {{ t.balance|floatformat:2|intcomma }}
           </td>
         </tr>
         {% endfor %}
@@ -440,7 +441,7 @@
       <tfoot>
         <tr>
           <td>Total ({{ teller_data|length }} tellers)</td>
-          <td class="td-amount">₱ {{ grand_total_all|floatformat:2 }}</td>
+          <td class="td-amount">₱ {{ grand_total_all|floatformat:2|intcomma }}</td>
           <td></td>
           <td></td>
         </tr>
@@ -479,8 +480,8 @@
               {% elif fc.side == 'WALA' %}<span class="comm-side-wala">WALA</span>
               {% else %}<span class="comm-side-draw">{{ fc.side }}</span>{% endif %}
             </td>
-            <td class="comm-pot">₱ {{ fc.totalpot|floatformat:2 }}</td>
-            <td class="comm-val">₱ {{ fc.commission|floatformat:2 }}</td>
+            <td class="comm-pot">₱ {{ fc.totalpot|floatformat:2|intcomma }}</td>
+            <td class="comm-val">₱ {{ fc.commission|floatformat:2|intcomma }}</td>
             <td style="font-size:11px;color:rgba(255,255,255,0.35);">{{ fc.date }}</td>
           </tr>
           {% endfor %}
@@ -488,8 +489,8 @@
         <tfoot>
           <tr>
             <td colspan="2">Total ({{ fight_commissions|length }} fights)</td>
-            <td class="comm-pot" style="text-align:right;">₱ {{ total_pot_all|floatformat:2 }}</td>
-            <td class="comm-val">₱ {{ total_commission|floatformat:2 }}</td>
+            <td class="comm-pot" style="text-align:right;">₱ {{ total_pot_all|floatformat:2|intcomma }}</td>
+            <td class="comm-val">₱ {{ total_commission|floatformat:2|intcomma }}</td>
             <td></td>
           </tr>
         </tfoot>

@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block title %}Transaction Report — SmartWagers{% endblock title %}
 
@@ -430,7 +431,7 @@ function showReprintToast(message, type) {
     </div>
     <div class="summary-card">
       <div class="summary-label">Total Amount Collected</div>
-      <div class="summary-value">₱ {{ total_amount|floatformat:0 }}</div>
+      <div class="summary-value">₱ {{ total_amount|floatformat:0|intcomma }}</div>
     </div>
   </div>
 
@@ -458,7 +459,7 @@ function showReprintToast(message, type) {
             <span class="side-badge {{ w.side|lower }}">{{ w.side }}</span>
           </td>
           <td class="td-timestamp">{{ w.created_at|date:"Y-m-d" }} {{ w.created_at|time:"H:i:s" }}</td>
-          <td class="td-wager">₱ {{ w.wager|floatformat:0 }}</td>
+          <td class="td-wager">₱ {{ w.wager|floatformat:0|intcomma }}</td>
           <td><button class="btn-reprint" onclick="reprintFromReport(this, '{{ w.transactionid }}')"{% if w.fightnum in completed_fights %} disabled title="Fight already completed"{% endif %}>Reprint</button></td>
         </tr>
         {% endfor %}
@@ -466,7 +467,7 @@ function showReprintToast(message, type) {
       <tfoot>
         <tr>
           <td colspan="5">Total ({{ total_count }} transactions)</td>
-          <td class="td-wager">₱ {{ total_amount|floatformat:0 }}</td>
+          <td class="td-wager">₱ {{ total_amount|floatformat:0|intcomma }}</td>
           <td></td>
         </tr>
       </tfoot>

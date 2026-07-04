@@ -2,12 +2,12 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=20">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=22">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=wrong-teller-1"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}?v=sidebar-v4"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -59,7 +59,6 @@
                         <span>WALA</span>
                     </label>
                 </div>
-                <p id='side-hint'>Select a side to place a bet</p>
                 <div id='bet-text-input'>
                     <textarea id='bet_textinput'
                         onfocus="if(this.value==='0')this.value=''"
@@ -68,16 +67,21 @@
                 <section class='bet-buttons'>
                     <section id='buttons_section1'>
                         <div class='button' onclick='addValue(100)'>100</div>
-                        <div class='button' onclick='addValue(200)'>200</div>
                         <div class='button' onclick='addValue(500)'>500</div>
                         <div class='button' onclick='addValue(1000)'>1,000</div>
-                    </section>
-                    <section id='buttons_section2'>
+                        <div class='button' onclick='addValue(1500)'>1,500</div>
                         <div class='button' onclick='addValue(2000)'>2,000</div>
+                        <div class='button' onclick='addValue(2500)'>2,500</div>
+                        <div class='button' onclick='addValue(3000)'>3,000</div>
+                        <div class='button' onclick='addValue(3500)'>3,500</div>
+                        <div class='button' onclick='addValue(4000)'>4,000</div>
+                        <div class='button' onclick='addValue(4500)'>4,500</div>
                         <div class='button' onclick='addValue(5000)'>5,000</div>
+                        <div class='button' onclick='addValue(6000)'>6,000</div>
+                        <div class='button' onclick='addValue(7000)'>7,000</div>
+                        <div class='button' onclick='addValue(8000)'>8,000</div>
+                        <div class='button' onclick='addValue(9000)'>9,000</div>
                         <div class='button' onclick='addValue(10000)'>10,000</div>
-                        <div class='button' onclick='addValue(15000)'>15,000</div>
-                        <div class='button' onclick='addValue(20000)'>20,000</div>
                     </section>
                 </section>
                 <section id='submitreset-button'>
@@ -96,25 +100,25 @@
                 </section>
             </div>
         </section>
-        <section id="controls">
-            <div class='button' id='startmatchbutton' onclick='openmodal("control_confirmationModal", "StartMatch")'>Start Match</div>
-            <div class='button' id='closebettingbutton' onclick='openmodal("control_confirmationModal", "CloseBetting")'>Close Betting</div>
-            <div class='button' id='reopenbettingbutton' onclick='openmodal("control_confirmationModal", "ReopenBetting")'>Re-Open Betting</div>
-            <div class='button' id='cancelmatchbutton' onclick='openmodal("control_confirmationModal", "CancelMatch")'>Cancel Match</div>
-            <div class='button' id='endmatchbutton' onclick='openmodal("control_confirmationModal", "EndMatch")'>End Match</div>
+        <section id='controls'>
+            <div class='button' id='startmatchbutton'>Start Match</div>
+            <div class='button' id='closebettingbutton'>Close Betting</div>
+            <div class='button' id='reopenbettingbutton'>Re-open Betting</div>
+            <div class='button' id='cancelmatchbutton'>Cancel Match</div>
+            <div class='button' id='endmatchbutton'>End Match</div>
         </section>
         <section id='payout'>
-            <div class='button' id='payout_button' onclick='openmodal("payoutmodal", "Payout")'>PAYOUT!</div>
+            <div class='button' id='payout_button' onclick='openmodal("payoutmodal")'>Payout</div>
             <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
             <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
-            <a href="{% url 'admin-tellers' %}" class='button' id='tellers_button' style='text-decoration:none;'>Tellers</a>
+            <a href="{% url 'admin-tellers' %}" class='button' id='tellers_button'>Tellers</a>
             <div class='button' id='received_button' onclick='openreceivedmodal()'>Received</div>
         </section>
     </section>
 
     <form id='submitwagerForm' method='POST' style='display:none;'>
         {% csrf_token %}
-        <input type='hidden' name='wager_value' id='wager_value' autocomplete='off'></input>
+        <input type='hidden' name='wager_value' id='wager_value'></input>
         <input type='hidden' name='wager_id' id='wager_id'></input>
     </form>
 
@@ -165,7 +169,7 @@
     </div>
 
     <div id='whowonmodal' class='modal'>
-        <div class='modal-content'c>
+        <div class='modal-content'>
             <h2>Who Won?</h2>
             <br>
             <p>Please select the winner of the match:</p>
@@ -237,7 +241,7 @@
             </div>
         </div>
 
-        <div id='matchclosedmodal' class=modal>
+        <div id='matchclosedmodal' class='modal'>
             <div class='modal-content'>
                 <h2>Match Closed</h2>
                 <br>
@@ -278,7 +282,6 @@
                 <button onclick='closemodal("receivedmodal")'>Cancel</button>
             </div>
         </div>
-    </div>
 
     {% if blocked_betting_side %}
         <script>

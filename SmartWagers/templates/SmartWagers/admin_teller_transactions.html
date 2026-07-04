@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block title %}Teller Transactions — SmartWagers{% endblock title %}
 
@@ -289,7 +290,7 @@
     </div>
     <div class="tt-card">
       <div class="tt-card-label">Total Amount</div>
-      <div class="tt-card-value">₱ {{ total_amount|floatformat:2 }}</div>
+      <div class="tt-card-value">₱ {{ total_amount|floatformat:2|intcomma }}</div>
     </div>
   </div>
 
@@ -321,7 +322,7 @@
               <span class="td-side-draw">{{ w.side }}</span>
             {% endif %}
           </td>
-          <td class="td-amount">₱ {{ w.wager|floatformat:2 }}</td>
+          <td class="td-amount">₱ {{ w.wager|floatformat:2|intcomma }}</td>
           <td class="td-time">{{ w.created_at|date:"Y-m-d H:i:s" }}</td>
         </tr>
         {% endfor %}
@@ -329,7 +330,7 @@
       <tfoot>
         <tr>
           <td colspan="4">Total ({{ total_count }} bets)</td>
-          <td class="td-amount">₱ {{ total_amount|floatformat:2 }}</td>
+          <td class="td-amount">₱ {{ total_amount|floatformat:2|intcomma }}</td>
           <td></td>
         </tr>
       </tfoot>

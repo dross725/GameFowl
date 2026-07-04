@@ -33,7 +33,7 @@ ALLOWED_HOSTS = [
     'daphne',
     'daphne.local',
     '192.168.1.6',
-    '192.168.1.2',
+    '192.168.1.4',
     '192.168.0.63',
     '10.0.0.7',
 ]
@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.humanize',
     'SmartWagers',
 ]
 
@@ -68,7 +69,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://weer-melba-reduplicative.ngrok-free.dev',
     'http://daphne.local',
     'http://192.168.0.63',
-    'http://192.168.1.2',
+    'http://192.168.1.4',
     'http://localhost',
     'http://127.0.0.1',
     'http://daphne',

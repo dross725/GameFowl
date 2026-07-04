@@ -9,9 +9,9 @@ adminSocket.onmessage = (event) => {
 
     if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
-        document.getElementById("M_payout").innerText = data.mpayout;
+        document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
         document.getElementById("W_total_bet").innerText = data.wtotal;
-        document.getElementById("W_payout").innerText = data.wpayout;
+        document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
         document.getElementById("ws_status").innerText = "Status: Connected";
         updateStatus("Connected");
         console.log("Data received:", data);

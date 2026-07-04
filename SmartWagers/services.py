@@ -170,7 +170,7 @@ def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
     pending_wager.save()
     return pending_wager
 
-def confirm_wager_receipt(transaction_id):
+def confirm_wager_receipt(transaction_id, admin=False):
     active_event = get_active_event()
     with db_transaction.atomic():
         qs = Wagers.objects.select_for_update().filter(transactionid=transaction_id, registered=False)
@@ -180,7 +180,8 @@ def confirm_wager_receipt(transaction_id):
         if pending_wager is None:
             return None
 
-        if not is_betting_open(pending_wager.side):
+        betting_ok = is_match_open() if admin else is_betting_open(pending_wager.side)
+        if not betting_ok:
             pending_wager.delete()
             return None
 
@@ -272,7 +273,7 @@ def start_event(name):
 
     event = Event.objects.create(name=name, is_active=True)
 
-    fight_status = Fight_Status.objects.filter(id=1).first()
+    fight_status = Fight_Status.objects.order_by('id').first()
     if fight_status:
         fight_status.fightnum = 0
         fight_status.overall_status = 'CLOSE'
@@ -318,7 +319,8 @@ def build_wager_receipt_payload(wager):
     }
 
 def is_betting_open(side):
-    fight_status = Fight_Status.objects.filter(id=1).first()
+    """Teller-level check: overall match must be OPEN *and* the specific side must be OPEN."""
+    fight_status = Fight_Status.objects.order_by('id').first()
     if fight_status is None:
         return False
 
@@ -331,6 +333,14 @@ def is_betting_open(side):
         return fight_status.wala_status == "OPEN"
 
     return False
+
+
+def is_match_open():
+    """Admin-level check: overall match must be OPEN (ignores per-side status)."""
+    fight_status = Fight_Status.objects.order_by('id').first()
+    if fight_status is None:
+        return False
+    return fight_status.overall_status == "OPEN"
 
 def print_wager_reciept(amount, side, fightnum, transaction_id, date, cashier="Juan DelaCruz"):
     if debug:
@@ -446,11 +456,11 @@ def update_control_status(side, status):
         print('Updating control status')
         print('side: ' +str(side))
         print('status: ' +str(status))
-    update_status = Fight_Status.objects.filter(id=1).first()
+    update_status = Fight_Status.objects.order_by('id').first()
     if update_status is None:
         if debug:
             print("Fight status object not found, creating a new one")
-        update_status = Fight_Status(meron_status='Open', wala_status='Open')
+        update_status = Fight_Status(overall_status='OPEN', meron_status='OPEN', wala_status='OPEN')
         update_status.save()
 
     if side == 'MERON':
@@ -578,7 +588,7 @@ def endmatch(winner):
 def get_fight_status():
     if debug:
         print('Getting fight status')
-    fight_status = Fight_Status.objects.filter(id=1).first()
+    fight_status = Fight_Status.objects.order_by('id').first()
     if fight_status is None:
         if debug:
             print("Fight_Status object not found, creating a new one")
@@ -613,7 +623,7 @@ def update_fight_status(fightstatus, side = None):
     if debug:
         print('Updating fight status ' +fightstatus )
         print('side ' +str(side))
-    fight_status = Fight_Status.objects.filter(id=1).first()
+    fight_status = Fight_Status.objects.order_by('id').first()
     fn = get_fightnum()
     overall_status = ''
     meron_status = ''
@@ -625,20 +635,17 @@ def update_fight_status(fightstatus, side = None):
     if fight_status is None:
         if debug:
             print("Settings object not found, creating a new one")
-        fight_status = Fight_Status(fightnum=fn, overall_status='CLOSED', meron_status='CLOSE', wala_status='CLOSE')
+        fight_status = Fight_Status(fightnum=fn, overall_status='CLOSE', meron_status='CLOSE', wala_status='CLOSE')
         fight_status.save()
-        return
-    
-    elif fightstatus == 'START':
+
+    if fightstatus == 'START':
         if debug:
             print ("Fight started, initializing new match")
-        # Start a new fight
         overall_status = 'OPEN'
         meron_status = 'OPEN'
         wala_status = 'OPEN'
     
     elif fightstatus == 'CLOSED':
-        # Close both sides
         overall_status = 'CLOSED'
         meron_status = 'CLOSE'
         wala_status = 'CLOSE'
@@ -656,13 +663,12 @@ def update_fight_status(fightstatus, side = None):
         if debug:
             print("Error updating fight status")
 
-    update_fight_status = Fight_Status.objects.get(id=1)
-
-    update_fight_status.overall_status=overall_status
-    update_fight_status.meron_status=meron_status
-    update_fight_status.wala_status=wala_status
-    update_fight_status.fightnum=fn
-    update_fight_status.save()
+    fight_status.overall_status = overall_status
+    fight_status.meron_status = meron_status
+    fight_status.wala_status = wala_status
+    if fightstatus == 'START':
+        fight_status.fightnum = fn
+    fight_status.save()
     return
 
 
@@ -816,7 +822,6 @@ def get_fight_results(*args):
     return qs.values(*args)
 
 def cancel_bet(transaction_id):
-    debug = True
     active_event = get_active_event()
     qs = Wagers.objects.filter(transactionid=transaction_id, registered=True)
     if active_event:
