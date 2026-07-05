@@ -318,6 +318,25 @@
     <div id="st-plasada-status"></div>
   </div>
 
+  <!-- ── Teller Balance Threshold panel ── -->
+  <div class="st-panel">
+    <div class="st-panel-title">Teller Balance Warning Threshold</div>
+    <div id="st-threshold-form" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div class="st-input-group">
+        <label>Max On-Hand</label>
+        <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.50);margin-right:4px;">₱</span>
+        <input type="number" id="threshold-input" value="{{ teller_max_balance|floatformat:0 }}"
+               min="0" step="100" autocomplete="off"
+               style="background:transparent;border:none;outline:none;color:white;font-size:20px;font-weight:800;width:120px;text-align:center;">
+      </div>
+      <span id="st-threshold-hint" style="font-size:12px;color:rgba(255,255,255,0.35);flex:1;min-width:200px;">
+        Warn admin when a teller's balance exceeds this amount. Set to <strong>0</strong> to disable warnings.
+      </span>
+      <button class="st-save-btn" id="st-threshold-btn" onclick="saveThreshold()">Save</button>
+    </div>
+    <div id="st-threshold-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
+  </div>
+
   <!-- ── Fight results panel ── -->
   <div class="st-panel" style="flex:1;display:flex;flex-direction:column;min-height:0;">
     <div class="st-panel-title">
@@ -413,6 +432,46 @@ async function savePlasada() {
         if (data.ok) {
             statusEl.className = 'st-ok';
             statusEl.textContent = `Saved! Plasada is now ${data.plasada_pct.toFixed(2)}%.`;
+        } else {
+            statusEl.className = 'st-err';
+            statusEl.textContent = data.error || 'Unknown error.';
+        }
+    } catch (err) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Network error. Check connection.';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function saveThreshold() {
+    const val = parseFloat(document.getElementById('threshold-input').value);
+    const statusEl = document.getElementById('st-threshold-status');
+    const btn = document.getElementById('st-threshold-btn');
+
+    if (isNaN(val) || val < 0) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Please enter 0 or a positive number.';
+        return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = '';
+    statusEl.textContent = 'Saving…';
+
+    const fd = new FormData();
+    fd.append('action', 'update_teller_max_balance');
+    fd.append('teller_max_balance', val.toString());
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+    try {
+        const res  = await fetch(SETTINGS_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.className = 'st-ok';
+            statusEl.textContent = val === 0
+                ? 'Saved! Balance warnings are disabled.'
+                : `Saved! Warning triggers at ₱ ${Number(data.teller_max_balance).toLocaleString('en-PH', {maximumFractionDigits:0})}.`;
         } else {
             statusEl.className = 'st-err';
             statusEl.textContent = data.error || 'Unknown error.';
