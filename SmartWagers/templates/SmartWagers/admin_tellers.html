@@ -52,6 +52,94 @@
     margin-top: 2px;
   }
 
+  /* ── Balance warning banner ──────────────────────────── */
+  #balance-warning-banner {
+    display: none;
+    background: linear-gradient(135deg, rgba(231,76,60,0.15), rgba(192,57,43,0.10));
+    border: 1px solid rgba(231,76,60,0.40);
+    border-radius: 10px;
+    padding: 14px 18px;
+    gap: 12px;
+    flex-direction: column;
+  }
+
+  #balance-warning-banner.visible { display: flex; }
+
+  #bw-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  #bw-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  #bw-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #e74c3c;
+    flex: 1;
+  }
+
+  #bw-close {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.35);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  #bw-close:hover { color: rgba(255,255,255,0.70); }
+
+  .bw-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(0,0,0,0.20);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .bw-item-name {
+    font-weight: 700;
+    color: white;
+    flex: 1;
+  }
+
+  .bw-item-balance {
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .bw-item-balance.over   { color: #f1c40f; }
+  .bw-item-balance.under  { color: #3498db; }
+
+  .bw-item-tag {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 9px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  .bw-item-tag.remit-tag  {
+    background: linear-gradient(135deg, #c0392b, #8e1a12);
+    color: white;
+  }
+
+  .bw-item-tag.borrow-tag {
+    background: linear-gradient(135deg, #27ae60, #1a7a43);
+    color: white;
+  }
+
   /* ── Teller cards grid ─────────────────────────────────── */
   #teller-cards {
     display: flex;
@@ -488,8 +576,18 @@
   <div id="tellers-header">
     <div>
       <div id="tellers-title">Teller Balances</div>
-      <div id="tellers-subtitle">Manage remit / collect &amp; view transaction history</div>
+      <div id="tellers-subtitle">Manage remit / borrow &amp; view transaction history</div>
     </div>
+  </div>
+
+  <!-- ── Balance Warning Banner ── -->
+  <div id="balance-warning-banner">
+    <div id="bw-header">
+      <span id="bw-icon">⚠️</span>
+      <span id="bw-title">Teller Balance Alert</span>
+      <button id="bw-close" onclick="document.getElementById('balance-warning-banner').classList.remove('visible')" title="Dismiss">✕</button>
+    </div>
+    <div id="bw-list"></div>
   </div>
 
   <div id="teller-cards">
@@ -522,7 +620,7 @@
           </button>
           <button class="txn-btn collect-btn"
                   onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'COLLECT')">
-            Collect
+            Borrow
           </button>
 
           <span class="expand-chevron">▼</span>
@@ -548,7 +646,9 @@
                   <td style="color:rgba(255,255,255,0.28);font-size:10px;">{{ forloop.counter }}</td>
                   <td class="td-txid-h">{{ txn.transaction_id }}</td>
                   <td>
-                    <span class="type-badge {{ txn.transaction_type|lower }}">{{ txn.transaction_type }}</span>
+                    <span class="type-badge {{ txn.transaction_type|lower }}">
+                      {% if txn.transaction_type == 'COLLECT' %}BORROW{% else %}{{ txn.transaction_type }}{% endif %}
+                    </span>
                   </td>
                   <td class="td-ts">{{ txn.created_at|date:"Y-m-d" }} {{ txn.created_at|time:"H:i:s" }}</td>
                   <td class="amount-{{ txn.transaction_type|lower }}">₱ {{ txn.amount|floatformat:0|intcomma }}</td>
@@ -584,11 +684,11 @@
 
 </div>
 
-<!-- ── Collect Modal ──────────────────────────────────────── -->
+<!-- ── Borrow / Remit Modal ──────────────────────────────────────── -->
 <div class="modal-overlay" id="collect-modal-overlay" onclick="closeCollectModal(event)">
   <div class="modal-box" onclick="event.stopPropagation()">
     <div>
-      <div class="modal-title" id="modal-title">Issue Collect</div>
+      <div class="modal-title" id="modal-title">Issue Borrow</div>
       <div class="modal-teller-name" id="modal-teller-name"></div>
     </div>
 
@@ -618,6 +718,13 @@
 const TELLER_TXN_URL = "{% url 'admin-teller-txn' %}";
 const PRINT_AGENT_URL = "http://127.0.0.1:8765/print-remit";
 const CSRF_TOKEN = "{{ csrf_token }}";
+const TELLER_MAX_BALANCE = {{ teller_max_balance|floatformat:2 }};
+
+const TELLER_BALANCES = {
+  {% for td in teller_data %}
+  {{ td.user.pk }}: { name: "{{ td.display_name|escapejs }}", balance: {{ td.balance|floatformat:2 }} },
+  {% endfor %}
+};
 
 /* ── Card expand/collapse ──────────────────────────── */
 function toggleCard(tellerId) {
@@ -633,11 +740,11 @@ function openTxnModal(event, tellerId, tellerName, txnType) {
   document.getElementById('modal-teller-id').value  = tellerId;
   document.getElementById('modal-txn-type').value   = txnType;
   document.getElementById('modal-teller-name').textContent = tellerName;
-  document.getElementById('modal-title').textContent = isRemit ? 'Issue Remit' : 'Issue Collect';
+  document.getElementById('modal-title').textContent = isRemit ? 'Issue Remit' : 'Issue Borrow';
   document.getElementById('collect-amount').value   = '';
 
   const confirmBtn = document.getElementById('btn-collect-confirm');
-  confirmBtn.textContent = isRemit ? 'Confirm Remit' : 'Confirm Collect';
+  confirmBtn.textContent = isRemit ? 'Confirm Remit' : 'Confirm Borrow';
   confirmBtn.classList.toggle('is-remit', isRemit);
 
   setStatus('', '');
@@ -718,6 +825,10 @@ function updateTellerCard(data) {
   if (gtEl) {
     gtEl.textContent = `₱ ${fmtNum(data.grand_total)}`;
   }
+  if (TELLER_BALANCES[tid] !== undefined) {
+    TELLER_BALANCES[tid].balance = data.balance;
+  }
+  refreshWarningBanner();
 }
 
 function prependHistoryRow(data) {
@@ -730,13 +841,15 @@ function prependHistoryRow(data) {
     ? `<span class="pending-badge" id="status-${escHtml(data.transaction_id)}">—</span>`
     : `<span class="pending-badge">—</span>`;
 
+  const displayType = data.transaction_type === 'COLLECT' ? 'BORROW' : data.transaction_type;
+
   const row = document.createElement('tr');
   row.className = `row-${type}`;
   row.id = `txn-row-${data.transaction_id}`;
   row.innerHTML = `
     <td style="color:rgba(255,255,255,0.28);font-size:10px;">—</td>
     <td class="td-txid-h">${escHtml(data.transaction_id)}</td>
-    <td><span class="type-badge ${type}">${escHtml(data.transaction_type)}</span></td>
+    <td><span class="type-badge ${type}">${escHtml(displayType)}</span></td>
     <td class="td-ts">${escHtml(data.created_at)}</td>
     <td class="amount-${type}">₱ ${fmtNum(data.amount)}</td>
     <td>${statusCell}</td>
@@ -823,5 +936,57 @@ document.addEventListener('keydown', e => {
     document.getElementById('collect-modal-overlay').classList.remove('active');
   }
 });
+
+/* ── Balance Warning Banner ────────────────────────── */
+function refreshWarningBanner() {
+  if (!TELLER_MAX_BALANCE || TELLER_MAX_BALANCE <= 0) return;
+
+  const alerts = [];
+  for (const [tid, info] of Object.entries(TELLER_BALANCES)) {
+    if (info.balance > TELLER_MAX_BALANCE) {
+      alerts.push({ name: info.name, balance: info.balance, type: 'remit' });
+    } else if (info.balance < 0) {
+      alerts.push({ name: info.name, balance: info.balance, type: 'borrow' });
+    }
+  }
+
+  const banner = document.getElementById('balance-warning-banner');
+  const list   = document.getElementById('bw-list');
+
+  if (alerts.length === 0) {
+    banner.classList.remove('visible');
+    return;
+  }
+
+  const titleEl = document.getElementById('bw-title');
+  if (alerts.length === 1) {
+    titleEl.textContent = `1 teller needs attention`;
+  } else {
+    titleEl.textContent = `${alerts.length} tellers need attention`;
+  }
+
+  list.innerHTML = '';
+  for (const a of alerts) {
+    const isRemit = a.type === 'remit';
+    const item = document.createElement('div');
+    item.className = 'bw-item';
+    item.innerHTML = `
+      <span class="bw-item-name">${escHtml(a.name)}</span>
+      <span class="bw-item-balance ${isRemit ? 'over' : 'under'}">
+        ₱ ${fmtNum(Math.abs(a.balance))}
+        ${isRemit ? '' : ' (negative)'}
+      </span>
+      <span class="bw-item-tag ${isRemit ? 'remit-tag' : 'borrow-tag'}">
+        ${isRemit ? 'Needs to Remit' : 'Needs to Borrow'}
+      </span>
+    `;
+    list.appendChild(item);
+  }
+
+  banner.classList.add('visible');
+}
+
+/* run on page load */
+refreshWarningBanner();
 </script>
 {% endblock content %}

@@ -71,6 +71,7 @@ class Settings (models.Model):
     plasada = models.FloatField(default=0.5, null=False, blank=False)
     M_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False) 
     W_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False)
+    teller_max_balance = models.FloatField(default=0.0, null=False, blank=False)
 
     def __str__(self):
         return f"{self.plasada} {self.M_control_status} {self.W_control_status}"
@@ -128,7 +129,7 @@ class TellerTransaction(models.Model):
     PAYOUT = 'PAYOUT'
     TRANSACTION_TYPES = [
         (REMIT, 'Remit'),
-        (COLLECT, 'Collect'),
+        (COLLECT, 'Borrow'),
         (PAYOUT, 'Payout'),
     ]
 

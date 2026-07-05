@@ -4,6 +4,180 @@
 {% block css_files %}
     <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=22">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
+    <style>
+      /* ── Teller alert badge on the Tellers button ── */
+      #tellers_button {
+        position: relative;
+      }
+
+      #teller-alert-badge {
+        display: none;
+        position: absolute;
+        top: -7px;
+        right: -7px;
+        background: #e74c3c;
+        color: white;
+        font-size: 11px;
+        font-weight: 900;
+        min-width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        padding: 0 5px;
+        align-items: center;
+        justify-content: center;
+        line-height: 1;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+        animation: badge-pulse 1.8s ease-in-out infinite;
+        z-index: 10;
+        pointer-events: none;
+      }
+
+      #teller-alert-badge.visible { display: flex; }
+
+      @keyframes badge-pulse {
+        0%, 100% { transform: scale(1); box-shadow: 0 2px 6px rgba(231,76,60,0.5); }
+        50%       { transform: scale(1.15); box-shadow: 0 2px 12px rgba(231,76,60,0.85); }
+      }
+
+      /* ── Floating teller alert panel ── */
+      #teller-alert-panel {
+        display: none;
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        width: 300px;
+        max-width: calc(100vw - 32px);
+        background: #1b1e27;
+        border: 1px solid rgba(231,76,60,0.45);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.60);
+        z-index: 500;
+        overflow: hidden;
+        animation: panel-slide-in 0.25s ease-out;
+      }
+
+      #teller-alert-panel.visible { display: block; }
+
+      @keyframes panel-slide-in {
+        from { opacity: 0; transform: translateY(16px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      #tap-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 14px 10px;
+        background: rgba(231,76,60,0.12);
+        border-bottom: 1px solid rgba(231,76,60,0.20);
+        cursor: pointer;
+        user-select: none;
+      }
+
+      #tap-icon { font-size: 16px; flex-shrink: 0; }
+
+      #tap-title {
+        font-size: 13px;
+        font-weight: 800;
+        color: #e74c3c;
+        flex: 1;
+        letter-spacing: 0.3px;
+      }
+
+      #tap-dismiss {
+        background: none;
+        border: none;
+        color: rgba(255,255,255,0.35);
+        font-size: 16px;
+        cursor: pointer;
+        padding: 0 2px;
+        line-height: 1;
+        flex-shrink: 0;
+      }
+      #tap-dismiss:hover { color: rgba(255,255,255,0.70); }
+
+      #tap-body {
+        padding: 10px 12px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-height: 240px;
+        overflow-y: auto;
+      }
+
+      .tap-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(255,255,255,0.04);
+        border-radius: 8px;
+        padding: 8px 10px;
+      }
+
+      .tap-item-name {
+        font-size: 13px;
+        font-weight: 700;
+        color: white;
+        flex: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .tap-item-tag {
+        font-size: 10px;
+        font-weight: 800;
+        padding: 2px 8px;
+        border-radius: 20px;
+        letter-spacing: 0.4px;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .tap-item-tag.remit-tag {
+        background: linear-gradient(135deg, #c0392b, #8e1a12);
+        color: white;
+      }
+
+      .tap-item-tag.borrow-tag {
+        background: linear-gradient(135deg, #27ae60, #1a7a43);
+        color: white;
+      }
+
+      .tap-item-balance {
+        font-size: 11px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .tap-item-balance.over  { color: #f1c40f; }
+      .tap-item-balance.under { color: #3498db; }
+
+      #tap-footer {
+        padding: 8px 12px 10px;
+        border-top: 1px solid rgba(255,255,255,0.06);
+      }
+
+      #tap-goto-btn {
+        display: block;
+        width: 100%;
+        background: linear-gradient(135deg, #c0392b, #8e1a12);
+        border: none;
+        border-radius: 8px;
+        color: white;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 8px 0;
+        cursor: pointer;
+        text-align: center;
+        text-decoration: none;
+        letter-spacing: 0.3px;
+        transition: opacity 0.15s;
+      }
+      #tap-goto-btn:hover { opacity: 0.85; }
+    </style>
 {% endblock css_files %}
 
 {% block script_files %}
@@ -111,7 +285,10 @@
             <div class='button' id='payout_button' onclick='openmodal("payoutmodal")'>Payout</div>
             <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
             <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
-            <a href="{% url 'admin-tellers' %}" class='button' id='tellers_button'>Tellers</a>
+            <a href="{% url 'admin-tellers' %}" class='button' id='tellers_button'>
+              Tellers
+              <span id="teller-alert-badge">0</span>
+            </a>
             <div class='button' id='received_button' onclick='openreceivedmodal()'>Received</div>
         </section>
     </section>
@@ -321,6 +498,19 @@
         </div>
     </div>
 
+    <!-- ── Floating teller alert panel ── -->
+    <div id="teller-alert-panel">
+      <div id="tap-header" onclick="toggleAlertPanel()">
+        <span id="tap-icon">⚠️</span>
+        <span id="tap-title">Teller Alert</span>
+        <button id="tap-dismiss" onclick="dismissAlertPanel(event)" title="Dismiss">✕</button>
+      </div>
+      <div id="tap-body"></div>
+      <div id="tap-footer">
+        <a href="{% url 'admin-tellers' %}" id="tap-goto-btn">Go to Tellers →</a>
+      </div>
+    </div>
+
     <script>
     const MARK_RECEIVED_URL = "{% url 'admin-mark-received' %}";
     const ADMIN_CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
@@ -471,6 +661,86 @@
             btn.disabled = false;
         }
     }
+
+    /* ── Teller alert polling ──────────────────────────── */
+    const TELLER_ALERTS_URL = "{% url 'admin-teller-alerts' %}";
+    let _alertPanelDismissed = false;
+
+    function _fmtBal(n) {
+        return '₱\u202f' + Math.abs(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
+    }
+
+    function _escHtml(s) {
+        return String(s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function toggleAlertPanel() {
+        const panel = document.getElementById('teller-alert-panel');
+        /* toggle is only used when clicking the header to collapse/expand */
+    }
+
+    function dismissAlertPanel(e) {
+        e.stopPropagation();
+        _alertPanelDismissed = true;
+        document.getElementById('teller-alert-panel').classList.remove('visible');
+    }
+
+    async function fetchTellerAlerts() {
+        try {
+            const res  = await fetch(TELLER_ALERTS_URL);
+            const data = await res.json();
+            if (!data.ok) return;
+
+            const badge = document.getElementById('teller-alert-badge');
+            const panel = document.getElementById('teller-alert-panel');
+            const body  = document.getElementById('tap-body');
+            const title = document.getElementById('tap-title');
+
+            if (data.alert_count === 0) {
+                badge.classList.remove('visible');
+                panel.classList.remove('visible');
+                _alertPanelDismissed = false;
+                return;
+            }
+
+            /* Update badge */
+            badge.textContent = data.alert_count;
+            badge.classList.add('visible');
+
+            /* Rebuild panel body */
+            const count = data.alert_count;
+            title.textContent = count === 1
+                ? '1 teller needs attention'
+                : `${count} tellers need attention`;
+
+            body.innerHTML = '';
+            for (const a of data.alerts) {
+                const isRemit = a.alert === 'remit';
+                const item = document.createElement('div');
+                item.className = 'tap-item';
+                item.innerHTML = `
+                    <span class="tap-item-name">${_escHtml(a.name)}</span>
+                    <span class="tap-item-balance ${isRemit ? 'over' : 'under'}">${_fmtBal(a.balance)}</span>
+                    <span class="tap-item-tag ${isRemit ? 'remit-tag' : 'borrow-tag'}">
+                        ${isRemit ? 'Remit' : 'Borrow'}
+                    </span>
+                `;
+                body.appendChild(item);
+            }
+
+            /* Show panel only if not dismissed */
+            if (!_alertPanelDismissed) {
+                panel.classList.add('visible');
+            }
+
+        } catch (e) { /* silent — server may be reloading */ }
+    }
+
+    /* Poll every 30 seconds; run immediately on load */
+    fetchTellerAlerts();
+    setInterval(fetchTellerAlerts, 1200000);
     </script>
 
 

@@ -430,9 +430,13 @@ def admin_tellers(request):
             'transactions': transactions,
         })
 
+    setting = Settings.objects.order_by('-id').first()
+    teller_max_balance = setting.teller_max_balance if setting else 0.0
+
     return render(request, 'SmartWagers/admin_tellers.html', {
         'teller_data': teller_data,
         'active_event': active_event,
+        'teller_max_balance': teller_max_balance,
     })
 
 
@@ -821,6 +825,43 @@ def admin_commission(request):
 
 
 @group_required('admin')
+def admin_teller_alerts(request):
+    """Lightweight JSON endpoint: returns tellers whose balance is out of range."""
+    try:
+        teller_group = Group.objects.get(name='teller')
+        tellers = teller_group.user_set.all()
+    except Group.DoesNotExist:
+        tellers = []
+
+    active_event = services.get_active_event()
+    setting = Settings.objects.order_by('-id').first()
+    threshold = setting.teller_max_balance if setting else 0.0
+
+    alerts = []
+    for teller in tellers:
+        balance, _ = _compute_teller_balance(teller, event=active_event)
+        if threshold > 0 and balance > threshold:
+            alerts.append({
+                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
+                'balance': round(balance, 2),
+                'alert': 'remit',
+            })
+        elif balance < 0:
+            alerts.append({
+                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
+                'balance': round(balance, 2),
+                'alert': 'borrow',
+            })
+
+    return JsonResponse({
+        'ok': True,
+        'threshold': threshold,
+        'alert_count': len(alerts),
+        'alerts': alerts,
+    })
+
+
+@group_required('admin')
 def admin_settings(request):
     """Admin view: adjust plasada and change fight result winners."""
     active_event = services.get_active_event()
@@ -843,6 +884,22 @@ def admin_settings(request):
                 setting.plasada = new_plasada
             setting.save()
             return JsonResponse({'ok': True, 'plasada': new_plasada, 'plasada_pct': new_plasada * 100})
+
+        if action == 'update_teller_max_balance':
+            try:
+                new_max = float(request.POST.get('teller_max_balance', ''))
+                if new_max < 0:
+                    return JsonResponse({'ok': False, 'error': 'Threshold must be 0 or greater (0 = no limit)'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid threshold value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(teller_max_balance=new_max)
+            else:
+                setting.teller_max_balance = new_max
+            setting.save()
+            return JsonResponse({'ok': True, 'teller_max_balance': new_max})
 
         if action == 'update_fight_result':
             try:
@@ -870,9 +927,13 @@ def admin_settings(request):
     if active_event is not None:
         fight_results = fight_results.filter(event=active_event)
 
+    setting = Settings.objects.order_by('-id').first()
+    teller_max_balance = setting.teller_max_balance if setting else 0.0
+
     return render(request, 'SmartWagers/admin_settings.html', {
         'plasada': plasada,
         'plasada_pct': plasada * 100,
         'fight_results': fight_results,
         'active_event': active_event,
+        'teller_max_balance': teller_max_balance,
     })
