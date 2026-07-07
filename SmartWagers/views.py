@@ -367,6 +367,81 @@ def get_teller_balance(request):
 
 
 @group_required('teller')
+def get_pending_payouts(request):
+    """Return the count and total amount of this teller's unclaimed winning/refund tickets."""
+    username = str(request.user)
+    active_event = services.get_active_event()
+
+    # Base: registered, uncashed wagers by this teller in the active event
+    pending_qs = Wagers.objects.filter(cashier=username, registered=True, cashed_out=False)
+    if active_event is not None:
+        pending_qs = pending_qs.filter(created_at__gte=active_event.started_at)
+        if active_event.ended_at:
+            pending_qs = pending_qs.filter(created_at__lte=active_event.ended_at)
+
+    # Collect fight results within the event so we know which fights are decided
+    results_qs = Fight_Results.objects.all()
+    if active_event is not None:
+        results_qs = results_qs.filter(event=active_event)
+
+    # Build a filter that matches only payable unclaimed tickets:
+    #   MERON/WALA result  → only the winning side for that fight
+    #   DRAW/CANCELLED     → all bets for that fight (full refund)
+    payable_q = Q()
+    for r in results_qs.values('fightnum', 'side'):
+        fn, side = r['fightnum'], r['side'].upper()
+        if side in ('DRAW', 'CANCELLED'):
+            payable_q |= Q(fightnum=fn)
+        else:
+            payable_q |= Q(fightnum=fn, side=side)
+
+    if not payable_q:
+        return JsonResponse({'ok': True, 'count': 0, 'total': 0})
+
+    payable_qs = pending_qs.filter(payable_q)
+    agg = payable_qs.aggregate(count=Count('id'), total=Sum('wager'))
+    return JsonResponse({
+        'ok': True,
+        'count': agg['count'] or 0,
+        'total': agg['total'] or 0,
+    })
+
+
+@group_required('teller')
+def get_teller_fight_totals(request):
+    """Return this teller's MERON and WALA bet totals for the current active fight only."""
+    username = str(request.user)
+    _, _, _, fightnum = services.get_fight_status()
+
+    if fightnum is None:
+        return JsonResponse({'ok': True, 'fightnum': None, 'meron_total': 0, 'wala_total': 0})
+
+    base_qs = Wagers.objects.filter(
+        cashier=username,
+        fightnum=fightnum,
+        registered=True,
+    )
+
+    # Scope to the active event's time window so bets from a previous event
+    # with the same fight number are never counted.
+    active_event = services.get_active_event()
+    if active_event is not None:
+        base_qs = base_qs.filter(created_at__gte=active_event.started_at)
+        if active_event.ended_at:
+            base_qs = base_qs.filter(created_at__lte=active_event.ended_at)
+
+    meron_total = base_qs.filter(side='MERON').aggregate(total=Sum('wager'))['total'] or 0
+    wala_total  = base_qs.filter(side='WALA').aggregate(total=Sum('wager'))['total'] or 0
+
+    return JsonResponse({
+        'ok': True,
+        'fightnum': fightnum,
+        'meron_total': meron_total,
+        'wala_total': wala_total,
+    })
+
+
+@group_required('teller')
 def teller_transaction(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)

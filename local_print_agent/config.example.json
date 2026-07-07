@@ -3,5 +3,6 @@
   "port": 8765,
   "printer_name": "",
   "print_mode": "windows_driver",
-  "code_page": "cp437"
+  "code_page": "cp437",
+  "font_scale": 1.0
 }

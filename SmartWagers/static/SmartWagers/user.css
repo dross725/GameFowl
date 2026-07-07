@@ -154,9 +154,7 @@ textarea {
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
   width: 100%;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  overflow: hidden; /* bet-buttons child handles its own scroll */
 }
 
 /* ── Side radio toggle ───────────────────────────────────── */
@@ -167,6 +165,7 @@ textarea {
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.13);
   transition: border-color 0.25s, box-shadow 0.25s;
+  flex-shrink: 0;
 }
 
 /* Pulse outline when no side is selected yet */
@@ -189,6 +188,7 @@ textarea {
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.38);
   text-align: center;
+  flex-shrink: 0;
 }
 
 #unified-wagers:has(#radio_none:checked) #side-hint {
@@ -237,17 +237,53 @@ textarea {
   color: white;
 }
 
+/* ── Per-fight bet totals strip ──────────────────────────── */
+#fight-bet-totals {
+  display: flex;
+  width: 100%;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fight-side-total {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.fight-total-meron {
+  background: rgba(192, 57, 43, 0.18);
+  border-color: rgba(192, 57, 43, 0.30);
+}
+
+.fight-total-wala {
+  background: rgba(26, 107, 192, 0.18);
+  border-color: rgba(26, 107, 192, 0.30);
+}
+
+.fight-total-value {
+  color: white;
+  font-size: 18px;
+  font-weight: 900;
+  text-align: center;
+}
+
 /* ── Bet amount input ────────────────────────────────────── */
 #bet-text-input {
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
+  flex-shrink: 0;
 }
 
 #bet_textinput {
   width: 100%;
-  max-width: 280px;
+  max-width: 294px;
   height: 34px;
   resize: none;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -274,22 +310,29 @@ textarea {
   gap: 6px;
   width: 100%;
   align-items: center;
+  /* Scroll only the buttons — keeps radio/input/submit always visible */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
 }
 
 #buttons_section1,
 #buttons_section2 {
   display: grid;
-  grid-template-columns: repeat(4, 96px);
+  grid-template-columns: repeat(8, 1fr);
   gap: 6px;
-  justify-content: center;
+  width: 100%;
 }
 
 .bet-buttons .button {
-  width: 96px;
-  height: 56px;
+  width: 100%;
+  height: 84px;
   min-width: unset;
   padding: 0;
-  font-size: 14px;
+  font-size: 21px;
+  font-weight: 800;
   border-radius: 10px;
 }
 
@@ -331,6 +374,7 @@ textarea {
   gap: 8px;
   justify-content: center;
   width: 100%;
+  flex-shrink: 0;
 }
 
 #Usersubmit {
@@ -485,19 +529,30 @@ textarea {
 
 /* ── Compact layout for 10" screens (~800 px tall) ──────── */
 @media (max-height: 820px) {
-  /* Pot strip — user page has even larger fonts, compress more */
+  /* Teller page: shrink MERON/WALA label banners to reclaim vertical space */
+  #M_Label,
+  #W_Label {
+    height: 76px;
+  }
+  #M_Label h1,
+  #W_Label h1 {
+    font-size: clamp(20px, 3.5vw, 40px);
+    letter-spacing: 4px;
+  }
+
+  /* Pot strip — compress more */
   #M_pot,
   #W_pot {
-    padding: 5px 12px;
+    padding: 4px 12px;
   }
   #M_total_bet,
   #W_total_bet {
-    font-size: clamp(22px, 4.25vw, 52px);
+    font-size: clamp(20px, 3.8vw, 46px);
   }
   #M_payout,
   #W_payout {
-    font-size: clamp(13px, 2.25vw, 28px);
-    padding: 2px 14px;
+    font-size: clamp(12px, 2vw, 24px);
+    padding: 2px 12px;
     margin-top: 2px;
   }
 
@@ -517,15 +572,17 @@ textarea {
   .bet-buttons {
     gap: 4px;
   }
+  /* 8-column layout — 2 rows, full button size */
   #buttons_section1,
   #buttons_section2 {
-    grid-template-columns: repeat(4, 87px);
+    grid-template-columns: repeat(8, 1fr);
     gap: 4px;
   }
   .bet-buttons .button {
-    width: 87px;
-    height: 50px;
-    font-size: 13px;
+    width: 100%;
+    height: 84px;
+    font-size: 25px;
+    font-weight: 800;
     padding: 0;
   }
   #submitreset-button {
@@ -583,15 +640,16 @@ textarea {
 
   #buttons_section1,
   #buttons_section2 {
-    gap: 8px;
-    grid-template-columns: repeat(4, 96px);
-    justify-content: center;
+    gap: 6px;
+    grid-template-columns: repeat(4, 1fr);
+    width: 100%;
   }
 
   .bet-buttons .button {
-    width: 96px;
-    height: 56px;
-    font-size: 14px;
+    width: 100%;
+    height: 84px;
+    font-size: 20px;
+    font-weight: 800;
     padding: 0;
   }
 
@@ -634,6 +692,70 @@ textarea {
     height: 44px;
     font-size: 18px;
   }
+}
+
+/* ── Pending payout notification badge ───────────────────── */
+#pending-payouts-badge {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: linear-gradient(135deg, #b7950b, #7d6608);
+  border: 1px solid rgba(212, 172, 13, 0.60);
+  border-radius: 12px;
+  padding: 10px 16px;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.55),
+    0 0 0 0 rgba(212, 172, 13, 0.50);
+  cursor: pointer;
+  user-select: none;
+  animation: pendingPulse 2s ease-in-out infinite;
+  transition: transform 0.12s, box-shadow 0.12s;
+}
+
+#pending-payouts-badge:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.60),
+    0 0 0 4px rgba(212, 172, 13, 0.25);
+}
+
+#pending-payouts-badge:active {
+  transform: translateY(0);
+}
+
+@keyframes pendingPulse {
+  0%, 100% { box-shadow: 0 4px 20px rgba(0,0,0,0.55), 0 0 0 0   rgba(212,172,13,0.50); }
+  50%       { box-shadow: 0 4px 20px rgba(0,0,0,0.55), 0 0 0 6px rgba(212,172,13,0.00); }
+}
+
+.pending-badge-count {
+  font-size: 28px;
+  font-weight: 900;
+  color: #fff8dc;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.pending-badge-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 220, 0.70);
+  line-height: 1;
+}
+
+.pending-badge-total {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff8dc;
+  line-height: 1;
+  margin-top: 2px;
 }
 
 /* ── Bet input disabled state ────────────────────────────── */
