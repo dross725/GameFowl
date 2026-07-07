@@ -440,33 +440,31 @@ function showReprintToast(message, type) {
     <table id="report-table">
       <thead>
         <tr>
-          <th>#</th>
-          <th>Transaction ID</th>
-          <th>Fight #</th>
-          <th>Side</th>
-          <th>Timestamp</th>
-          <th>Bet Amount</th>
-          <th>Reprint</th>
+          <th style="text-align: left;">#</th>
+          <th style="text-align: center;">Fight #</th>
+          <th style="text-align: left;">Side</th>
+          <th style="text-align: left;">Timestamp</th>
+          <th style="text-align: right;">Bet Amount</th>
+          <th style="text-align: center;">Reprint</th>
         </tr>
       </thead>
       <tbody>
         {% for w in wagers %}
         <tr class="row-{{ w.side|lower }}">
           <td style="color: rgba(255,255,255,0.30); font-size:11px;">{{ forloop.counter }}</td>
-          <td class="td-txid">{{ w.transactionid }}</td>
           <td class="td-fightnum">{{ w.fightnum }}</td>
           <td>
             <span class="side-badge {{ w.side|lower }}">{{ w.side }}</span>
           </td>
           <td class="td-timestamp">{{ w.created_at|date:"Y-m-d" }} {{ w.created_at|time:"H:i:s" }}</td>
           <td class="td-wager">₱ {{ w.wager|floatformat:0|intcomma }}</td>
-          <td><button class="btn-reprint" onclick="reprintFromReport(this, '{{ w.transactionid }}')"{% if w.fightnum in completed_fights %} disabled title="Fight already completed"{% endif %}>Reprint</button></td>
+          <td><button class="btn-reprint" onclick="reprintFromReport(this, '{{ w.transactionid }}')"{% if w.fightnum in completed_fights and w.fightnum not in allowed_reprint %} disabled title="Fight already completed"{% endif %}>Reprint</button></td>
         </tr>
         {% endfor %}
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="5">Total ({{ total_count }} transactions)</td>
+          <td colspan="4">Total ({{ total_count }} transactions)</td>
           <td class="td-wager">₱ {{ total_amount|floatformat:0|intcomma }}</td>
           <td></td>
         </tr>

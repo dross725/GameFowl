@@ -730,6 +730,15 @@ def payout_request(transaction_id, requesting_cashier=None):
         if payout_fightresult_side.upper() == "CANCELLED":
             payout_data.cashed_out = True
             payout_data.save(update_fields=['cashed_out'])
+            try:
+                cashier_user = User.objects.get(username=payout_data.cashier)
+                TellerTransaction.objects.create(
+                    user=cashier_user,
+                    transaction_type=TellerTransaction.PAYOUT,
+                    amount=payout_data.wager,
+                )
+            except User.DoesNotExist:
+                pass
             payout_result['side'] = "CANCELLED"
             payout_result['wager'] = format(payout_data.wager, ',')
             return payout_result

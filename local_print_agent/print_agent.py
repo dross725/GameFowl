@@ -12,6 +12,7 @@ DEFAULT_CONFIG = {
     "printer_name": "",
     "print_mode": "windows_driver",
     "code_page": "cp437",
+    "font_scale": 1.0,
 }
 
 
@@ -246,7 +247,7 @@ def code39_width(value, narrow):
     return width
 
 
-def print_windows_driver(printer_name, receipt):
+def print_windows_driver(printer_name, receipt, font_scale=1.0):
     win32ui = get_win32ui()
     win32con = get_win32con()
     transaction_id = str(receipt.get("transaction_id", ""))
@@ -268,21 +269,21 @@ def print_windows_driver(printer_name, receipt):
     page_width = dc.GetDeviceCaps(win32con.HORZRES)
     margin_x = max(int(dpi_x * 0.15), 30)
     y = max(int(dpi_y * 0.15), 30)
-    line_gap = int(dpi_y * 0.12)
+    line_gap = int(dpi_y * 0.12 * font_scale)
 
     normal_font = win32ui.CreateFont({
         "name": "Arial",
-        "height": int(dpi_y * 0.11),
+        "height": int(dpi_y * 0.11 * font_scale),
         "weight": 400,
     })
     bold_font = win32ui.CreateFont({
         "name": "Arial",
-        "height": int(dpi_y * 0.13),
+        "height": int(dpi_y * 0.13 * font_scale),
         "weight": 700,
     })
     barcode_font = win32ui.CreateFont({
         "name": "Consolas",
-        "height": int(dpi_y * 0.10),
+        "height": int(dpi_y * 0.10 * font_scale),
         "weight": 700,
     })
     barcode_height = int(dpi_y * 0.45)
@@ -321,7 +322,7 @@ def print_windows_driver(printer_name, receipt):
             draw_centered(f"Payout Amount: {total_payout}", bold_font)
         y += line_gap
         draw_left(f"Cashier: {cashier}")
-        draw_left(f"Transaction ID: {transaction_id}")
+        draw_left(f"{transaction_id}")
         y += line_gap
         if transaction_id:
             barcode_width = code39_width(transaction_id, barcode_narrow)
@@ -339,11 +340,12 @@ def print_windows_driver(printer_name, receipt):
 
 def print_receipt(config, printer_name, receipt):
     print_mode = str(config.get("print_mode", "windows_driver")).lower()
+    font_scale = float(config.get("font_scale", 1.0))
     if print_mode == "escpos":
         payload = escpos_receipt(receipt, config["code_page"])
         return print_raw(printer_name, payload)
     if print_mode == "windows_driver":
-        return print_windows_driver(printer_name, receipt)
+        return print_windows_driver(printer_name, receipt, font_scale=font_scale)
 
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
 
@@ -393,7 +395,7 @@ def escpos_remit_receipt(receipt, code_page="cp437"):
     return bytes(output)
 
 
-def print_windows_driver_remit(printer_name, receipt):
+def print_windows_driver_remit(printer_name, receipt, font_scale=1.0):
     win32ui = get_win32ui()
     win32con = get_win32con()
 
@@ -414,16 +416,16 @@ def print_windows_driver_remit(printer_name, receipt):
     page_width = dc.GetDeviceCaps(win32con.HORZRES)
     margin_x = max(int(dpi_x * 0.15), 30)
     y = max(int(dpi_y * 0.15), 30)
-    line_gap = int(dpi_y * 0.12)
+    line_gap = int(dpi_y * 0.12 * font_scale)
 
     normal_font = win32ui.CreateFont({
-        "name": "Arial", "height": int(dpi_y * 0.11), "weight": 400,
+        "name": "Arial", "height": int(dpi_y * 0.11 * font_scale), "weight": 400,
     })
     bold_font = win32ui.CreateFont({
-        "name": "Arial", "height": int(dpi_y * 0.13), "weight": 700,
+        "name": "Arial", "height": int(dpi_y * 0.13 * font_scale), "weight": 700,
     })
     barcode_font = win32ui.CreateFont({
-        "name": "Consolas", "height": int(dpi_y * 0.10), "weight": 700,
+        "name": "Consolas", "height": int(dpi_y * 0.10 * font_scale), "weight": 700,
     })
     barcode_height = int(dpi_y * 0.45)
     barcode_narrow = max(int(dpi_x * 0.012), 2)
@@ -472,11 +474,12 @@ def print_windows_driver_remit(printer_name, receipt):
 
 def print_remit_receipt(config, printer_name, receipt):
     print_mode = str(config.get("print_mode", "windows_driver")).lower()
+    font_scale = float(config.get("font_scale", 1.0))
     if print_mode == "escpos":
         payload = escpos_remit_receipt(receipt, config["code_page"])
         return print_raw(printer_name, payload)
     if print_mode == "windows_driver":
-        return print_windows_driver_remit(printer_name, receipt)
+        return print_windows_driver_remit(printer_name, receipt, font_scale=font_scale)
 
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
 

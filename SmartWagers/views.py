@@ -313,6 +313,14 @@ def teller_report(request):
         result_qs = result_qs.filter(event=active_event)
     completed_fights = set(result_qs.values_list('fightnum', flat=True))
 
+    # Allow reprint for the current live fight and the 2 most recently
+    # completed fights so tellers can still reprint recent tickets.
+    _, _, _, current_fightnum = services.get_fight_status()
+    recent_completed = list(
+        result_qs.order_by('-fightnum').values_list('fightnum', flat=True)[:2]
+    )
+    allowed_reprint = set(recent_completed) | {current_fightnum}
+
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
         'total_amount': total_amount,
@@ -320,6 +328,7 @@ def teller_report(request):
         'teller_name': str(request.user),
         'active_event': active_event,
         'completed_fights': completed_fights,
+        'allowed_reprint': allowed_reprint,
     })
 
 
@@ -364,6 +373,81 @@ def get_teller_balance(request):
     active_event = services.get_active_event()
     balance, grand_total = _compute_teller_balance(request.user, event=active_event)
     return JsonResponse({'ok': True, 'balance': balance, 'grand_total': grand_total})
+
+
+@group_required('teller')
+def get_pending_payouts(request):
+    """Return the count and total amount of this teller's unclaimed winning/refund tickets."""
+    username = str(request.user)
+    active_event = services.get_active_event()
+
+    # Base: registered, uncashed wagers by this teller in the active event
+    pending_qs = Wagers.objects.filter(cashier=username, registered=True, cashed_out=False)
+    if active_event is not None:
+        pending_qs = pending_qs.filter(created_at__gte=active_event.started_at)
+        if active_event.ended_at:
+            pending_qs = pending_qs.filter(created_at__lte=active_event.ended_at)
+
+    # Collect fight results within the event so we know which fights are decided
+    results_qs = Fight_Results.objects.all()
+    if active_event is not None:
+        results_qs = results_qs.filter(event=active_event)
+
+    # Build a filter that matches only payable unclaimed tickets:
+    #   MERON/WALA result  → only the winning side for that fight
+    #   DRAW/CANCELLED     → all bets for that fight (full refund)
+    payable_q = Q()
+    for r in results_qs.values('fightnum', 'side'):
+        fn, side = r['fightnum'], r['side'].upper()
+        if side in ('DRAW', 'CANCELLED'):
+            payable_q |= Q(fightnum=fn)
+        else:
+            payable_q |= Q(fightnum=fn, side=side)
+
+    if not payable_q:
+        return JsonResponse({'ok': True, 'count': 0, 'total': 0})
+
+    payable_qs = pending_qs.filter(payable_q)
+    agg = payable_qs.aggregate(count=Count('id'), total=Sum('wager'))
+    return JsonResponse({
+        'ok': True,
+        'count': agg['count'] or 0,
+        'total': agg['total'] or 0,
+    })
+
+
+@group_required('teller')
+def get_teller_fight_totals(request):
+    """Return this teller's MERON and WALA bet totals for the current active fight only."""
+    username = str(request.user)
+    _, _, _, fightnum = services.get_fight_status()
+
+    if fightnum is None:
+        return JsonResponse({'ok': True, 'fightnum': None, 'meron_total': 0, 'wala_total': 0})
+
+    base_qs = Wagers.objects.filter(
+        cashier=username,
+        fightnum=fightnum,
+        registered=True,
+    )
+
+    # Scope to the active event's time window so bets from a previous event
+    # with the same fight number are never counted.
+    active_event = services.get_active_event()
+    if active_event is not None:
+        base_qs = base_qs.filter(created_at__gte=active_event.started_at)
+        if active_event.ended_at:
+            base_qs = base_qs.filter(created_at__lte=active_event.ended_at)
+
+    meron_total = base_qs.filter(side='MERON').aggregate(total=Sum('wager'))['total'] or 0
+    wala_total  = base_qs.filter(side='WALA').aggregate(total=Sum('wager'))['total'] or 0
+
+    return JsonResponse({
+        'ok': True,
+        'fightnum': fightnum,
+        'meron_total': meron_total,
+        'wala_total': wala_total,
+    })
 
 
 @group_required('teller')
@@ -430,9 +514,13 @@ def admin_tellers(request):
             'transactions': transactions,
         })
 
+    setting = Settings.objects.order_by('-id').first()
+    teller_max_balance = setting.teller_max_balance if setting else 0.0
+
     return render(request, 'SmartWagers/admin_tellers.html', {
         'teller_data': teller_data,
         'active_event': active_event,
+        'teller_max_balance': teller_max_balance,
     })
 
 
@@ -821,6 +909,43 @@ def admin_commission(request):
 
 
 @group_required('admin')
+def admin_teller_alerts(request):
+    """Lightweight JSON endpoint: returns tellers whose balance is out of range."""
+    try:
+        teller_group = Group.objects.get(name='teller')
+        tellers = teller_group.user_set.all()
+    except Group.DoesNotExist:
+        tellers = []
+
+    active_event = services.get_active_event()
+    setting = Settings.objects.order_by('-id').first()
+    threshold = setting.teller_max_balance if setting else 0.0
+
+    alerts = []
+    for teller in tellers:
+        balance, _ = _compute_teller_balance(teller, event=active_event)
+        if threshold > 0 and balance > threshold:
+            alerts.append({
+                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
+                'balance': round(balance, 2),
+                'alert': 'remit',
+            })
+        elif balance < 0:
+            alerts.append({
+                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
+                'balance': round(balance, 2),
+                'alert': 'borrow',
+            })
+
+    return JsonResponse({
+        'ok': True,
+        'threshold': threshold,
+        'alert_count': len(alerts),
+        'alerts': alerts,
+    })
+
+
+@group_required('admin')
 def admin_settings(request):
     """Admin view: adjust plasada and change fight result winners."""
     active_event = services.get_active_event()
@@ -844,6 +969,22 @@ def admin_settings(request):
             setting.save()
             return JsonResponse({'ok': True, 'plasada': new_plasada, 'plasada_pct': new_plasada * 100})
 
+        if action == 'update_teller_max_balance':
+            try:
+                new_max = float(request.POST.get('teller_max_balance', ''))
+                if new_max < 0:
+                    return JsonResponse({'ok': False, 'error': 'Threshold must be 0 or greater (0 = no limit)'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid threshold value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(teller_max_balance=new_max)
+            else:
+                setting.teller_max_balance = new_max
+            setting.save()
+            return JsonResponse({'ok': True, 'teller_max_balance': new_max})
+
         if action == 'update_fight_result':
             try:
                 result_id = int(request.POST.get('result_id', 0))
@@ -861,6 +1002,15 @@ def admin_settings(request):
 
             result.side = new_side
             result.save(update_fields=['side'])
+
+            channel_layer = get_channel_layer()
+            if channel_layer is not None:
+                for group_name in ['index', 'user', 'administrator']:
+                    async_to_sync(channel_layer.group_send)(group_name, {
+                        'type': 'send_data',
+                        'refresh_trends': True,
+                    })
+
             return JsonResponse({'ok': True, 'result_id': result_id, 'side': new_side})
 
         return JsonResponse({'ok': False, 'error': 'Unknown action'}, status=400)
@@ -870,9 +1020,13 @@ def admin_settings(request):
     if active_event is not None:
         fight_results = fight_results.filter(event=active_event)
 
+    setting = Settings.objects.order_by('-id').first()
+    teller_max_balance = setting.teller_max_balance if setting else 0.0
+
     return render(request, 'SmartWagers/admin_settings.html', {
         'plasada': plasada,
         'plasada_pct': plasada * 100,
         'fight_results': fight_results,
         'active_event': active_event,
+        'teller_max_balance': teller_max_balance,
     })

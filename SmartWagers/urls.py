@@ -16,6 +16,8 @@ urlpatterns = [
     path("get_fight_results_view/", views.get_fight_results_view, name="get-fight-results"),
     path("reprint_wager/", views.reprint_wager, name="reprint-wager"),
     path("get_teller_balance/", views.get_teller_balance, name="get-teller-balance"),
+    path("get_teller_fight_totals/", views.get_teller_fight_totals, name="get-teller-fight-totals"),
+    path("get_pending_payouts/", views.get_pending_payouts, name="get-pending-payouts"),
     path("teller_transaction/", views.teller_transaction, name="teller-transaction"),
     path("reports/", views.teller_report, name="teller-report"),
     path("administrator/tellers/", views.admin_tellers, name="admin-tellers"),
@@ -28,6 +30,7 @@ urlpatterns = [
     path("administrator/teller-transactions/", views.admin_teller_transactions, name="admin-teller-transactions"),
     path("administrator/commission/", views.admin_commission, name="admin-commission"),
     path("administrator/settings/", views.admin_settings, name="admin-settings"),
+    path("administrator/teller-alerts/", views.admin_teller_alerts, name="admin-teller-alerts"),
     #path("get_button_state_view/<str:side>/", views.get_button_state_view)
     #path("reports", views.Reports, name="reports-page"),
     #path("su_admin/<slug:slug>", views.SuperUser, name="su_admin")

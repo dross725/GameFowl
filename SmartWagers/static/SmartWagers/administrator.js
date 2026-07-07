@@ -29,6 +29,10 @@ administratorSocket.onmessage = async (event) => {
         update_trends();
     }
 
+    if (data.refresh_trends) {
+        update_trends();
+    }
+
     if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
         document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
@@ -687,12 +691,20 @@ function cancelbet(){
     const barcode = document.getElementById('cancelbet_barcode').value;
     if (barcode === 0 || barcode === '' || isNaN(barcode)) {
         openmodal('payout_error_modal', 'invalid_barcode');
-    }else {
-        console.log("Cancelling bet for barcode: " + barcode);
-        administratorSocket.send(JSON.stringify({cancel_barcode: barcode}));
+    } else {
+        // Teller pages use userSocket; admin pages use administratorSocket.
+        const socket = (typeof userSocket !== 'undefined' && userSocket.readyState === WebSocket.OPEN)
+            ? userSocket
+            : administratorSocket;
+        console.log("[cancelbet] socket selected:", socket === (typeof userSocket !== 'undefined' ? userSocket : null) ? "userSocket" : "administratorSocket", "readyState:", socket.readyState);
+        try {
+            socket.send(JSON.stringify({cancel_barcode: barcode}));
+        } catch (error) {
+            console.error("websocket send failed: ", error);
+            openmodal('payout_error_modal', 'web_socket_error');
+        }
         closemodal('cancelbetmodal');
-   }
-
+    }
 }
 
 async function reprintReceipt() {
@@ -772,7 +784,9 @@ async function update_trends() {
         row.className = "sidebar-row";
 
         let formattedOdds = '';
-        if (match.odds === 'Llamado') {
+        if (match.side === 'DRAW') {
+            formattedOdds = 'DRAW';
+        } else if (match.odds === 'Llamado') {
             formattedOdds = 'L';
         } else if (match.odds === 'Dehado') {
             formattedOdds = 'D';
@@ -788,10 +802,11 @@ async function update_trends() {
         oddsDiv.className = "odds";
         oddsDiv.textContent = formattedOdds;
 
-        // 🎨 Color coding based on winner
+        // Color coding based on winner
         const colors = {
             MERON: "linear-gradient(to bottom, red, black)",
             WALA:  "linear-gradient(to bottom, blue, black)",
+            DRAW:  "linear-gradient(to bottom, #c8a800, black)",
         };
         oddsDiv.style.background = colors[match.side] || "linear-gradient(to bottom, gray, black)";
         oddsDiv.style.color = "white";
