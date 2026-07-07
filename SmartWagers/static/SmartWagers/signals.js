@@ -6,6 +6,10 @@ socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
     console.log("signals.js received:", data);
 
+    if (data.refresh_trends) {
+        update_trends();
+    }
+
     if ("fight_status" in data) {
         // Fetch real status from server so display shows proper values
         get_fightstatus();

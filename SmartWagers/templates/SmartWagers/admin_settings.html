@@ -406,6 +406,51 @@
 const SETTINGS_URL = "{% url 'admin-settings' %}";
 const CSRF_TOKEN = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
 
+async function update_trends() {
+    try {
+        const res = await fetch('/get_fight_results_view/');
+        const trend_data = await res.json();
+        const trendsList = document.getElementById('trends');
+        trendsList.innerHTML = '';
+        trend_data.forEach(match => {
+            const row = document.createElement('li');
+            row.className = 'sidebar-row';
+            let formattedOdds = '';
+            if (match.side === 'DRAW') {
+                formattedOdds = 'DRAW';
+            } else if (match.odds === 'Llamado') {
+                formattedOdds = 'L';
+            } else if (match.odds === 'Dehado') {
+                formattedOdds = 'D';
+            } else {
+                formattedOdds = '----';
+            }
+            const fightDiv = document.createElement('div');
+            fightDiv.className = 'fightnum';
+            fightDiv.textContent = match.fightnum;
+            const oddsDiv = document.createElement('div');
+            oddsDiv.className = 'odds';
+            oddsDiv.textContent = formattedOdds;
+            const colors = {
+                MERON: 'linear-gradient(to bottom, red, black)',
+                WALA:  'linear-gradient(to bottom, blue, black)',
+                DRAW:  'linear-gradient(to bottom, #c8a800, black)',
+            };
+            oddsDiv.style.background = colors[match.side] || 'linear-gradient(to bottom, gray, black)';
+            oddsDiv.style.color = 'white';
+            row.appendChild(fightDiv);
+            row.appendChild(oddsDiv);
+            trendsList.appendChild(row);
+        });
+    } catch (err) {
+        console.error('update_trends error:', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    update_trends();
+});
+
 async function savePlasada() {
     const pctVal = parseFloat(document.getElementById('plasada-input').value);
     const statusEl = document.getElementById('st-plasada-status');
@@ -509,6 +554,7 @@ async function updateWinner(resultId) {
             const badgeEl = document.getElementById('badge-' + resultId);
             const classes = { MERON: 'badge-meron', WALA: 'badge-wala', DRAW: 'badge-draw' };
             badgeEl.innerHTML = `<span class="side-badge ${classes[newSide] || 'badge-draw'}">${newSide}</span>`;
+            update_trends();
             setTimeout(() => { statusEl.textContent = ''; }, 2500);
         } else {
             statusEl.style.color = '#e74c3c';
