@@ -313,6 +313,14 @@ def teller_report(request):
         result_qs = result_qs.filter(event=active_event)
     completed_fights = set(result_qs.values_list('fightnum', flat=True))
 
+    # Allow reprint for the current live fight and the 2 most recently
+    # completed fights so tellers can still reprint recent tickets.
+    _, _, _, current_fightnum = services.get_fight_status()
+    recent_completed = list(
+        result_qs.order_by('-fightnum').values_list('fightnum', flat=True)[:2]
+    )
+    allowed_reprint = set(recent_completed) | {current_fightnum}
+
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
         'total_amount': total_amount,
@@ -320,6 +328,7 @@ def teller_report(request):
         'teller_name': str(request.user),
         'active_event': active_event,
         'completed_fights': completed_fights,
+        'allowed_reprint': allowed_reprint,
     })
 
 
@@ -993,6 +1002,15 @@ def admin_settings(request):
 
             result.side = new_side
             result.save(update_fields=['side'])
+
+            channel_layer = get_channel_layer()
+            if channel_layer is not None:
+                for group_name in ['index', 'user', 'administrator']:
+                    async_to_sync(channel_layer.group_send)(group_name, {
+                        'type': 'send_data',
+                        'refresh_trends': True,
+                    })
+
             return JsonResponse({'ok': True, 'result_id': result_id, 'side': new_side})
 
         return JsonResponse({'ok': False, 'error': 'Unknown action'}, status=400)

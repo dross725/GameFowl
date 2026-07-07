@@ -29,6 +29,10 @@ administratorSocket.onmessage = async (event) => {
         update_trends();
     }
 
+    if (data.refresh_trends) {
+        update_trends();
+    }
+
     if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
         document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
@@ -780,7 +784,9 @@ async function update_trends() {
         row.className = "sidebar-row";
 
         let formattedOdds = '';
-        if (match.odds === 'Llamado') {
+        if (match.side === 'DRAW') {
+            formattedOdds = 'DRAW';
+        } else if (match.odds === 'Llamado') {
             formattedOdds = 'L';
         } else if (match.odds === 'Dehado') {
             formattedOdds = 'D';
@@ -796,10 +802,11 @@ async function update_trends() {
         oddsDiv.className = "odds";
         oddsDiv.textContent = formattedOdds;
 
-        // 🎨 Color coding based on winner
+        // Color coding based on winner
         const colors = {
             MERON: "linear-gradient(to bottom, red, black)",
             WALA:  "linear-gradient(to bottom, blue, black)",
+            DRAW:  "linear-gradient(to bottom, #c8a800, black)",
         };
         oddsDiv.style.background = colors[match.side] || "linear-gradient(to bottom, gray, black)";
         oddsDiv.style.color = "white";
