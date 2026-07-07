@@ -687,12 +687,20 @@ function cancelbet(){
     const barcode = document.getElementById('cancelbet_barcode').value;
     if (barcode === 0 || barcode === '' || isNaN(barcode)) {
         openmodal('payout_error_modal', 'invalid_barcode');
-    }else {
-        console.log("Cancelling bet for barcode: " + barcode);
-        administratorSocket.send(JSON.stringify({cancel_barcode: barcode}));
+    } else {
+        // Teller pages use userSocket; admin pages use administratorSocket.
+        const socket = (typeof userSocket !== 'undefined' && userSocket.readyState === WebSocket.OPEN)
+            ? userSocket
+            : administratorSocket;
+        console.log("[cancelbet] socket selected:", socket === (typeof userSocket !== 'undefined' ? userSocket : null) ? "userSocket" : "administratorSocket", "readyState:", socket.readyState);
+        try {
+            socket.send(JSON.stringify({cancel_barcode: barcode}));
+        } catch (error) {
+            console.error("websocket send failed: ", error);
+            openmodal('payout_error_modal', 'web_socket_error');
+        }
         closemodal('cancelbetmodal');
-   }
-
+    }
 }
 
 async function reprintReceipt() {

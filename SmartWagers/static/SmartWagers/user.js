@@ -42,6 +42,8 @@ userSocket.onmessage = (event) => {
         get_fightstatus();
         if (data.fight_status === "END" || data.fight_status === "CANCEL") {
             update_trends();
+            // A result was just declared — check for newly payable tickets
+            fetchPendingPayouts();
         }
     }
 
@@ -52,6 +54,26 @@ userSocket.onmessage = (event) => {
     if ("payout" in data) {
         console.log("[user.js] payout message received:", data);
         handlePayoutMessage(data);
+        // Payout processed — refresh pending count and balance
+        fetchPendingPayouts();
+        fetchTellerBalance();
+    }
+
+    if ("cancel_bet" in data) {
+        console.log("[user.js] cancel_bet message received:", data);
+        if ("error" in data) {
+            document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
+            openmodal('payout_error_modal', data.error);
+        } else if ("transaction_id" in data && "amount" in data) {
+            document.getElementById('payout_success_header').innerText = "Cancel Bet";
+            document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
+            document.getElementById('payout_message2').innerText = "Please refund: ₱ " + data.amount;
+            document.getElementById('payout_message3').innerText = "";
+            document.getElementById('payout_print_modal').style.display = 'flex';
+        }
+        // Refresh balance and per-fight totals — cancel reverses collected cash
+        fetchTellerBalance();
+        fetchFightTotals();
     }
 }; 
 
@@ -79,8 +101,16 @@ function updateStatus(status) {
     document.getElementById("ws_status").style.fontWeight = "bold";
 };
 
+let _lastFightnum = null;
+
 function updateFightnum(fightnum){
     document.getElementById("currentmatchnum").innerText = fightnum;
+    // When the fight number changes, reset and refetch per-fight totals
+    if (fightnum !== _lastFightnum) {
+        _lastFightnum = fightnum;
+        updateFightTotals(0, 0);
+        fetchFightTotals();
+    }
 };
 
 function normalizeBettingStatus(status) {
@@ -373,6 +403,8 @@ document.addEventListener("DOMContentLoaded", () => {
     //fetchButtonState();
     get_fightstatus();  // Fetch fight status on page load
     fetchTellerBalance();
+    fetchFightTotals();
+    fetchPendingPayouts();
 });
 // window.onload = function() {
 //     console.log("Fetching button states on page load...");
@@ -410,6 +442,53 @@ async function fetchTellerBalance() {
         console.error('Error fetching teller balance:', error);
     }
     return null;
+}
+
+// ── Pending payout notification ───────────────────────────
+
+async function fetchPendingPayouts() {
+    try {
+        const response = await fetch('/get_pending_payouts/');
+        const data = await response.json();
+        if (!data.ok) return;
+
+        const badge  = document.getElementById('pending-payouts-badge');
+        const countEl = document.getElementById('pending-payouts-count');
+        const totalEl = document.getElementById('pending-payouts-total');
+        if (!badge) return;
+
+        if (data.count > 0) {
+            countEl.innerText = data.count;
+            totalEl.innerText = '₱ ' + Number(data.total).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error fetching pending payouts:', error);
+    }
+}
+
+// ── Per-fight bet totals ───────────────────────────────────
+
+function updateFightTotals(meronTotal, walaTotal) {
+    const fmt = (v) => '₱ ' + Number(v).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    const mEl = document.getElementById('teller-meron-total');
+    const wEl = document.getElementById('teller-wala-total');
+    if (mEl) mEl.innerText = fmt(meronTotal);
+    if (wEl) wEl.innerText = fmt(walaTotal);
+}
+
+async function fetchFightTotals() {
+    try {
+        const response = await fetch('/get_teller_fight_totals/');
+        const data = await response.json();
+        if (data.ok) {
+            updateFightTotals(data.meron_total, data.wala_total);
+        }
+    } catch (error) {
+        console.error('Error fetching fight totals:', error);
+    }
 }
 
 async function openBalanceModal() {
