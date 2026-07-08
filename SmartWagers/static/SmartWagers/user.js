@@ -595,22 +595,25 @@ async function submitTellerTransaction(type) {
         document.getElementById('payout_success_header').innerText = `${label} Receipt`;
         document.getElementById('payout_message1').innerText = `Txn ID   : ${data.transaction_id}`;
         document.getElementById('payout_message2').innerText = `${label} Amount : ₱ ${Number(data.amount).toLocaleString('en-PH')}`;
-        document.getElementById('payout_message3').innerText = 'Sending receipt to printer...';
         document.getElementById('payout_print_modal').style.display = 'flex';
 
-        const printResult = await printRemitReceipt({
-            transaction_type: data.transaction_type,
-            transaction_id: data.transaction_id,
-            amount: data.amount,
-            balance: data.balance,
-            grand_total: data.grand_total,
-            cashier: data.cashier,
-            date: dateStr,
-        });
-
-        document.getElementById('payout_message3').innerText = printResult.ok
-            ? 'Receipt sent to printer.'
-            : 'Print failed: ' + printResult.message;
+        if (data.print_required !== false) {
+            document.getElementById('payout_message3').innerText = 'Sending receipt to printer...';
+            const printResult = await printRemitReceipt({
+                transaction_type: data.transaction_type,
+                transaction_id: data.transaction_id,
+                amount: data.amount,
+                balance: data.balance,
+                grand_total: data.grand_total,
+                cashier: data.cashier,
+                date: dateStr,
+            });
+            document.getElementById('payout_message3').innerText = printResult.ok
+                ? 'Receipt sent to printer.'
+                : 'Print failed: ' + printResult.message;
+        } else {
+            document.getElementById('payout_message3').innerText = '';
+        }
 
     } catch (error) {
         console.error('Transaction error:', error);
