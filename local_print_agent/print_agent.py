@@ -72,12 +72,19 @@ def escpos_receipt(receipt, code_page="cp437"):
         output += text_line("CONGRATULATIONS!", code_page)
     output += text_line(f"Fight Number: {fightnum}", code_page)
     if is_wager:
+        output += b"\x1d!\x11"  # Double width + double height
         output += text_line(side, code_page)
         output += text_line(f"Amount: {amount}", code_page)
+        output += b"\x1d!\x00"  # Back to normal size
     else:
+        output += b"\x1d!\x11"  # Double width + double height
         output += text_line(f"{side} - {odds}", code_page)
+        output += b"\x1d!\x00"  # Back to normal size
         output += text_line(f"Odds: {multiplier}", code_page)
-        output += text_line(f"Payout Amount: {total_payout}", code_page)
+        output += text_line("Payout Amount:", code_page)
+        output += b"\x1d!\x11"  # Double width + double height
+        output += text_line(total_payout, code_page)
+        output += b"\x1d!\x00"  # Back to normal size
     output += b"\x1bE\x00"
     output += text_line("", code_page)
     output += text_line(f"Cashier: {cashier}", code_page)
@@ -281,6 +288,11 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0):
         "height": int(dpi_y * 0.13 * font_scale),
         "weight": 700,
     })
+    highlight_font = win32ui.CreateFont({
+        "name": "Arial",
+        "height": int(dpi_y * 0.20 * font_scale),
+        "weight": 700,
+    })
     barcode_font = win32ui.CreateFont({
         "name": "Consolas",
         "height": int(dpi_y * 0.10 * font_scale),
@@ -314,15 +326,16 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0):
         draw_centered("BET RECEIPT" if is_wager else "CONGRATULATIONS!", bold_font)
         draw_centered(f"Fight Number: {fightnum}", bold_font)
         if is_wager:
-            draw_centered(side, bold_font)
-            draw_centered(f"Amount: {amount}", bold_font)
+            draw_centered(side, highlight_font)
+            draw_centered(f"Amount: {amount}", highlight_font)
         else:
-            draw_centered(f"{side} - {odds}", bold_font)
+            draw_centered(f"{side} - {odds}", highlight_font)
             draw_centered(f"Odds: {multiplier}", bold_font)
-            draw_centered(f"Payout Amount: {total_payout}", bold_font)
+            draw_centered("Payout Amount:", bold_font)
+            draw_centered(total_payout, highlight_font)
         y += line_gap
-        draw_left(f"Cashier: {cashier}")
-        draw_left(f"{transaction_id}")
+        draw_centered(f"Cashier: {cashier}", normal_font)
+        draw_centered(f"{transaction_id}", normal_font)
         y += line_gap
         if transaction_id:
             barcode_width = code39_width(transaction_id, barcode_narrow)

@@ -813,6 +813,7 @@ def payout_request(transaction_id, requesting_cashier=None):
 
     receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
     payout_result.update({
+        'print_required': is_wager_receipt_printing_enabled(),
         'transaction_id': transaction_id,
         'fightnum': payout_data_fn,
         'side': payout_fightresult_side,

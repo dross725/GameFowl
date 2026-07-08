@@ -123,7 +123,7 @@ def reprint_wager(request):
     if receipt is None:
         return JsonResponse({'ok': False, 'error': 'notfound'})
 
-    return JsonResponse({'ok': True, 'receipt': receipt})
+    return JsonResponse({'ok': True, 'print_required': services.is_wager_receipt_printing_enabled(), 'receipt': receipt})
 
 def notify_bet_updates():
     channel_layer = get_channel_layer()
@@ -482,6 +482,7 @@ def teller_transaction(request):
     balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
     return JsonResponse({
         'ok': True,
+        'print_required': services.is_wager_receipt_printing_enabled(),
         'balance': balance,
         'grand_total': grand_total,
         'cashier': str(request.user),

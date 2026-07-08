@@ -188,9 +188,7 @@ SESSION_COOKIE_AGE = 86400  # 24 hours (in seconds)
 #    "WAGER_RECEIPT_PRINTING_ENABLED",
 #    "true",
 #).lower() in ("1", "true", "yes", "on")
-WAGER_RECEIPT_PRINTING_ENABLED = False
-
-
+WAGER_RECEIPT_PRINTING_ENABLED = True
 
 ###
 # impor os

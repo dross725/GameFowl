@@ -472,13 +472,17 @@ async function handlePayoutMessage(data) {
         document.getElementById('payout_success_header').innerText = "Payout request valid!";
         document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
         document.getElementById('payout_message2').innerText = "Total Payout Amount: " + data.Total_Payout;
-        document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
         document.getElementById('payout_print_modal').style.display = 'flex';
 
-        const printResult = await printPayoutReceipt(data);
-        document.getElementById('payout_message3').innerText = printResult.ok
-            ? printResult.message
-            : "Receipt print failed: " + printResult.message;
+        if (data.print_required !== false) {
+            document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
+            const printResult = await printPayoutReceipt(data);
+            document.getElementById('payout_message3').innerText = printResult.ok
+                ? printResult.message
+                : "Receipt print failed: " + printResult.message;
+        } else {
+            document.getElementById('payout_message3').innerText = "";
+        }
     } else if ("side" in data && data.side === "CANCELLED") {
         document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
         document.getElementById('payout_message1').innerText = "Please refund the bettor.";
@@ -749,7 +753,12 @@ async function reprintReceipt() {
 
         statusMsg.innerText = 'Transaction found. Sending to printer...';
 
-        const printResult = await printWagerReceipt(data.receipt);
+        let printResult;
+        if (data.print_required !== false) {
+            printResult = await printWagerReceipt(data.receipt);
+        } else {
+            printResult = { ok: true, message: 'Printing is disabled.' };
+        }
 
         closemodal('reprintmodal');
         document.getElementById('payout_success_header').innerText = 'Reprint Receipt';
