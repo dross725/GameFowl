@@ -803,15 +803,19 @@
             <td class="num c-wala">
               {% if fc.wtotal > 0 %}₱ {{ fc.wtotal|floatformat:0|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
             </td>
-            <td class="num comm-pot">₱ {{ fc.totalpot|floatformat:2|intcomma }}</td>
-            <td class="num comm-val">₱ {{ fc.commission|floatformat:2|intcomma }}</td>
+            <td class="num comm-pot">
+              {% if fc.side == 'CANCELLED' or fc.side == 'DRAW' %}<span style="color:rgba(255,255,255,0.25);">—</span>{% else %}₱ {{ fc.totalpot|floatformat:2|intcomma }}{% endif %}
+            </td>
+            <td class="num comm-val">
+              {% if fc.side == 'CANCELLED' or fc.side == 'DRAW' %}<span style="color:rgba(255,255,255,0.25);">—</span>{% else %}₱ {{ fc.commission|floatformat:2|intcomma }}{% endif %}
+            </td>
             <td style="font-size:11px;color:rgba(255,255,255,0.35);">{{ fc.date }}</td>
           </tr>
           {% endfor %}
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="2">Total ({{ fight_commissions|length }} fights)</td>
+            <td colspan="2">Collected Total (excl. Cancelled &amp; Draw)</td>
             <td></td>
             <td></td>
             <td class="num comm-pot">₱ {{ total_pot_all|floatformat:2|intcomma }}</td>

@@ -206,6 +206,27 @@ def get_active_event():
     return Event.objects.filter(is_active=True).order_by('-started_at').first()
 
 
+def get_event_scope():
+    """Return (event, apply_end_bound) for scoping teller data to a single event.
+
+    Use this instead of get_active_event() whenever data should always be
+    scoped to a single event (e.g. teller grand totals, balances).  This
+    prevents totals from accumulating across multiple events when the system
+    is between events.
+
+    apply_end_bound is True only when an event is actively running — meaning
+    a newer event's data must be excluded from the previous event's window.
+    When the system is between events (no active event), apply_end_bound is
+    False so that post-event settlement transactions (REMIT/COLLECT issued
+    after ended_at) are still counted in the last event's totals.
+    """
+    active = get_active_event()
+    if active is not None:
+        return active, True
+    last = Event.objects.filter(is_active=False).order_by('-started_at').first()
+    return last, False
+
+
 def _get_teller_outstanding_balance(user, event=None):
     """Return the outstanding balance for a teller, optionally scoped to an event."""
     from django.db.models import Sum
