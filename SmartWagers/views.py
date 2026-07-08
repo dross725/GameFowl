@@ -332,12 +332,17 @@ def teller_report(request):
     })
 
 
-def _compute_teller_balance(user, event=None):
+def _compute_teller_balance(user, event=None, apply_end_bound=True):
     """Return (balance, grand_total) for a teller, optionally scoped to an event.
 
     When *event* is supplied, only wagers and transactions created within the
     event's time window are counted.  This allows grand totals to restart with
     each new event.
+
+    apply_end_bound controls whether the event's ended_at timestamp is used as
+    an upper bound.  Pass False when the system is between events so that
+    post-event settlement transactions (REMIT/COLLECT issued after ended_at)
+    are still counted in the last event's totals.
 
     grand_total = raw sum of registered bets in scope.
     balance     = grand_total − remits + collects (in scope).
@@ -349,7 +354,7 @@ def _compute_teller_balance(user, event=None):
     if event is not None:
         wager_qs = wager_qs.filter(created_at__gte=event.started_at)
         txn_qs = txn_qs.filter(created_at__gte=event.started_at)
-        if event.ended_at:
+        if apply_end_bound and event.ended_at:
             wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
             txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
 
@@ -370,8 +375,8 @@ def _compute_teller_balance(user, event=None):
 
 @group_required('teller')
 def get_teller_balance(request):
-    active_event = services.get_active_event()
-    balance, grand_total = _compute_teller_balance(request.user, event=active_event)
+    event_scope, apply_end_bound = services.get_event_scope()
+    balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
     return JsonResponse({'ok': True, 'balance': balance, 'grand_total': grand_total})
 
 
@@ -473,8 +478,8 @@ def teller_transaction(request):
         amount=amount,
     )
 
-    active_event = services.get_active_event()
-    balance, grand_total = _compute_teller_balance(request.user, event=active_event)
+    event_scope, apply_end_bound = services.get_event_scope()
+    balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
     return JsonResponse({
         'ok': True,
         'balance': balance,
@@ -496,15 +501,16 @@ def admin_tellers(request):
         tellers = []
 
     active_event = services.get_active_event()
+    event_scope, apply_end_bound = services.get_event_scope()
 
     teller_data = []
     for teller in tellers:
-        balance, grand_total = _compute_teller_balance(teller, event=active_event)
+        balance, grand_total = _compute_teller_balance(teller, event=event_scope, apply_end_bound=apply_end_bound)
         txn_qs = TellerTransaction.objects.filter(user=teller)
-        if active_event is not None:
-            txn_qs = txn_qs.filter(created_at__gte=active_event.started_at)
-            if active_event.ended_at:
-                txn_qs = txn_qs.filter(created_at__lte=active_event.ended_at)
+        if event_scope is not None:
+            txn_qs = txn_qs.filter(created_at__gte=event_scope.started_at)
+            if apply_end_bound and event_scope.ended_at:
+                txn_qs = txn_qs.filter(created_at__lte=event_scope.ended_at)
         transactions = txn_qs.order_by('-created_at')
         teller_data.append({
             'user': teller,
@@ -555,7 +561,8 @@ def admin_teller_txn(request):
         amount=amount,
     )
 
-    balance, grand_total = _compute_teller_balance(teller, event=services.get_active_event())
+    scope, apply_end_bound = services.get_event_scope()
+    balance, grand_total = _compute_teller_balance(teller, event=scope, apply_end_bound=apply_end_bound)
     display_name = (f"{teller.first_name} {teller.last_name}".strip() or teller.username)
 
     return JsonResponse({
@@ -685,13 +692,13 @@ def admin_event_report(request):
             'mpayout': r.mpayout,
             'wpayout': r.wpayout,
             'totalpot': r.totalpot,
-            'commission': r.totalpot * plasada,
+            'commission': 0 if r.side in ('CANCELLED', 'DRAW') else r.totalpot * plasada,
             'date': r.date,
         }
         for r in fight_results_qs
     ]
-    total_pot_all = sum(fc['totalpot'] for fc in fight_commissions)
-    total_commission = total_pot_all * plasada
+    total_pot_all = sum(fc['totalpot'] for fc in fight_commissions if fc['side'] not in ('CANCELLED', 'DRAW'))
+    total_commission = sum(fc['commission'] for fc in fight_commissions)
 
     # Build map of winning fights {fightnum: winning_side} for unclaimed bet detection.
     # DRAW and CANCELLED are paid out immediately, so only MERON/WALA produce unclaimed tickets.
@@ -887,7 +894,7 @@ def admin_commission(request):
     total_pot_all = 0.0
 
     for result in result_qs:
-        commission = result.totalpot * plasada
+        commission = 0 if result.side in ('CANCELLED', 'DRAW') else result.totalpot * plasada
         fight_commissions.append({
             'fightnum': result.fightnum,
             'side': result.side,
@@ -896,7 +903,8 @@ def admin_commission(request):
             'date': result.date,
         })
         total_commission += commission
-        total_pot_all += result.totalpot
+        if result.side not in ('CANCELLED', 'DRAW'):
+            total_pot_all += result.totalpot
 
     return render(request, 'SmartWagers/admin_commission.html', {
         'fight_commissions': fight_commissions,
