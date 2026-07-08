@@ -558,6 +558,129 @@
     cursor: pointer;
   }
 
+  /* ── Online / offline toggle switch ───────────────────── */
+  .online-toggle-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+
+  .online-toggle-label-text {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.35);
+    user-select: none;
+  }
+
+  .online-toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
+  .online-toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+  }
+
+  .online-toggle-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 20px;
+    background: rgba(231,76,60,0.55);
+    border: 1px solid rgba(231,76,60,0.70);
+    transition: background 0.2s, border-color 0.2s;
+    cursor: pointer;
+  }
+
+  .online-toggle-switch input:checked + .online-toggle-track {
+    background: rgba(39,174,96,0.65);
+    border-color: rgba(39,174,96,0.80);
+  }
+
+  .online-toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: white;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.40);
+  }
+
+  .online-toggle-switch input:checked + .online-toggle-track::after {
+    transform: translateX(16px);
+  }
+
+  /* ── Offline card state ────────────────────────────────── */
+  .teller-card.offline {
+    opacity: 0.62;
+  }
+
+  .teller-card.offline .teller-avatar {
+    background: linear-gradient(135deg, #555, #333);
+  }
+
+  .offline-badge {
+    display: inline-block;
+    background: rgba(231,76,60,0.22);
+    border: 1px solid rgba(231,76,60,0.45);
+    color: #e74c3c;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 20px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+
+  /* ── Offline-active banner item ────────────────────────── */
+  .bw-item.offline-alert {
+    border: 1px solid rgba(241,196,15,0.30);
+    background: rgba(241,196,15,0.07);
+  }
+
+  .bw-item-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .bw-action-btn {
+    border: none;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 10px;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: opacity 0.15s;
+  }
+
+  .bw-action-btn:hover { opacity: 0.82; }
+
+  .bw-action-btn.mark-online {
+    background: linear-gradient(135deg, #27ae60, #1a7a43);
+    color: white;
+  }
+
+  .bw-action-btn.dismiss {
+    background: rgba(255,255,255,0.10);
+    color: rgba(255,255,255,0.55);
+  }
+
   @media (max-width: 600px) {
     .teller-stats { gap: 10px; }
     .teller-stat { min-width: 70px; }
@@ -593,13 +716,16 @@
   <div id="teller-cards">
     {% if teller_data %}
       {% for td in teller_data %}
-      <div class="teller-card" id="teller-card-{{ td.user.pk }}">
+      <div class="teller-card{% if not td.is_online %} offline{% endif %}" id="teller-card-{{ td.user.pk }}">
 
         <div class="teller-card-header" onclick="toggleCard({{ td.user.pk }})">
           <div class="teller-avatar">{{ td.display_name|slice:":1"|upper }}</div>
 
           <div class="teller-meta">
-            <div class="teller-name">{{ td.display_name }}</div>
+            <div class="teller-name">
+              {{ td.display_name }}
+              {% if not td.is_online %}<span class="offline-badge">Offline</span>{% endif %}
+            </div>
             <div class="teller-username">@{{ td.user.username }}</div>
           </div>
 
@@ -624,6 +750,19 @@
           </button>
 
           <span class="expand-chevron">▼</span>
+
+          <!-- Online / offline toggle — click is isolated from card expand -->
+          <div class="online-toggle-wrap" onclick="event.stopPropagation()">
+            <span class="online-toggle-label-text">Online</span>
+            <div class="online-toggle-switch">
+              <input type="checkbox" id="online-cb-{{ td.user.pk }}"
+                     data-teller-id="{{ td.user.pk }}"
+                     data-teller-name="{{ td.display_name|escapejs }}"
+                     {% if td.is_online %}checked{% endif %}
+                     onchange="handleOnlineToggle(this)">
+              <label for="online-cb-{{ td.user.pk }}" class="online-toggle-track"></label>
+            </div>
+          </div>
         </div>
 
         <div class="teller-history">
@@ -715,14 +854,21 @@
 </div>
 
 <script>
-const TELLER_TXN_URL = "{% url 'admin-teller-txn' %}";
-const PRINT_AGENT_URL = "http://127.0.0.1:8765/print-remit";
-const CSRF_TOKEN = "{{ csrf_token }}";
-const TELLER_MAX_BALANCE = {{ teller_max_balance|floatformat:2 }};
+const TELLER_TXN_URL      = "{% url 'admin-teller-txn' %}";
+const TELLER_ONLINE_URL   = "{% url 'admin-teller-online-toggle' %}";
+const PRINT_AGENT_URL     = "http://127.0.0.1:8765/print-remit";
+const CSRF_TOKEN          = "{{ csrf_token }}";
+const TELLER_MAX_BALANCE  = {{ teller_max_balance|floatformat:2 }};
+const TELLER_MIN_BALANCE  = {{ teller_min_balance|floatformat:2 }};
 
 const TELLER_BALANCES = {
   {% for td in teller_data %}
-  {{ td.user.pk }}: { name: "{{ td.display_name|escapejs }}", balance: {{ td.balance|floatformat:2 }} },
+  {{ td.user.pk }}: {
+    name:         "{{ td.display_name|escapejs }}",
+    balance:      {{ td.balance|floatformat:2 }},
+    is_online:    {{ td.is_online|yesno:"true,false" }},
+    has_activity: {{ td.has_activity|yesno:"true,false" }},
+  },
   {% endfor %}
 };
 
@@ -827,6 +973,9 @@ function updateTellerCard(data) {
   }
   if (TELLER_BALANCES[tid] !== undefined) {
     TELLER_BALANCES[tid].balance = data.balance;
+    // has_activity is set server-side (wager registrations only); admin
+    // REMIT/COLLECT transactions here must not set it, as those are not
+    // evidence of an offline teller taking bets.
   }
   refreshWarningBanner();
 }
@@ -937,53 +1086,162 @@ document.addEventListener('keydown', e => {
   }
 });
 
+/* ── Online / offline toggle ───────────────────────── */
+async function handleOnlineToggle(checkbox) {
+  const tid      = checkbox.dataset.tellerId;
+  const name     = checkbox.dataset.tellerName;
+  const isOnline = checkbox.checked;
+
+  // Optimistically update the card visual immediately
+  applyOfflineCardState(tid, isOnline);
+
+  const fd = new FormData();
+  fd.append('teller_id', tid);
+  fd.append('is_online', isOnline ? 'true' : 'false');
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res  = await fetch(TELLER_ONLINE_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) {
+      // Revert on failure
+      checkbox.checked = !isOnline;
+      applyOfflineCardState(tid, !isOnline);
+    } else {
+      if (TELLER_BALANCES[tid] !== undefined) {
+        TELLER_BALANCES[tid].is_online = isOnline;
+      }
+      refreshWarningBanner();
+    }
+  } catch {
+    checkbox.checked = !isOnline;
+    applyOfflineCardState(tid, !isOnline);
+  }
+}
+
+function applyOfflineCardState(tid, isOnline) {
+  const card        = document.getElementById(`teller-card-${tid}`);
+  const badgeEl     = card?.querySelector('.offline-badge');
+  const nameEl      = card?.querySelector('.teller-name');
+
+  if (!card) return;
+
+  if (isOnline) {
+    card.classList.remove('offline');
+    if (badgeEl) badgeEl.remove();
+  } else {
+    card.classList.add('offline');
+    if (!badgeEl && nameEl) {
+      const badge = document.createElement('span');
+      badge.className = 'offline-badge';
+      badge.textContent = 'Offline';
+      nameEl.appendChild(badge);
+    }
+  }
+}
+
 /* ── Balance Warning Banner ────────────────────────── */
 function refreshWarningBanner() {
-  if (!TELLER_MAX_BALANCE || TELLER_MAX_BALANCE <= 0) return;
-
   const alerts = [];
+
   for (const [tid, info] of Object.entries(TELLER_BALANCES)) {
-    if (info.balance > TELLER_MAX_BALANCE) {
-      alerts.push({ name: info.name, balance: info.balance, type: 'remit' });
-    } else if (info.balance < 0) {
-      alerts.push({ name: info.name, balance: info.balance, type: 'borrow' });
+    if (!info.is_online) {
+      if (info.has_activity) {
+        alerts.push({ tid, name: info.name, type: 'offline_active' });
+      }
+      continue;
+    }
+    if (TELLER_MAX_BALANCE > 0 && info.balance > TELLER_MAX_BALANCE) {
+      alerts.push({ tid, name: info.name, balance: info.balance, type: 'remit' });
+    } else if (info.balance < TELLER_MIN_BALANCE) {
+      alerts.push({ tid, name: info.name, balance: info.balance, type: 'borrow' });
     }
   }
 
-  const banner = document.getElementById('balance-warning-banner');
-  const list   = document.getElementById('bw-list');
+  const banner  = document.getElementById('balance-warning-banner');
+  const list    = document.getElementById('bw-list');
+  const titleEl = document.getElementById('bw-title');
 
   if (alerts.length === 0) {
     banner.classList.remove('visible');
     return;
   }
 
-  const titleEl = document.getElementById('bw-title');
-  if (alerts.length === 1) {
-    titleEl.textContent = `1 teller needs attention`;
-  } else {
-    titleEl.textContent = `${alerts.length} tellers need attention`;
-  }
+  titleEl.textContent = alerts.length === 1
+    ? '1 teller needs attention'
+    : `${alerts.length} tellers need attention`;
 
   list.innerHTML = '';
   for (const a of alerts) {
-    const isRemit = a.type === 'remit';
     const item = document.createElement('div');
-    item.className = 'bw-item';
-    item.innerHTML = `
-      <span class="bw-item-name">${escHtml(a.name)}</span>
-      <span class="bw-item-balance ${isRemit ? 'over' : 'under'}">
-        ₱ ${fmtNum(Math.abs(a.balance))}
-        ${isRemit ? '' : ' (negative)'}
-      </span>
-      <span class="bw-item-tag ${isRemit ? 'remit-tag' : 'borrow-tag'}">
-        ${isRemit ? 'Needs to Remit' : 'Needs to Borrow'}
-      </span>
-    `;
+
+    if (a.type === 'offline_active') {
+      item.className = 'bw-item offline-alert';
+      item.id = `bw-offline-${a.tid}`;
+      item.innerHTML = `
+        <span class="bw-item-name">${escHtml(a.name)}</span>
+        <span class="bw-item-balance" style="color:#f1c40f;font-size:11px;">
+          Has active transactions while offline
+        </span>
+        <div class="bw-item-actions">
+          <button class="bw-action-btn mark-online"
+                  onclick="markTellerOnlineFromBanner('${a.tid}')">
+            Mark Online
+          </button>
+          <button class="bw-action-btn dismiss"
+                  onclick="dismissBannerItem('bw-offline-${a.tid}')">
+            Dismiss
+          </button>
+        </div>
+      `;
+    } else {
+      const isRemit = a.type === 'remit';
+      item.className = 'bw-item';
+      item.innerHTML = `
+        <span class="bw-item-name">${escHtml(a.name)}</span>
+        <span class="bw-item-balance ${isRemit ? 'over' : 'under'}">
+          ₱ ${fmtNum(Math.abs(a.balance))}${isRemit ? '' : ' (low)'}
+        </span>
+        <span class="bw-item-tag ${isRemit ? 'remit-tag' : 'borrow-tag'}">
+          ${isRemit ? 'Needs to Remit' : 'Low On-Hand'}
+        </span>
+      `;
+    }
+
     list.appendChild(item);
   }
 
   banner.classList.add('visible');
+}
+
+function dismissBannerItem(itemId) {
+  const item = document.getElementById(itemId);
+  if (!item) return;
+  item.remove();
+  // Hide banner if no items remain
+  if (document.getElementById('bw-list').children.length === 0) {
+    document.getElementById('balance-warning-banner').classList.remove('visible');
+  }
+}
+
+async function markTellerOnlineFromBanner(tid) {
+  const cb = document.getElementById(`online-cb-${tid}`);
+  if (cb) {
+    cb.checked = true;
+    await handleOnlineToggle(cb);
+  } else {
+    // Fallback if card is not visible: POST directly
+    const fd = new FormData();
+    fd.append('teller_id', tid);
+    fd.append('is_online', 'true');
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+    const res  = await fetch(TELLER_ONLINE_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok && TELLER_BALANCES[tid] !== undefined) {
+      TELLER_BALANCES[tid].is_online = true;
+      refreshWarningBanner();
+    }
+  }
 }
 
 /* run on page load */

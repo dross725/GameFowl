@@ -717,16 +717,30 @@
 
             body.innerHTML = '';
             for (const a of data.alerts) {
-                const isRemit = a.alert === 'remit';
                 const item = document.createElement('div');
                 item.className = 'tap-item';
-                item.innerHTML = `
-                    <span class="tap-item-name">${_escHtml(a.name)}</span>
-                    <span class="tap-item-balance ${isRemit ? 'over' : 'under'}">${_fmtBal(a.balance)}</span>
-                    <span class="tap-item-tag ${isRemit ? 'remit-tag' : 'borrow-tag'}">
-                        ${isRemit ? 'Remit' : 'Borrow'}
-                    </span>
-                `;
+
+                if (a.alert === 'offline_active') {
+                    item.innerHTML = `
+                        <span class="tap-item-name">${_escHtml(a.name)}</span>
+                        <span class="tap-item-balance" style="color:#f1c40f;font-size:11px;">Active while offline</span>
+                        <span class="tap-item-tag" style="background:rgba(241,196,15,0.20);color:#f1c40f;border:1px solid rgba(241,196,15,0.40);">Offline</span>
+                    `;
+                } else if (a.alert === 'remit') {
+                    item.innerHTML = `
+                        <span class="tap-item-name">${_escHtml(a.name)}</span>
+                        <span class="tap-item-balance over">${_fmtBal(a.balance)}</span>
+                        <span class="tap-item-tag remit-tag">Remit</span>
+                    `;
+                } else {
+                    // borrow / low on-hand
+                    item.innerHTML = `
+                        <span class="tap-item-name">${_escHtml(a.name)}</span>
+                        <span class="tap-item-balance under">${_fmtBal(a.balance)}</span>
+                        <span class="tap-item-tag borrow-tag">Low Cash</span>
+                    `;
+                }
+
                 body.appendChild(item);
             }
 

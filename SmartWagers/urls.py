@@ -31,6 +31,7 @@ urlpatterns = [
     path("administrator/commission/", views.admin_commission, name="admin-commission"),
     path("administrator/settings/", views.admin_settings, name="admin-settings"),
     path("administrator/teller-alerts/", views.admin_teller_alerts, name="admin-teller-alerts"),
+    path("administrator/teller-online-toggle/", views.toggle_teller_online, name="admin-teller-online-toggle"),
     #path("get_button_state_view/<str:side>/", views.get_button_state_view)
     #path("reports", views.Reports, name="reports-page"),
     #path("su_admin/<slug:slug>", views.SuperUser, name="su_admin")

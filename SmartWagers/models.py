@@ -72,6 +72,8 @@ class Settings (models.Model):
     M_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False) 
     W_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False)
     teller_max_balance = models.FloatField(default=0.0, null=False, blank=False)
+    teller_initial_fund = models.FloatField(default=10000.0, null=False, blank=False)
+    teller_min_balance = models.FloatField(default=0.0, null=False, blank=False)
 
     def __str__(self):
         return f"{self.plasada} {self.M_control_status} {self.W_control_status}"
@@ -173,6 +175,15 @@ class TellerTransaction(models.Model):
 
     def __str__(self):
         return f"{self.transaction_id} | {self.user} | {self.transaction_type} | {self.amount} | {self.created_at}"
+
+
+class TellerStatus(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='teller_status')
+    is_online = models.BooleanField(default=True)
+
+    def __str__(self):
+        status = 'Online' if self.is_online else 'Offline'
+        return f"{self.user} — {status}"
 
 
 class Event(models.Model):

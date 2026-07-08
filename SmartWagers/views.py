@@ -6,7 +6,7 @@ from . import services as services
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
-from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results, Settings
+from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results, Settings, TellerStatus
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
@@ -513,21 +513,36 @@ def admin_tellers(request):
             if apply_end_bound and event_scope.ended_at:
                 txn_qs = txn_qs.filter(created_at__lte=event_scope.ended_at)
         transactions = txn_qs.order_by('-created_at')
+
+        ts, _ = TellerStatus.objects.get_or_create(user=teller)
+        is_online = ts.is_online
+
+        wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
+        if event_scope is not None:
+            wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
+            if apply_end_bound and event_scope.ended_at:
+                wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+        has_activity = not is_online and wager_qs.exists()
+
         teller_data.append({
             'user': teller,
             'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
             'balance': balance,
             'grand_total': grand_total,
             'transactions': transactions,
+            'is_online': is_online,
+            'has_activity': has_activity,
         })
 
     setting = Settings.objects.order_by('-id').first()
     teller_max_balance = setting.teller_max_balance if setting else 0.0
+    teller_min_balance = setting.teller_min_balance if setting else 0.0
 
     return render(request, 'SmartWagers/admin_tellers.html', {
         'teller_data': teller_data,
         'active_event': active_event,
         'teller_max_balance': teller_max_balance,
+        'teller_min_balance': teller_min_balance,
     })
 
 
@@ -927,30 +942,93 @@ def admin_teller_alerts(request):
         tellers = []
 
     active_event = services.get_active_event()
+    event_scope, apply_end_bound = services.get_event_scope()
     setting = Settings.objects.order_by('-id').first()
-    threshold = setting.teller_max_balance if setting else 0.0
+    threshold   = setting.teller_max_balance  if setting else 0.0
+    min_balance = setting.teller_min_balance  if setting else 0.0
 
     alerts = []
     for teller in tellers:
+        name = f"{teller.first_name} {teller.last_name}".strip() or teller.username
+        ts, _ = TellerStatus.objects.get_or_create(user=teller)
+
+        if not ts.is_online:
+            # Check if this offline teller has any wager activity in the current scope
+            wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
+            if event_scope is not None:
+                wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
+                if apply_end_bound and event_scope.ended_at:
+                    wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+            if wager_qs.exists():
+                alerts.append({
+                    'name': name,
+                    'teller_id': teller.pk,
+                    'balance': 0,
+                    'alert': 'offline_active',
+                })
+            continue
+
         balance, _ = _compute_teller_balance(teller, event=active_event)
         if threshold > 0 and balance > threshold:
-            alerts.append({
-                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
-                'balance': round(balance, 2),
-                'alert': 'remit',
-            })
-        elif balance < 0:
-            alerts.append({
-                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
-                'balance': round(balance, 2),
-                'alert': 'borrow',
-            })
+            alerts.append({'name': name, 'teller_id': teller.pk, 'balance': round(balance, 2), 'alert': 'remit'})
+        elif balance < min_balance:
+            alerts.append({'name': name, 'teller_id': teller.pk, 'balance': round(balance, 2), 'alert': 'borrow'})
 
     return JsonResponse({
         'ok': True,
         'threshold': threshold,
+        'min_balance': min_balance,
         'alert_count': len(alerts),
         'alerts': alerts,
+    })
+
+
+@group_required('admin')
+def toggle_teller_online(request):
+    """Admin endpoint: toggle a teller's online/offline status."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    try:
+        teller_id = int(request.POST.get('teller_id', 0))
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_teller_id'}, status=400)
+
+    is_online_raw = request.POST.get('is_online', 'true').strip().lower()
+    is_online = is_online_raw in ('true', '1', 'yes')
+
+    try:
+        teller_group = Group.objects.get(name='teller')
+        teller = teller_group.user_set.get(pk=teller_id)
+    except (Group.DoesNotExist, User.DoesNotExist):
+        return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
+
+    ts, _ = TellerStatus.objects.get_or_create(user=teller)
+    was_online = ts.is_online
+    ts.is_online = is_online
+    ts.save(update_fields=['is_online'])
+
+    # When a previously-offline teller is brought online mid-event, issue their
+    # initial fund as a COLLECT (borrow) so their ledger starts correctly.
+    fund_issued = False
+    if is_online and not was_online:
+        active_event = services.get_active_event()
+        if active_event is not None:
+            setting = Settings.objects.order_by('-id').first()
+            initial_fund = setting.teller_initial_fund if setting else 10000.0
+            if initial_fund > 0:
+                TellerTransaction.objects.create(
+                    user=teller,
+                    transaction_type=TellerTransaction.COLLECT,
+                    amount=round(initial_fund, 2),
+                )
+                fund_issued = True
+
+    return JsonResponse({
+        'ok': True,
+        'teller_id': teller_id,
+        'is_online': is_online,
+        'fund_issued': fund_issued,
     })
 
 
@@ -994,6 +1072,38 @@ def admin_settings(request):
             setting.save()
             return JsonResponse({'ok': True, 'teller_max_balance': new_max})
 
+        if action == 'update_teller_initial_fund':
+            try:
+                new_fund = float(request.POST.get('teller_initial_fund', ''))
+                if new_fund < 0:
+                    return JsonResponse({'ok': False, 'error': 'Initial fund must be 0 or greater'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid initial fund value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(teller_initial_fund=new_fund)
+            else:
+                setting.teller_initial_fund = new_fund
+            setting.save()
+            return JsonResponse({'ok': True, 'teller_initial_fund': new_fund})
+
+        if action == 'update_teller_min_balance':
+            try:
+                new_min = float(request.POST.get('teller_min_balance', ''))
+                if new_min < 0:
+                    return JsonResponse({'ok': False, 'error': 'Min on-hand must be 0 or greater (0 = no warning)'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid min on-hand value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(teller_min_balance=new_min)
+            else:
+                setting.teller_min_balance = new_min
+            setting.save()
+            return JsonResponse({'ok': True, 'teller_min_balance': new_min})
+
         if action == 'update_fight_result':
             try:
                 result_id = int(request.POST.get('result_id', 0))
@@ -1030,7 +1140,9 @@ def admin_settings(request):
         fight_results = fight_results.filter(event=active_event)
 
     setting = Settings.objects.order_by('-id').first()
-    teller_max_balance = setting.teller_max_balance if setting else 0.0
+    teller_max_balance  = setting.teller_max_balance  if setting else 0.0
+    teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
+    teller_min_balance  = setting.teller_min_balance  if setting else 0.0
 
     return render(request, 'SmartWagers/admin_settings.html', {
         'plasada': plasada,
@@ -1038,4 +1150,6 @@ def admin_settings(request):
         'fight_results': fight_results,
         'active_event': active_event,
         'teller_max_balance': teller_max_balance,
+        'teller_initial_fund': teller_initial_fund,
+        'teller_min_balance': teller_min_balance,
     })
