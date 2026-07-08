@@ -5,6 +5,7 @@ from .models import Fight_Results
 from .models import Fight_Status
 from .models import Event
 from .models import TellerTransaction
+from .models import TellerStatus
 from django.contrib.auth.models import User
 from datetime import timedelta
 from django.conf import settings
@@ -278,6 +279,38 @@ def _reset_teller_balances():
             )
 
 
+def _issue_initial_teller_funds():
+    """Create a COLLECT (borrow) transaction for every *online* teller equal to
+    the configured initial fund amount.  Called immediately after the new event
+    object is created so the transactions fall inside the new event's window.
+
+    A COLLECT increases the teller's balance (they owe the house the borrowed
+    amount on top of any bets they collect during the event).
+
+    Offline/absent tellers are intentionally skipped — they receive no opening
+    float.  If they are later marked online mid-event, toggle_teller_online
+    issues a matching COLLECT at that point.  If they register bets while still
+    marked offline, that is an admin-visible alert (by design: we notify rather
+    than block, since the physical teller may be present but just forgotten to
+    be toggled on).
+    """
+    setting = Settings.objects.order_by('-id').first()
+    initial_fund = setting.teller_initial_fund if setting else 10000.0
+    if initial_fund <= 0:
+        return
+
+    tellers = User.objects.filter(groups__name='teller')
+    for teller in tellers:
+        status, _ = TellerStatus.objects.get_or_create(user=teller)
+        if not status.is_online:
+            continue
+        TellerTransaction.objects.create(
+            user=teller,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=round(initial_fund, 2),
+        )
+
+
 def start_event(name):
     """Deactivate any running event, create a new one, and reset the fight counter to 0
     so the first call to startnewmatch() produces fight #1.
@@ -293,6 +326,11 @@ def start_event(name):
     Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
 
     event = Event.objects.create(name=name, is_active=True)
+
+    # Issue the configured starting fund as a borrowed (COLLECT) transaction
+    # for every teller.  These land inside the new event's time window so
+    # teller balances correctly reflect the borrowed cash from day one.
+    _issue_initial_teller_funds()
 
     fight_status = Fight_Status.objects.order_by('id').first()
     if fight_status:

@@ -318,23 +318,70 @@
     <div id="st-plasada-status"></div>
   </div>
 
-  <!-- ── Teller Balance Threshold panel ── -->
+  <!-- ── Teller Fund & Balance Thresholds panel ── -->
   <div class="st-panel">
-    <div class="st-panel-title">Teller Balance Warning Threshold</div>
-    <div id="st-threshold-form" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <div class="st-input-group">
-        <label>Max On-Hand</label>
-        <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.50);margin-right:4px;">₱</span>
-        <input type="number" id="threshold-input" value="{{ teller_max_balance|floatformat:0 }}"
-               min="0" step="100" autocomplete="off"
-               style="background:transparent;border:none;outline:none;color:white;font-size:20px;font-weight:800;width:120px;text-align:center;">
+    <div class="st-panel-title">Teller Funds &amp; Balance Warnings</div>
+
+    <!-- Initial Fund row -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.40);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Initial Fund per Teller</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="st-input-group">
+          <label>Amount</label>
+          <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.50);margin-right:4px;">₱</span>
+          <input type="text" id="initial-fund-input" value="{{ teller_initial_fund|floatformat:0|intcomma }}"
+                 inputmode="numeric" autocomplete="off"
+                 style="background:transparent;border:none;outline:none;color:white;font-size:20px;font-weight:800;width:130px;text-align:center;">
+        </div>
+        <span style="font-size:12px;color:rgba(255,255,255,0.35);flex:1;min-width:200px;">
+          Cash given to each teller when an event starts. Registered as a borrowed amount on their ledger.
+        </span>
+        <button class="st-save-btn" id="st-initial-fund-btn" onclick="saveInitialFund()">Save</button>
       </div>
-      <span id="st-threshold-hint" style="font-size:12px;color:rgba(255,255,255,0.35);flex:1;min-width:200px;">
-        Warn admin when a teller's balance exceeds this amount. Set to <strong>0</strong> to disable warnings.
-      </span>
-      <button class="st-save-btn" id="st-threshold-btn" onclick="saveThreshold()">Save</button>
+      <div id="st-initial-fund-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
     </div>
-    <div id="st-threshold-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
+
+    <div style="border-top:1px solid rgba(255,255,255,0.07);margin-bottom:16px;"></div>
+
+    <!-- Max On-Hand row -->
+    <div style="margin-bottom:16px;">
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.40);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Max On-Hand Warning</div>
+      <div id="st-threshold-form" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="st-input-group">
+          <label>Max On-Hand</label>
+          <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.50);margin-right:4px;">₱</span>
+          <input type="text" id="threshold-input" value="{{ teller_max_balance|floatformat:0|intcomma }}"
+                 inputmode="numeric" autocomplete="off"
+                 style="background:transparent;border:none;outline:none;color:white;font-size:20px;font-weight:800;width:130px;text-align:center;">
+        </div>
+        <span id="st-threshold-hint" style="font-size:12px;color:rgba(255,255,255,0.35);flex:1;min-width:200px;">
+          Warn admin when a teller's balance exceeds this amount. Set to <strong>0</strong> to disable.
+        </span>
+        <button class="st-save-btn" id="st-threshold-btn" onclick="saveThreshold()">Save</button>
+      </div>
+      <div id="st-threshold-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,0.07);margin-bottom:16px;"></div>
+
+    <!-- Min On-Hand row -->
+    <div>
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.40);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Min On-Hand Warning</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="st-input-group">
+          <label>Min On-Hand</label>
+          <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.50);margin-right:4px;">₱</span>
+          <input type="text" id="min-balance-input" value="{{ teller_min_balance|floatformat:0|intcomma }}"
+                 inputmode="numeric" autocomplete="off"
+                 style="background:transparent;border:none;outline:none;color:white;font-size:20px;font-weight:800;width:130px;text-align:center;">
+        </div>
+        <span style="font-size:12px;color:rgba(255,255,255,0.35);flex:1;min-width:200px;">
+          Warn admin when a teller's balance falls below this amount. Set to <strong>0</strong> to disable.
+        </span>
+        <button class="st-save-btn" id="st-min-balance-btn" onclick="saveMinBalance()">Save</button>
+      </div>
+      <div id="st-min-balance-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
+    </div>
   </div>
 
   <!-- ── Fight results panel ── -->
@@ -447,8 +494,40 @@ async function update_trends() {
     }
 }
 
+// ── Comma-formatted number inputs ────────────────────────
+function commaFormat(n) {
+    if (isNaN(n) || n === '') return '0';
+    return Math.round(Number(n)).toLocaleString('en-PH');
+}
+
+function parseCommaInput(id) {
+    const raw = document.getElementById(id).value.replace(/,/g, '');
+    return parseFloat(raw);
+}
+
+function setupCommaInput(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('focus', () => {
+        el.value = el.value.replace(/,/g, '');
+        el.select();
+    });
+    el.addEventListener('blur', () => {
+        const n = parseFloat(el.value.replace(/,/g, ''));
+        el.value = isNaN(n) ? '0' : commaFormat(n);
+    });
+    el.addEventListener('keydown', (e) => {
+        // Allow: digits, backspace, delete, tab, arrows, home/end
+        const allowed = ['Backspace','Delete','Tab','ArrowLeft','ArrowRight','Home','End'];
+        if (!allowed.includes(e.key) && !/^\d$/.test(e.key)) e.preventDefault();
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     update_trends();
+    setupCommaInput('initial-fund-input');
+    setupCommaInput('threshold-input');
+    setupCommaInput('min-balance-input');
 });
 
 async function savePlasada() {
@@ -489,8 +568,88 @@ async function savePlasada() {
     }
 }
 
+async function saveInitialFund() {
+    const val = parseCommaInput('initial-fund-input');
+    const statusEl = document.getElementById('st-initial-fund-status');
+    const btn = document.getElementById('st-initial-fund-btn');
+
+    if (isNaN(val) || val < 0) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Please enter 0 or a positive number.';
+        return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = '';
+    statusEl.textContent = 'Saving…';
+
+    const fd = new FormData();
+    fd.append('action', 'update_teller_initial_fund');
+    fd.append('teller_initial_fund', val.toString());
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+    try {
+        const res  = await fetch(SETTINGS_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.className = 'st-ok';
+            statusEl.textContent = val === 0
+                ? 'Saved! No initial fund will be issued.'
+                : `Saved! Each teller will receive ₱ ${Number(data.teller_initial_fund).toLocaleString('en-PH', {maximumFractionDigits:0})} when the next event starts.`;
+        } else {
+            statusEl.className = 'st-err';
+            statusEl.textContent = data.error || 'Unknown error.';
+        }
+    } catch (err) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Network error. Check connection.';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function saveMinBalance() {
+    const val = parseCommaInput('min-balance-input');
+    const statusEl = document.getElementById('st-min-balance-status');
+    const btn = document.getElementById('st-min-balance-btn');
+
+    if (isNaN(val) || val < 0) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Please enter 0 or a positive number.';
+        return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = '';
+    statusEl.textContent = 'Saving…';
+
+    const fd = new FormData();
+    fd.append('action', 'update_teller_min_balance');
+    fd.append('teller_min_balance', val.toString());
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+    try {
+        const res  = await fetch(SETTINGS_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.className = 'st-ok';
+            statusEl.textContent = val === 0
+                ? 'Saved! Min on-hand warnings are disabled.'
+                : `Saved! Warning triggers when balance falls below ₱ ${Number(data.teller_min_balance).toLocaleString('en-PH', {maximumFractionDigits:0})}.`;
+        } else {
+            statusEl.className = 'st-err';
+            statusEl.textContent = data.error || 'Unknown error.';
+        }
+    } catch (err) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Network error. Check connection.';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 async function saveThreshold() {
-    const val = parseFloat(document.getElementById('threshold-input').value);
+    const val = parseCommaInput('threshold-input');
     const statusEl = document.getElementById('st-threshold-status');
     const btn = document.getElementById('st-threshold-btn');
 
