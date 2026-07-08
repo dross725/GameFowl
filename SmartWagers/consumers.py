@@ -164,19 +164,15 @@ class WagersConsumer(AsyncWebsocketConsumer):
                 # Tellers may only pay out bets made at their own terminal
                 requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
                 payout_data = await self.payout_request(transaction_id, requesting_cashier)
-                await self.channel_layer.group_send(self.page, {
-                    'type': 'send_data',
-                    'payout': True,
-                    **payout_data
-                })
+                # Send payout result only to this connection, not the whole group,
+                # so other terminals don't trigger duplicate prints.
+                await self.send(text_data=json.dumps({'payout': True, **payout_data}))
 
             elif "cancel_barcode" in data:
                 transaction_id = data["cancel_barcode"]
                 cancelbet_data = await self.cancel_bet(transaction_id)
-                await self.channel_layer.group_send(self.page, {
-                    'type': 'send_data',
-                    **cancelbet_data
-                })
+                # Same as above — reply only to the connection that submitted the scan.
+                await self.send(text_data=json.dumps(cancelbet_data))
                 
             # Fetch updated values from the database
             mtotal, mpayout, wtotal, wpayout, total_bet, fightnum = await self.get_values_from_database()
