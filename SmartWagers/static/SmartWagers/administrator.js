@@ -1,6 +1,14 @@
 const administratorWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-const administratorSocket = new WebSocket(`${administratorWebsocketProtocol}://${window.location.host}/ws/administrator/`);
 const localPrintAgentUrl = (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
+
+// Only open the admin WebSocket when on the admin page.  On the teller page
+// (/user) this script is also loaded for shared helpers, but creating the
+// socket there immediately fails the auth check and flashes a "Disconnected"
+// status.  window.location.pathname is available immediately (no DOM needed).
+const _isAdminPage = !/\/user\/?$/.test(window.location.pathname);
+const administratorSocket = _isAdminPage
+    ? new WebSocket(`${administratorWebsocketProtocol}://${window.location.host}/ws/administrator/`)
+    : { readyState: WebSocket.CLOSED, send() {}, set onopen(_) {}, set onerror(_) {}, set onclose(_) {}, set onmessage(_) {} };
 
 // Initialize the WebSocket connection
 administratorSocket.onopen = () => {
@@ -437,6 +445,7 @@ function openmodal(modalid, buttonid, side=null) {
     } else if (modalid == 'cancelbetmodal') {
         document.getElementById(modalid).style.display = 'flex';
         document.getElementById('cancelbet_barcode').value='';
+        setTimeout(() => document.getElementById('cancelbet_barcode').focus(), 100);
 
     } else if (modalid == 'reprintmodal') {
         document.getElementById(modalid).style.display = 'flex';
@@ -676,7 +685,6 @@ function applyEventState(event_active) {
 function openadminbetcontrolModal(side, action) {
     const modalmessage = document.getElementById("modal-message");
     const modalbutton = document.getElementById("confirmopen");
-    const sidelabel = document.getElementById("")
 
     modalmessage.innerHTML = "Are you sure you want to " +action +" Betting for <strong>" + side + "</strong>?";
     if (action === 'Open') {

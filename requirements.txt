@@ -1,0 +1,24 @@
+# SmartWagers — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Core framework & ASGI server
+Django==5.1
+daphne==4.2.0
+asgiref==3.8.1
+
+# WebSocket / real-time
+channels==4.2.2
+channels_redis==4.2.1
+redis==5.0.1
+
+# Daphne / Channels async runtime
+Twisted==24.11.0
+autobahn==24.4.2
+txaio==23.1.1
+
+# Receipt generation
+reportlab==4.4.3
+python-barcode==0.15.1
+
+# Static file serving
+whitenoise==6.9.0

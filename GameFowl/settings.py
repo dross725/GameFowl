@@ -11,7 +11,19 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import logging.handlers  # noqa: F401 — ensures RotatingFileHandler is importable by LOGGING config
 import os
+
+# Load .env file if present (production uses environment variables set in the
+# service manager; .env is an optional convenience for local overrides).
+_env_path = Path(__file__).resolve().parent.parent / '.env'
+if _env_path.exists():
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith('#') and '=' in _line:
+                _k, _, _v = _line.partition('=')
+                os.environ.setdefault(_k.strip(), _v.strip())
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,22 +33,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$rm$w0aqx6o&i+h9l9c&f=%evb%_xi8l6jg^p)9l7%@rs+cp1e'
+# SECRET_KEY is loaded from the DJANGO_SECRET_KEY environment variable.
+# In production, set this in .env or in the NSSM service environment tab.
+# To generate a new key: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-$rm$w0aqx6o&i+h9l9c&f=%evb%_xi8l6jg^p)9l7%@rs+cp1e',  # dev fallback only
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() not in ('false', '0', 'no', 'off')
 
-ALLOWED_HOSTS = [
+_allowed = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
+ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()] or [
     'localhost',
     '127.0.0.1',
-    'weer-melba-reduplicative.ngrok-free.dev',
-    'daphne',
-    'daphne.local',
-    '192.168.1.6',
-    '192.168.1.4',
-    '192.168.1.2',
-    '192.168.0.63',
-    '10.0.0.7',
 ]
 
 
@@ -66,16 +76,10 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
-CSRF_TRUSTED_ORIGINS = [
-    'https://weer-melba-reduplicative.ngrok-free.dev',
-    'http://daphne.local',
-    'http://192.168.0.63',
-    'http://192.168.1.4',
-    'http://192.168.1.2',
+_csrf_origins = os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '')
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(',') if o.strip()] or [
     'http://localhost',
     'http://127.0.0.1',
-    'http://daphne',
-    'http://10.0.0.7',
 ]
 
 ROOT_URLCONF = 'GameFowl.urls'
@@ -148,11 +152,6 @@ USE_TZ = False
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-# STATIC_URL = 'static/'
-# STATICFILES_DIRS = [
-#     BASE_DIR / 'static'
-# ]
-
 STATIC_URL = "/static/"
 STATICFILES_DIRS = [
     os.path.join(BASE_DIR, "static"),  # If you have a global static folder
@@ -164,6 +163,80 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")  # For `collectstatic`
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+# Two rotating log files are written to <project_root>/logs/:
+#   app.log   — INFO and above: business events (fights, bets, payouts, logins)
+#   debug.log — DEBUG and above: everything including verbose internals
+#
+# The console handler mirrors debug.log so dev output is unchanged.
+# ---------------------------------------------------------------------------
+
+_LOG_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(_LOG_DIR, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'app': {
+            'format': '{asctime} {levelname:<8} {name} — {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+        'verbose': {
+            'format': '{asctime} {levelname:<8} {name}:{lineno} — {message}',
+            'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
+    },
+    'handlers': {
+        'app_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(_LOG_DIR, 'app.log'),
+            'maxBytes': 10 * 1024 * 1024,   # 10 MB per file
+            'backupCount': 5,
+            'formatter': 'app',
+            'level': 'INFO',
+            'encoding': 'utf-8',
+        },
+        'debug_file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(_LOG_DIR, 'debug.log'),
+            'maxBytes': 10 * 1024 * 1024,   # 10 MB per file
+            'backupCount': 3,
+            'formatter': 'verbose',
+            'level': 'DEBUG',
+            'encoding': 'utf-8',
+        },
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'app',
+            'level': 'DEBUG',
+        },
+    },
+    'loggers': {
+        # All SmartWagers app loggers (views, services, consumers)
+        'SmartWagers': {
+            'handlers': ['app_file', 'debug_file', 'console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        # Django HTTP 4xx/5xx errors and security violations
+        'django.request': {
+            'handlers': ['app_file', 'debug_file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['app_file', 'debug_file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}
 
 #Channels
 CHANNEL_LAYERS = {
@@ -188,11 +261,4 @@ SESSION_COOKIE_AGE = 86400  # 24 hours (in seconds)
 #    "WAGER_RECEIPT_PRINTING_ENABLED",
 #    "true",
 #).lower() in ("1", "true", "yes", "on")
-WAGER_RECEIPT_PRINTING_ENABLED = True
-
-###
-# impor os
-# os.environ.setdefault("DJANGO_SETTINGS_MODULE", "your_project.settings")
-
-# import django
-# django.setup()
+WAGER_RECEIPT_PRINTING_ENABLED = False
