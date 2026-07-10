@@ -6,13 +6,14 @@ from . import services as services
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
-from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results, Settings
+from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results, Settings, TellerStatus
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
 from django.utils.timezone import now
+import logging
 
-debug = False
+logger = logging.getLogger('SmartWagers.views')
 
 # views.py
 class LogoutViaPost(LogoutView):
@@ -21,12 +22,12 @@ class LogoutViaPost(LogoutView):
             user=request.user,
             logout_time__isnull=True
         ).order_by('-login_time').first()
-        
-        
+
         if session:
             session.logout_time = now()
             session.save()
 
+        logger.info("LOGOUT: user=%s ip=%s", request.user.username, _get_client_ip(request))
         return super().post(request, *args, **kwargs)
 
 
@@ -34,6 +35,11 @@ class RoleBasedLoginView(LoginView):
     def form_valid(self, form):
         response = super().form_valid(form)
         SessionLog.objects.create(user=self.request.user, login_time=now())
+        groups = list(self.request.user.groups.values_list('name', flat=True))
+        logger.info(
+            "LOGIN: user=%s groups=%s ip=%s",
+            self.request.user.username, groups, _get_client_ip(self.request),
+        )
         return response
 
     def get_success_url(self):
@@ -41,13 +47,22 @@ class RoleBasedLoginView(LoginView):
         groups = user.groups.values_list('name', flat=True)
 
         if 'admin' in groups:
-            return reverse('admin-page') 
+            return reverse('admin-page')
         elif 'teller' in groups:
-            return reverse ('user-page') 
+            return reverse('user-page')
         elif 'display' in groups:
-            return reverse ('index') 
+            return reverse('index')
         else:
+            logger.warning("LOGIN: user=%s has no recognized group — redirecting to /unauthorized/", user.username)
             return '/unauthorized/'
+
+
+def _get_client_ip(request):
+    """Return the best-effort client IP from request headers."""
+    x_forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded:
+        return x_forwarded.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR', '?')
 
 def group_required(group_name):
     def decorator(view_func):
@@ -64,9 +79,7 @@ def get_teller_information(request):
     username = user.username
     full_name = f"{user.first_name} {user.last_name}"
     email = user.email
-
-    # Example: log it
-    print(f"User {username} accessed this page.")
+    logger.debug("get_teller_information: user=%s", username)
 
 def get_button_state_view (request):
     mstate, wstate = services.get_control_status()
@@ -127,8 +140,8 @@ def reprint_wager(request):
 
 def notify_bet_updates():
     channel_layer = get_channel_layer()
-    if channel_layer == None:
-        print ("Channel Layer is None")
+    if channel_layer is None:
+        logger.error("notify_bet_updates: channel layer is None — WebSocket broadcast skipped")
     else:
         async_to_sync(channel_layer.group_send)(
             "bet_updates", 
@@ -173,8 +186,8 @@ def Main_admin(request):
     meron_total, meron_payout, wala_total, wala_payout, total_bet, fightnum = services.get_Totals() 
     current_fn = services.get_fightnum()
 
-    print ("USER: " +str(request.user))
-    
+    logger.debug("Main_admin page: user=%s", request.user)
+
     if request.method == 'POST':
         action = request.POST.get('action', 'reserve')
         if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'cancel_pending':
@@ -477,6 +490,10 @@ def teller_transaction(request):
         transaction_type=transaction_type,
         amount=amount,
     )
+    logger.info(
+        "TELLER TXN: txn_id=%s type=%s amount=%.2f teller=%s",
+        txn.transaction_id, transaction_type, amount, request.user.username,
+    )
 
     event_scope, apply_end_bound = services.get_event_scope()
     balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
@@ -513,21 +530,36 @@ def admin_tellers(request):
             if apply_end_bound and event_scope.ended_at:
                 txn_qs = txn_qs.filter(created_at__lte=event_scope.ended_at)
         transactions = txn_qs.order_by('-created_at')
+
+        ts, _ = TellerStatus.objects.get_or_create(user=teller)
+        is_online = ts.is_online
+
+        wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
+        if event_scope is not None:
+            wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
+            if apply_end_bound and event_scope.ended_at:
+                wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+        has_activity = not is_online and wager_qs.exists()
+
         teller_data.append({
             'user': teller,
             'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
             'balance': balance,
             'grand_total': grand_total,
             'transactions': transactions,
+            'is_online': is_online,
+            'has_activity': has_activity,
         })
 
     setting = Settings.objects.order_by('-id').first()
     teller_max_balance = setting.teller_max_balance if setting else 0.0
+    teller_min_balance = setting.teller_min_balance if setting else 0.0
 
     return render(request, 'SmartWagers/admin_tellers.html', {
         'teller_data': teller_data,
         'active_event': active_event,
         'teller_max_balance': teller_max_balance,
+        'teller_min_balance': teller_min_balance,
     })
 
 
@@ -560,6 +592,10 @@ def admin_teller_txn(request):
         user=teller,
         transaction_type=transaction_type,
         amount=amount,
+    )
+    logger.info(
+        "ADMIN TXN: txn_id=%s type=%s amount=%.2f teller=%s by_admin=%s",
+        txn.transaction_id, transaction_type, amount, teller.username, request.user.username,
     )
 
     scope, apply_end_bound = services.get_event_scope()
@@ -630,6 +666,7 @@ def start_event_view(request):
 
     event = services.start_event(event_name)
     notify_event_change()
+    logger.info("EVENT START (view): id=%s name=%r admin=%s", event.id, event.name, request.user.username)
 
     return JsonResponse({
         'ok': True,
@@ -646,9 +683,11 @@ def end_event_view(request):
 
     event = services.end_event()
     if event is None:
+        logger.warning("END EVENT (view): no active event found — admin=%s", request.user.username)
         return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=404)
 
     notify_event_change()
+    logger.info("EVENT END (view): id=%s name=%r admin=%s", event.id, event.name, request.user.username)
 
     return JsonResponse({
         'ok': True,
@@ -927,30 +966,93 @@ def admin_teller_alerts(request):
         tellers = []
 
     active_event = services.get_active_event()
+    event_scope, apply_end_bound = services.get_event_scope()
     setting = Settings.objects.order_by('-id').first()
-    threshold = setting.teller_max_balance if setting else 0.0
+    threshold   = setting.teller_max_balance  if setting else 0.0
+    min_balance = setting.teller_min_balance  if setting else 0.0
 
     alerts = []
     for teller in tellers:
+        name = f"{teller.first_name} {teller.last_name}".strip() or teller.username
+        ts, _ = TellerStatus.objects.get_or_create(user=teller)
+
+        if not ts.is_online:
+            # Check if this offline teller has any wager activity in the current scope
+            wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
+            if event_scope is not None:
+                wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
+                if apply_end_bound and event_scope.ended_at:
+                    wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+            if wager_qs.exists():
+                alerts.append({
+                    'name': name,
+                    'teller_id': teller.pk,
+                    'balance': 0,
+                    'alert': 'offline_active',
+                })
+            continue
+
         balance, _ = _compute_teller_balance(teller, event=active_event)
         if threshold > 0 and balance > threshold:
-            alerts.append({
-                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
-                'balance': round(balance, 2),
-                'alert': 'remit',
-            })
-        elif balance < 0:
-            alerts.append({
-                'name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
-                'balance': round(balance, 2),
-                'alert': 'borrow',
-            })
+            alerts.append({'name': name, 'teller_id': teller.pk, 'balance': round(balance, 2), 'alert': 'remit'})
+        elif balance < min_balance:
+            alerts.append({'name': name, 'teller_id': teller.pk, 'balance': round(balance, 2), 'alert': 'borrow'})
 
     return JsonResponse({
         'ok': True,
         'threshold': threshold,
+        'min_balance': min_balance,
         'alert_count': len(alerts),
         'alerts': alerts,
+    })
+
+
+@group_required('admin')
+def toggle_teller_online(request):
+    """Admin endpoint: toggle a teller's online/offline status."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    try:
+        teller_id = int(request.POST.get('teller_id', 0))
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_teller_id'}, status=400)
+
+    is_online_raw = request.POST.get('is_online', 'true').strip().lower()
+    is_online = is_online_raw in ('true', '1', 'yes')
+
+    try:
+        teller_group = Group.objects.get(name='teller')
+        teller = teller_group.user_set.get(pk=teller_id)
+    except (Group.DoesNotExist, User.DoesNotExist):
+        return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
+
+    ts, _ = TellerStatus.objects.get_or_create(user=teller)
+    was_online = ts.is_online
+    ts.is_online = is_online
+    ts.save(update_fields=['is_online'])
+
+    # When a previously-offline teller is brought online mid-event, issue their
+    # initial fund as a COLLECT (borrow) so their ledger starts correctly.
+    fund_issued = False
+    if is_online and not was_online:
+        active_event = services.get_active_event()
+        if active_event is not None:
+            setting = Settings.objects.order_by('-id').first()
+            initial_fund = setting.teller_initial_fund if setting else 10000.0
+            if initial_fund > 0:
+                TellerTransaction.objects.create(
+                    user=teller,
+                    transaction_type=TellerTransaction.COLLECT,
+                    amount=round(initial_fund, 2),
+                )
+                fund_issued = True
+
+    return JsonResponse({
+        'ok': True,
+        'teller_id': teller_id,
+        'is_online': is_online,
+        'fund_issued': fund_issued,
     })
 
 
@@ -976,6 +1078,7 @@ def admin_settings(request):
             else:
                 setting.plasada = new_plasada
             setting.save()
+            logger.info("SETTINGS: plasada updated to %.4f by admin=%s", new_plasada, request.user.username)
             return JsonResponse({'ok': True, 'plasada': new_plasada, 'plasada_pct': new_plasada * 100})
 
         if action == 'update_teller_max_balance':
@@ -994,6 +1097,38 @@ def admin_settings(request):
             setting.save()
             return JsonResponse({'ok': True, 'teller_max_balance': new_max})
 
+        if action == 'update_teller_initial_fund':
+            try:
+                new_fund = float(request.POST.get('teller_initial_fund', ''))
+                if new_fund < 0:
+                    return JsonResponse({'ok': False, 'error': 'Initial fund must be 0 or greater'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid initial fund value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(teller_initial_fund=new_fund)
+            else:
+                setting.teller_initial_fund = new_fund
+            setting.save()
+            return JsonResponse({'ok': True, 'teller_initial_fund': new_fund})
+
+        if action == 'update_teller_min_balance':
+            try:
+                new_min = float(request.POST.get('teller_min_balance', ''))
+                if new_min < 0:
+                    return JsonResponse({'ok': False, 'error': 'Min on-hand must be 0 or greater (0 = no warning)'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid min on-hand value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(teller_min_balance=new_min)
+            else:
+                setting.teller_min_balance = new_min
+            setting.save()
+            return JsonResponse({'ok': True, 'teller_min_balance': new_min})
+
         if action == 'update_fight_result':
             try:
                 result_id = int(request.POST.get('result_id', 0))
@@ -1009,8 +1144,13 @@ def admin_settings(request):
             except Fight_Results.DoesNotExist:
                 return JsonResponse({'ok': False, 'error': 'Fight result not found'}, status=404)
 
+            old_side = result.side
             result.side = new_side
             result.save(update_fields=['side'])
+            logger.info(
+                "SETTINGS: fight_result id=%s fight=%s side changed %s→%s by admin=%s",
+                result_id, result.fightnum, old_side, new_side, request.user.username,
+            )
 
             channel_layer = get_channel_layer()
             if channel_layer is not None:
@@ -1030,7 +1170,9 @@ def admin_settings(request):
         fight_results = fight_results.filter(event=active_event)
 
     setting = Settings.objects.order_by('-id').first()
-    teller_max_balance = setting.teller_max_balance if setting else 0.0
+    teller_max_balance  = setting.teller_max_balance  if setting else 0.0
+    teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
+    teller_min_balance  = setting.teller_min_balance  if setting else 0.0
 
     return render(request, 'SmartWagers/admin_settings.html', {
         'plasada': plasada,
@@ -1038,4 +1180,6 @@ def admin_settings(request):
         'fight_results': fight_results,
         'active_event': active_event,
         'teller_max_balance': teller_max_balance,
+        'teller_initial_fund': teller_initial_fund,
+        'teller_min_balance': teller_min_balance,
     })
