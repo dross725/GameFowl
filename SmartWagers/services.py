@@ -12,6 +12,7 @@ from django.conf import settings
 from django.utils.timezone import now
 from django.db import transaction as db_transaction
 import barcode
+import logging
 import os
 import shutil
 import subprocess
@@ -21,8 +22,7 @@ from reportlab.pdfgen import canvas
 from reportlab.graphics.barcode import code128
 from reportlab.lib.units import mm
 
-
-debug = False
+logger = logging.getLogger('SmartWagers.services')
 
 def send_pdf_to_printer(pdf_path):
     printer_name = getattr(settings, "RECEIPT_PRINTER_NAME", None)
@@ -46,10 +46,13 @@ def send_pdf_to_printer(pdf_path):
     else:
         raise RuntimeError("No print command found. Install/configure CUPS so `lp` or `lpr` is available.")
 
+    logger.debug("Sending PDF to printer: command=%s", command)
     try:
         subprocess.run(command, check=True, capture_output=True, text=True)
+        logger.debug("PDF sent to printer successfully: %s", pdf_path)
     except subprocess.CalledProcessError as exc:
         error_message = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+        logger.error("Failed to print receipt %s: %s", pdf_path, error_message)
         raise RuntimeError(f"Failed to print receipt: {error_message}") from exc
 
 def get_fightnum():
@@ -100,12 +103,10 @@ def get_Wagers():
 def compute_payout(m_total, w_total, total_pot):
     comm = get_comm_val()
 
-    if debug:
-        print ('compute payout')
-        print ('comm ' +str(comm))
-        print ('m_total ' + str(m_total))
-        print ('w_total ' + str(w_total))
-        print ('total_pot ' + str(total_pot))
+    logger.debug(
+        "compute_payout: comm=%.4f m_total=%s w_total=%s total_pot=%s",
+        comm, m_total, w_total, total_pot,
+    )
 
     if m_total > 0:
         m_payout = total_pot / m_total
@@ -121,11 +122,7 @@ def compute_payout(m_total, w_total, total_pot):
     else:
         w_payout = 0
 
-    if debug:
-        print ("updated payouts")
-        print ('m_payout ' + str(m_payout))
-        print ('w_payout ' + str(w_payout))
-
+    logger.debug("compute_payout result: m_payout=%s w_payout=%s", m_payout, w_payout)
     return (m_payout, w_payout)
 
 def add_total(amount, side):
@@ -161,6 +158,10 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
         addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=True)
         addwager.save()
         add_total(amount, side)
+    logger.info(
+        "BET PLACED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+        addwager.transactionid, fightnum, side, amount, cashier,
+    )
     return addwager
 
 def is_wager_receipt_printing_enabled():
@@ -169,6 +170,10 @@ def is_wager_receipt_printing_enabled():
 def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
     pending_wager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=False)
     pending_wager.save()
+    logger.debug(
+        "BET RESERVED (pending print): txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+        pending_wager.transactionid, fightnum, side, amount, cashier,
+    )
     return pending_wager
 
 def confirm_wager_receipt(transaction_id, admin=False):
@@ -179,16 +184,27 @@ def confirm_wager_receipt(transaction_id, admin=False):
             qs = qs.filter(created_at__gte=active_event.started_at)
         pending_wager = qs.first()
         if pending_wager is None:
+            logger.warning("CONFIRM BET: txn=%s not found or already registered", transaction_id)
             return None
 
         betting_ok = is_match_open() if admin else is_betting_open(pending_wager.side)
         if not betting_ok:
             pending_wager.delete()
+            logger.warning(
+                "CONFIRM BET REJECTED (betting closed): txn=%s side=%s cashier=%s",
+                transaction_id, pending_wager.side, pending_wager.cashier,
+            )
             return None
 
         pending_wager.registered = True
         pending_wager.save(update_fields=['registered'])
         add_total(pending_wager.wager, pending_wager.side)
+
+    logger.info(
+        "BET CONFIRMED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+        pending_wager.transactionid, pending_wager.fightnum,
+        pending_wager.side, pending_wager.wager, pending_wager.cashier,
+    )
     return pending_wager
 
 def cancel_wager_receipt(transaction_id):
@@ -198,7 +214,13 @@ def cancel_wager_receipt(transaction_id):
         qs = qs.filter(created_at__gte=active_event.started_at)
     pending_wager = qs.first()
     if pending_wager is not None:
+        logger.info(
+            "BET RECEIPT CANCELLED (before confirm): txn=%s side=%s amount=%.2f cashier=%s",
+            transaction_id, pending_wager.side, pending_wager.wager, pending_wager.cashier,
+        )
         pending_wager.delete()
+    else:
+        logger.debug("CANCEL RECEIPT: txn=%s not found (already confirmed or expired)", transaction_id)
 
     return pending_wager is not None
 
@@ -318,6 +340,8 @@ def start_event(name):
     Teller balances are settled before the new event opens so every teller
     starts the new event at zero and the outgoing event's report is clean.
     """
+    logger.info("EVENT STARTING: name=%r — settling teller balances", name)
+
     # Settle all outstanding teller balances against the closing event FIRST,
     # before we change is_active.  This ensures the transactions fall inside
     # the old event's time window and are excluded from the new event.
@@ -326,6 +350,7 @@ def start_event(name):
     Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
 
     event = Event.objects.create(name=name, is_active=True)
+    logger.info("EVENT STARTED: id=%s name=%r started_at=%s", event.id, event.name, event.started_at)
 
     # Issue the configured starting fund as a borrowed (COLLECT) transaction
     # for every teller.  These land inside the new event's time window so
@@ -357,10 +382,12 @@ def end_event():
     """Mark the active event as ended and return it."""
     event = Event.objects.filter(is_active=True).order_by('-started_at').first()
     if event is None:
+        logger.warning("END EVENT called but no active event found")
         return None
     event.is_active = False
     event.ended_at = now()
     event.save(update_fields=['is_active', 'ended_at'])
+    logger.info("EVENT ENDED: id=%s name=%r ended_at=%s", event.id, event.name, event.ended_at)
     return event
 
 
@@ -402,13 +429,10 @@ def is_match_open():
     return fight_status.overall_status == "OPEN"
 
 def print_wager_reciept(amount, side, fightnum, transaction_id, date, cashier="Juan DelaCruz"):
-    if debug:
-        print('Printing wager receipt')
-        print('Transaction id: ' +str(transaction_id))
-        print('Amount: ' + str(amount))
-        print('Side: ' + str(side))
-        print('Fight Number: ' + str(fightnum))
-        print('Cashier: ' + cashier)
+    logger.debug(
+        "print_wager_receipt: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+        transaction_id, fightnum, side, amount, cashier,
+    )
 
     # Here you would implement the actual printing logic
     # For now, we just return a string representation
@@ -447,9 +471,7 @@ def print_wager_reciept(amount, side, fightnum, transaction_id, date, cashier="J
     return f"Receipt: {amount} on {side} for fight {fightnum} by {cashier}"
 
 def print_payout_reciept(payout_data):
-    if debug:
-        print('Printing payout receipt')
-        print(payout_data)
+    logger.debug("print_payout_receipt: %s", payout_data)
 
     amount = float(str(payout_data['Total_Payout']).replace(",", ""))
     side = payout_data['side']
@@ -511,14 +533,10 @@ def print_payout_reciept(payout_data):
     return f"Payout Receipt: {amount} on {side} for fight {fightnum} by {cashier}"
 
 def update_control_status(side, status):
-    if debug:
-        print('Updating control status')
-        print('side: ' +str(side))
-        print('status: ' +str(status))
+    logger.debug("SIDE CONTROL: side=%s status=%s", side, status)
     update_status = Fight_Status.objects.order_by('id').first()
     if update_status is None:
-        if debug:
-            print("Fight status object not found, creating a new one")
+        logger.warning("Fight_Status row missing — creating default")
         update_status = Fight_Status(overall_status='OPEN', meron_status='OPEN', wala_status='OPEN')
         update_status.save()
 
@@ -530,8 +548,7 @@ def update_control_status(side, status):
         update_status.meron_status = status
         update_status.wala_status = status
     else:
-        if debug:
-            print("Error updating control status")
+        logger.error("SIDE CONTROL: unknown side=%r — no update applied", side)
 
     # When sides are reopened and the fight is in a bettable state (CLOSED),
     # restore overall_status to OPEN so the server accepts new bets.
@@ -605,60 +622,49 @@ def update_fightresults(side):
     return
 
 def startnewmatch():
-    if debug:
-        print('Starting new match')
-
     fn = get_fightnum()
     if fn == 0:
         fightnum = initialize_fightnum()
     else:
         fightnum = fn + 1
 
-    if debug:
-        print('New fight number: ' + str(fightnum))
-    
+    logger.info("FIGHT STARTED: fight=%s", fightnum)
     update_wagers('START', fightnum)
     initialize_totals()
     update_fight_status("START")
     return
 
 def closematch():
-    if debug:
-        print("Closing Match")
+    fightnum = get_fightnum()
+    logger.info("FIGHT CLOSED (betting closed): fight=%s", fightnum)
     update_wagers("CLOSED")
     update_fight_status("CLOSED", "BOTH")
 
 def cancelmatch():
-    if debug:
-        print("Canceling Match")
-    
+    fightnum = get_fightnum()
+    logger.info("FIGHT CANCELLED: fight=%s", fightnum)
     update_wagers("CANCELLED")
     update_fight_status("CANCEL")
     update_fightresults("CANCELLED")
 
 def endmatch(winner):
-    if debug:
-        print("Ending Match")
-
+    fightnum = get_fightnum()
+    logger.info("FIGHT ENDED: fight=%s winner=%s", fightnum, winner)
     update_wagers("END")
     update_fight_status("END")
     update_fightresults(winner)
 
 def get_fight_status():
-    if debug:
-        print('Getting fight status')
     fight_status = Fight_Status.objects.order_by('id').first()
     if fight_status is None:
-        if debug:
-            print("Fight_Status object not found, creating a new one")
+        logger.warning("Fight_Status row missing — creating default CLOSE state")
         fightnum = get_fightnum()
         fight_status = Fight_Status(fightnum=fightnum, overall_status='CLOSE', meron_status='CLOSE', wala_status='CLOSE')
         fight_status.save()
     return (fight_status.overall_status, fight_status.meron_status, fight_status.wala_status, fight_status.fightnum)
 
 def initialize_totals():
-    if debug:
-        print('Initializing totals')
+    logger.debug("Initializing totals for fight=%s", get_fightnum())
     m_total = 0
     m_payout = 0
     w_total = 0
@@ -671,35 +677,29 @@ def initialize_totals():
     return (m_total, m_payout, w_total, w_payout, total_pot)
 
 def initialize_fightnum():
-    if debug:
-        print('Initializing fight number')
+    logger.debug("Initializing fight counter to 1")
     fight_num = 1
     addwager = Wagers(fightnum=fight_num, side='INIT', wager=0, cashier='System')
     addwager.save()
     return fight_num
 
-def update_fight_status(fightstatus, side = None):
-    if debug:
-        print('Updating fight status ' +fightstatus )
-        print('side ' +str(side))
+def update_fight_status(fightstatus, side=None):
+    logger.debug("update_fight_status: status=%s side=%s", fightstatus, side)
     fight_status = Fight_Status.objects.order_by('id').first()
     fn = get_fightnum()
     overall_status = ''
     meron_status = ''
     wala_status = ''
 
-    if fn == None:
+    if fn is None:
         fn = 1
 
     if fight_status is None:
-        if debug:
-            print("Settings object not found, creating a new one")
+        logger.warning("Fight_Status row missing in update_fight_status — creating default")
         fight_status = Fight_Status(fightnum=fn, overall_status='CLOSE', meron_status='CLOSE', wala_status='CLOSE')
         fight_status.save()
 
     if fightstatus == 'START':
-        if debug:
-            print ("Fight started, initializing new match")
         overall_status = 'OPEN'
         meron_status = 'OPEN'
         wala_status = 'OPEN'
@@ -719,8 +719,7 @@ def update_fight_status(fightstatus, side = None):
         meron_status = 'CLOSE'
         wala_status = 'CLOSE'
     else:
-        if debug:
-            print("Error updating fight status")
+        logger.error("update_fight_status: unknown status=%r — no state change applied", fightstatus)
 
     fight_status.overall_status = overall_status
     fight_status.meron_status = meron_status
@@ -751,14 +750,23 @@ def payout_request(transaction_id, requesting_cashier=None):
             payout_data = base_qs.first()
 
         if payout_data is None or payout_data.transactionid is None:
+            logger.warning("PAYOUT: txn=%s not found", transaction_id)
             payout_result['error'] = 'notfound'
             return payout_result
 
         if payout_data.cashed_out:
+            logger.warning(
+                "PAYOUT DUPLICATE: txn=%s fight=%s already paid cashier=%s",
+                transaction_id, payout_data.fightnum, payout_data.cashier,
+            )
             payout_result['error'] = 'alreadypaid'
             return payout_result
 
         if requesting_cashier and payout_data.cashier != requesting_cashier:
+            logger.warning(
+                "PAYOUT WRONG TELLER: txn=%s belongs to %s, requested by %s",
+                transaction_id, payout_data.cashier, requesting_cashier,
+            )
             payout_result['error'] = 'wrong_teller'
             payout_result['original_cashier'] = payout_data.cashier
             return payout_result
@@ -819,6 +827,11 @@ def payout_request(transaction_id, requesting_cashier=None):
             return payout_result
 
         if payout_fightresult_side != payout_data.side:
+            logger.info(
+                "PAYOUT LOSING TICKET: txn=%s fight=%s bet=%s winner=%s cashier=%s",
+                transaction_id, payout_data_fn, payout_data.side,
+                payout_fightresult_side, payout_data.cashier,
+            )
             payout_result['error'] = 'wrongside'
             return payout_result
 
@@ -847,8 +860,13 @@ def payout_request(transaction_id, requesting_cashier=None):
                 amount=total_payout,
             )
         except User.DoesNotExist:
-            pass
+            logger.warning("PAYOUT: cashier user %r not found in auth.User", payout_data.cashier)
 
+    logger.info(
+        "PAYOUT SUCCESS: txn=%s fight=%s side=%s wager=%.2f multiplier=%.4f payout=%.2f cashier=%s",
+        transaction_id, payout_data_fn, payout_fightresult_side,
+        wager, payout_multiplier, total_payout, payout_data.cashier,
+    )
     receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
     payout_result.update({
         'print_required': is_wager_receipt_printing_enabled(),
@@ -1019,52 +1037,55 @@ def cancel_bet(transaction_id):
     cancel_data = qs.first()
     cancel_result = {}
     cancel_result["cancel_bet"] = True
-    print ("cancel bet" , transaction_id)
-    print (cancel_data)
-    if cancel_data == None:
-        if debug:
-            print("No cancel data found for transaction ID: " + str(transaction_id))
+    logger.debug("CANCEL BET REQUEST: txn=%s data=%s", transaction_id, cancel_data)
+
+    if cancel_data is None:
+        logger.warning("CANCEL BET: txn=%s not found", transaction_id)
         cancel_result['error'] = 'notfound'
-        return (cancel_result)
-    
-    if cancel_data.transactionid == None:
-        if debug:
-            print("No cancel data found for transaction ID: " + str(transaction_id))
+        return cancel_result
+
+    if cancel_data.transactionid is None:
+        logger.warning("CANCEL BET: txn=%s has null transactionid", transaction_id)
         cancel_result['error'] = 'notfound'
-        return (cancel_result)
+        return cancel_result
+
     fn = cancel_data.fightnum
 
     fight_status = Fight_Status.objects.filter(fightnum=fn).first()
     if fight_status is None:
-        if debug:
-            print("Fight_Status object not found.")
         fight_result = Fight_Results.objects.filter(fightnum=cancel_data.fightnum).first()
         if fight_result is not None:
-            if debug:
-                print("Match already completed, cannot cancel bet.")
+            logger.warning(
+                "CANCEL BET REJECTED (match complete): txn=%s fight=%s", transaction_id, fn
+            )
             cancel_result['error'] = 'matchcomplete'
-            return (cancel_result)
+            return cancel_result
 
+        logger.error("CANCEL BET: Fight_Status not found for fight=%s", fn)
         cancel_result['error'] = 'systemerror'
-        return (cancel_result)
+        return cancel_result
 
     overall_status = fight_status.overall_status
 
     if overall_status != "OPEN":
-        if debug:
-            print("Bets can only be cancelled when the match is OPEN.")
+        logger.warning(
+            "CANCEL BET REJECTED (match not open): txn=%s fight=%s status=%s",
+            transaction_id, fn, overall_status,
+        )
         cancel_result['error'] = 'matchnotopen'
-        return (cancel_result)
+        return cancel_result
 
-    else:
-        #Bet is valid to be cancelled
-        deduct_totals(cancel_data.side, cancel_data.wager)
-        print ("BET CANCELLED ", cancel_data)
-        cancel_result['message'] = 'betcancelled'
-        cancel_result['amount'] = format(cancel_data.wager, ",")
-        cancel_result['transaction_id'] = cancel_data.transactionid
-        cancel_data.delete()
-        return (cancel_result)
+    deduct_totals(cancel_data.side, cancel_data.wager)
+    logger.info(
+        "BET CANCELLED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+        cancel_data.transactionid, fn, cancel_data.side,
+        cancel_data.wager, cancel_data.cashier,
+    )
+    cancel_result['message'] = 'betcancelled'
+    cancel_result['amount'] = format(cancel_data.wager, ",")
+    cancel_result['transaction_id'] = cancel_data.transactionid
+    cancel_data.delete()
+    return cancel_result
 
 #update totals due to cancelled bet
 def deduct_totals(side, amount):

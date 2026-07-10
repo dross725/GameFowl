@@ -21,6 +21,7 @@ staticfiles/
 !.env.example
 
 # Logs and runtime files
+logs/
 *.log
 *.pid
 *.sock
