@@ -1,6 +1,7 @@
 let bet_total = 0;
 let wager_value = 0;
 let wager_id = '';
+let isSubmitting = false;
 
 function formatNumber(n) {
     return Number(n).toLocaleString('en-US');
@@ -45,6 +46,8 @@ function meron_addValue(value) { addValue(value); }
 function wala_addValue(value) { addValue(value); }
 
 function check_total(side) {
+    if (isSubmitting) return;
+
     const activeSide = side || getSelectedSide();
 
     if (!activeSide) {
@@ -240,32 +243,74 @@ function shouldBlockClosedBettingForCurrentPage() {
     );
 }
 
-async function submitValue() {
-    if (shouldBlockClosedBettingForCurrentPage() && !(await isBettingOpen(wager_id))) {
-        const blockedSide = wager_id;
-        closeModal();
-        showClosedBettingModal(blockedSide);
-        resetTotal();
-        return;
-    }
+function lockBetUI() {
+    /* Immediately block all bet-input interaction while a submission is in
+       flight. Called synchronously at the top of submitValue() so that every
+       code path — including rapid keyboard auto-repeat — hits a hard wall. */
+    document.getElementById('confirmationModal').style.display = 'none';
 
-    const wager_val = document.getElementById('wager_value');
-    wager_val.value = wager_value;
+    const textarea = document.getElementById('bet_textinput');
+    if (textarea) textarea.disabled = true;
 
-    const wager_side = document.getElementById('wager_id');
-    wager_side.value = wager_id;
+    ['Usersubmit', 'SubmitButton', 'submitvalue'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.disabled = true; }
+    });
 
-    /* Reset textarea immediately — values already captured in the hidden fields above */
-    resetBet();
+    const submitButton = document.getElementById('submitvalue');
+    if (submitButton) submitButton.innerText = "Submitting...";
+}
 
-    const form = document.getElementById('submitwagerForm');
+function unlockBetUI() {
+    /* Re-enable the bet UI after a failed / cancelled submission. Never called
+       on the success path — the page is reloading so there is nothing to restore. */
+    const textarea = document.getElementById('bet_textinput');
+    if (textarea) textarea.disabled = false;
+
+    ['Usersubmit', 'SubmitButton'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.disabled = false; }
+    });
+
     const submitButton = document.getElementById('submitvalue');
     if (submitButton) {
-        submitButton.disabled = true;
-        submitButton.innerText = "Submitting...";
+        submitButton.disabled = false;
+        submitButton.innerText = "Confirm";
     }
 
+    focusBetInput();
+}
+
+async function submitValue() {
+    /* Hard re-entrance guard — set synchronously before any await so that
+       keyboard auto-repeat events queued while we're in-flight are all dropped. */
+    if (isSubmitting) return;
+    isSubmitting = true;
+
+    /* Lock the entire bet UI immediately (hides modal, disables inputs). */
+    lockBetUI();
+
+    let submissionSucceeded = false;
+
     try {
+        if (shouldBlockClosedBettingForCurrentPage() && !(await isBettingOpen(wager_id))) {
+            const blockedSide = wager_id;
+            showClosedBettingModal(blockedSide);
+            resetTotal();
+            return;
+        }
+
+        const wager_val = document.getElementById('wager_value');
+        wager_val.value = wager_value;
+
+        const wager_side = document.getElementById('wager_id');
+        wager_side.value = wager_id;
+
+        /* Reset textarea immediately — values already captured in the hidden fields above */
+        resetBet();
+
+        const form = document.getElementById('submitwagerForm');
+
         const response = await fetch(form.action || window.location.href, {
             method: "POST",
             body: new FormData(form),
@@ -276,7 +321,6 @@ async function submitValue() {
         const result = await response.json();
 
         if (!response.ok || !result.ok) {
-            closeModal();
             if (result.error === "betting_closed") {
                 showClosedBettingModal(result.blocked_betting_side || wager_id);
                 return;
@@ -286,6 +330,7 @@ async function submitValue() {
         }
 
         if (!result.pending || result.print_required === false) {
+            submissionSucceeded = true;
             window.location.reload();
             return;
         }
@@ -294,7 +339,6 @@ async function submitValue() {
         if (!printResult.ok) {
             await postWagerAction(form, "cancel_pending", result.receipt.transaction_id);
             alert("Receipt print failed. Bet was not registered: " + printResult.message);
-            closeModal();
             resetTotal();
             return;
         }
@@ -302,18 +346,20 @@ async function submitValue() {
         const confirmation = await postWagerAction(form, "confirm_print", result.receipt.transaction_id);
         if (!confirmation.response.ok || !confirmation.result.ok) {
             alert("Receipt printed, but bet could not be registered. Please contact the administrator.");
-            closeModal();
             resetTotal();
             return;
         }
 
+        submissionSucceeded = true;
         window.location.reload();
     } catch (error) {
         alert("Unable to submit wager. Please check the connection and try again.");
     } finally {
-        if (submitButton) {
-            submitButton.disabled = false;
-            submitButton.innerText = "Confirm";
+        if (!submissionSucceeded) {
+            /* Only release the lock on failure/cancellation — the page is about
+               to reload on success so re-enabling would create a brief open window. */
+            isSubmitting = false;
+            unlockBetUI();
         }
     }
 

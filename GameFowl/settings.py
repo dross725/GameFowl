@@ -47,6 +47,8 @@ _allowed = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
 ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()] or [
     'localhost',
     '127.0.0.1',
+    '192.168.1.6',
+    '192.168.0.63',
 ]
 
 
@@ -80,6 +82,8 @@ _csrf_origins = os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '')
 CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(',') if o.strip()] or [
     'http://localhost',
     'http://127.0.0.1',
+    'http://192.168.1.6',
+    'http://192.168.0.63',
 ]
 
 ROOT_URLCONF = 'GameFowl.urls'

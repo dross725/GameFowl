@@ -11,13 +11,11 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils.timezone import now
 from django.db import transaction as db_transaction
-import barcode
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
-from barcode.writer import ImageWriter
 from reportlab.pdfgen import canvas
 from reportlab.graphics.barcode import code128
 from reportlab.lib.units import mm
@@ -153,8 +151,25 @@ def add_total(amount, side):
         )
     return
 
+DUPLICATE_WAGER_WINDOW_SECONDS = 3
+
 def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
     with db_transaction.atomic():
+        duplicate_cutoff = now() - timedelta(seconds=DUPLICATE_WAGER_WINDOW_SECONDS)
+        existing = (
+            Wagers.objects
+            .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
+                    registered=True, created_at__gte=duplicate_cutoff)
+            .order_by('-created_at')
+            .first()
+        )
+        if existing:
+            logger.warning(
+                "DUPLICATE BET BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+                existing.transactionid, fightnum, side, amount, cashier,
+            )
+            return existing
+
         addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=True)
         addwager.save()
         add_total(amount, side)
@@ -168,13 +183,49 @@ def is_wager_receipt_printing_enabled():
     return getattr(settings, "WAGER_RECEIPT_PRINTING_ENABLED", True)
 
 def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
-    pending_wager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=False)
-    pending_wager.save()
-    logger.debug(
-        "BET RESERVED (pending print): txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-        pending_wager.transactionid, fightnum, side, amount, cashier,
-    )
-    return pending_wager
+    with db_transaction.atomic():
+        duplicate_cutoff = now() - timedelta(seconds=DUPLICATE_WAGER_WINDOW_SECONDS)
+
+        # Check for an already-confirmed (registered=True) bet in the window first so
+        # a second reserve that arrives after the first was confirmed is also blocked.
+        registered_existing = (
+            Wagers.objects
+            .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
+                    registered=True, created_at__gte=duplicate_cutoff)
+            .order_by('-created_at')
+            .first()
+        )
+        if registered_existing:
+            logger.warning(
+                "DUPLICATE RESERVE BLOCKED (already registered): txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+                registered_existing.transactionid, fightnum, side, amount, cashier,
+            )
+            return registered_existing
+
+        # Lock any matching pending row so concurrent requests are serialized and
+        # only one proceeds to create a new reservation.
+        existing = (
+            Wagers.objects
+            .select_for_update()
+            .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
+                    registered=False, created_at__gte=duplicate_cutoff)
+            .order_by('-created_at')
+            .first()
+        )
+        if existing:
+            logger.warning(
+                "DUPLICATE RESERVE BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+                existing.transactionid, fightnum, side, amount, cashier,
+            )
+            return existing
+
+        pending_wager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=False)
+        pending_wager.save()
+        logger.debug(
+            "BET RESERVED (pending print): txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+            pending_wager.transactionid, fightnum, side, amount, cashier,
+        )
+        return pending_wager
 
 def confirm_wager_receipt(transaction_id, admin=False):
     active_event = get_active_event()
@@ -805,7 +856,10 @@ def payout_request(transaction_id, requesting_cashier=None):
                     amount=payout_data.wager,
                 )
             except User.DoesNotExist:
-                pass
+                logger.error(
+                    "PAYOUT CANCELLED: cashier user %r not found in auth.User — teller balance not updated for txn=%s",
+                    payout_data.cashier, transaction_id,
+                )
             payout_result['side'] = "CANCELLED"
             payout_result['wager'] = format(payout_data.wager, ',')
             return payout_result
@@ -821,7 +875,10 @@ def payout_request(transaction_id, requesting_cashier=None):
                     amount=payout_data.wager,
                 )
             except User.DoesNotExist:
-                pass
+                logger.error(
+                    "PAYOUT DRAW: cashier user %r not found in auth.User — teller balance not updated for txn=%s",
+                    payout_data.cashier, transaction_id,
+                )
             payout_result['side'] = "DRAW"
             payout_result['wager'] = format(payout_data.wager, ',')
             return payout_result
@@ -1031,60 +1088,64 @@ def get_fight_results(*args):
 
 def cancel_bet(transaction_id):
     active_event = get_active_event()
-    qs = Wagers.objects.filter(transactionid=transaction_id, registered=True)
-    if active_event:
-        qs = qs.filter(created_at__gte=active_event.started_at)
-    cancel_data = qs.first()
-    cancel_result = {}
-    cancel_result["cancel_bet"] = True
-    logger.debug("CANCEL BET REQUEST: txn=%s data=%s", transaction_id, cancel_data)
+    cancel_result = {"cancel_bet": True}
 
-    if cancel_data is None:
-        logger.warning("CANCEL BET: txn=%s not found", transaction_id)
-        cancel_result['error'] = 'notfound'
-        return cancel_result
+    with db_transaction.atomic():
+        qs = Wagers.objects.select_for_update().filter(transactionid=transaction_id, registered=True)
+        if active_event:
+            qs = qs.filter(created_at__gte=active_event.started_at)
+        cancel_data = qs.first()
+        logger.debug("CANCEL BET REQUEST: txn=%s data=%s", transaction_id, cancel_data)
 
-    if cancel_data.transactionid is None:
-        logger.warning("CANCEL BET: txn=%s has null transactionid", transaction_id)
-        cancel_result['error'] = 'notfound'
-        return cancel_result
-
-    fn = cancel_data.fightnum
-
-    fight_status = Fight_Status.objects.filter(fightnum=fn).first()
-    if fight_status is None:
-        fight_result = Fight_Results.objects.filter(fightnum=cancel_data.fightnum).first()
-        if fight_result is not None:
-            logger.warning(
-                "CANCEL BET REJECTED (match complete): txn=%s fight=%s", transaction_id, fn
-            )
-            cancel_result['error'] = 'matchcomplete'
+        if cancel_data is None:
+            logger.warning("CANCEL BET: txn=%s not found", transaction_id)
+            cancel_result['error'] = 'notfound'
             return cancel_result
 
-        logger.error("CANCEL BET: Fight_Status not found for fight=%s", fn)
-        cancel_result['error'] = 'systemerror'
-        return cancel_result
+        if cancel_data.transactionid is None:
+            logger.warning("CANCEL BET: txn=%s has null transactionid", transaction_id)
+            cancel_result['error'] = 'notfound'
+            return cancel_result
 
-    overall_status = fight_status.overall_status
+        fn = cancel_data.fightnum
 
-    if overall_status != "OPEN":
-        logger.warning(
-            "CANCEL BET REJECTED (match not open): txn=%s fight=%s status=%s",
-            transaction_id, fn, overall_status,
-        )
-        cancel_result['error'] = 'matchnotopen'
-        return cancel_result
+        fight_status = Fight_Status.objects.filter(fightnum=fn).first()
+        if fight_status is None:
+            fight_result = Fight_Results.objects.filter(fightnum=cancel_data.fightnum).first()
+            if fight_result is not None:
+                logger.warning(
+                    "CANCEL BET REJECTED (match complete): txn=%s fight=%s", transaction_id, fn
+                )
+                cancel_result['error'] = 'matchcomplete'
+                return cancel_result
 
-    deduct_totals(cancel_data.side, cancel_data.wager)
+            logger.error("CANCEL BET: Fight_Status not found for fight=%s", fn)
+            cancel_result['error'] = 'systemerror'
+            return cancel_result
+
+        overall_status = fight_status.overall_status
+
+        if overall_status != "OPEN":
+            logger.warning(
+                "CANCEL BET REJECTED (match not open): txn=%s fight=%s status=%s",
+                transaction_id, fn, overall_status,
+            )
+            cancel_result['error'] = 'matchnotopen'
+            return cancel_result
+
+        # Deduct totals and delete the wager inside the same atomic block so
+        # neither can succeed without the other.
+        deduct_totals(cancel_data.side, cancel_data.wager)
+        cancel_result['message'] = 'betcancelled'
+        cancel_result['amount'] = format(cancel_data.wager, ",")
+        cancel_result['transaction_id'] = cancel_data.transactionid
+        cancel_data.delete()
+
     logger.info(
         "BET CANCELLED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-        cancel_data.transactionid, fn, cancel_data.side,
+        cancel_result['transaction_id'], fn, cancel_data.side,
         cancel_data.wager, cancel_data.cashier,
     )
-    cancel_result['message'] = 'betcancelled'
-    cancel_result['amount'] = format(cancel_data.wager, ",")
-    cancel_result['transaction_id'] = cancel_data.transactionid
-    cancel_data.delete()
     return cancel_result
 
 #update totals due to cancelled bet
