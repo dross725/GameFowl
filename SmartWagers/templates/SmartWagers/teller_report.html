@@ -441,6 +441,7 @@ function showReprintToast(message, type) {
       <thead>
         <tr>
           <th style="text-align: left;">#</th>
+          <th style="text-align: left;">Transaction ID</th>
           <th style="text-align: center;">Fight #</th>
           <th style="text-align: left;">Side</th>
           <th style="text-align: left;">Timestamp</th>
@@ -452,6 +453,7 @@ function showReprintToast(message, type) {
         {% for w in wagers %}
         <tr class="row-{{ w.side|lower }}">
           <td style="color: rgba(255,255,255,0.30); font-size:11px;">{{ forloop.counter }}</td>
+          <td class="td-txid">{{ w.transactionid }}</td>
           <td class="td-fightnum">{{ w.fightnum }}</td>
           <td>
             <span class="side-badge {{ w.side|lower }}">{{ w.side }}</span>
@@ -464,7 +466,7 @@ function showReprintToast(message, type) {
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="4">Total ({{ total_count }} transactions)</td>
+          <td colspan="5">Total ({{ total_count }} transactions)</td>
           <td class="td-wager">₱ {{ total_amount|floatformat:0|intcomma }}</td>
           <td></td>
         </tr>
