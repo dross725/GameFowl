@@ -81,16 +81,19 @@ def get_teller_information(request):
     email = user.email
     logger.debug("get_teller_information: user=%s", username)
 
-def get_button_state_view (request):
+@login_required
+def get_button_state_view(request):
     mstate, wstate = services.get_control_status()
     return JsonResponse({"mstate": mstate, "wstate": wstate})
 
-def get_fight_results_view (request):
+@login_required
+def get_fight_results_view(request):
     results = services.get_fight_results('fightnum', 'side', 'odds')
-    return JsonResponse(list(results) , safe=False)    
+    return JsonResponse(list(results), safe=False)
 
-def get_fight_status_view (request): 
-    overall_status, meron_status, wala_status, fightnum  = services.get_fight_status()
+@login_required
+def get_fight_status_view(request):
+    overall_status, meron_status, wala_status, fightnum = services.get_fight_status()
     active_event = services.get_active_event()
     return JsonResponse({
         "overall_status": overall_status,
@@ -101,9 +104,10 @@ def get_fight_status_view (request):
         "event_name": active_event.name if active_event else "",
     })
 
-def get_pot_values (request):
+@login_required
+def get_pot_values(request):
     m_total_pot, m_payout, w_total_pot, w_payout, total_pot, fight_num = services.get_Totals()
-    return JsonResponse({"M_total_bet" : m_total_pot, "M_payout": m_payout, "W_total_bet": w_total_pot, "W_payout": w_payout, "Total_pot": total_pot, "fight_num": fight_num})
+    return JsonResponse({"M_total_bet": m_total_pot, "M_payout": m_payout, "W_total_bet": w_total_pot, "W_payout": w_payout, "Total_pot": total_pot, "fight_num": fight_num})
 
 # Create your views here.
 @group_required('display')
@@ -203,8 +207,14 @@ def Main_admin(request):
                 }, status=409)
             return wager_ajax_response(saved_wager)
 
-        wager = int(request.POST.get('wager_value', 0))
+        try:
+            wager = int(request.POST.get('wager_value', 0))
+        except (ValueError, TypeError):
+            wager = 0
         wager_id = request.POST.get('wager_id', None)
+
+        if wager <= 0:
+            return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
         if not services.is_match_open():
             if request.headers.get('x-requested-with') == 'XMLHttpRequest':
@@ -266,8 +276,14 @@ def Teller(request):
                 }, status=409)
             return wager_ajax_response(saved_wager)
 
-        wager = int(request.POST.get('wager_value', 0))
+        try:
+            wager = int(request.POST.get('wager_value', 0))
+        except (ValueError, TypeError):
+            wager = 0
         wager_id = request.POST.get('wager_id', None)
+
+        if wager <= 0:
+            return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
         if not services.is_betting_open(wager_id):
             if request.headers.get('x-requested-with') == 'XMLHttpRequest':
