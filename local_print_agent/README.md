@@ -17,12 +17,24 @@ py -m pip install pywin32
 4. Copy `config.example.json` to `config.json`.
 5. Set `printer_name` in `config.json` to the exact Windows printer name.
    Leave it empty to use the Windows default printer.
-6. Start the agent:
+6. Start the agent in the background (no console window):
 
 ```bat
 run_print_agent.bat
 ```
 
+Or double-click `start_print_agent_silent.vbs`. For a visible debug console, run `python print_agent.py` instead.
+
+`install_print_agent.bat` also adds a silent Startup entry so the agent launches hidden on login.
+
+## Desktop icon (teller)
+
+Windows cannot change the icon of a `.vbs` file itself. To get the club logo on the desktop:
+
+1. Copy the updated `local_print_agent` folder (includes `smartwagers.ico`).
+2. Double-click `create_teller_shortcut.bat`.
+
+That creates a **SmartWagers Teller** shortcut on the Desktop that runs `start_teller_silent.vbs` with the logo icon. Pin that shortcut if you want.
 ## Find Printer Names
 
 With the agent running, open this URL on the cashier PC:

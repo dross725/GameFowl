@@ -38,7 +38,7 @@ body {
   }
 
   form input,
-  button {
+  button:not(.toggle-password) {
     font-size: 16px;
     min-height: 44px;
   }
@@ -62,6 +62,48 @@ form input {
   margin-bottom: 15px;
   border: 1px solid #ccc;
   border-radius: 5px;
+  box-sizing: border-box;
+}
+
+.password-field {
+  position: relative;
+  margin-bottom: 15px;
+}
+
+.password-field input {
+  margin-bottom: 0;
+  padding-right: 44px;
+}
+
+.toggle-password {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.toggle-password:hover,
+.toggle-password:focus-visible {
+  color: #333;
+  background-color: rgba(0, 0, 0, 0.06);
+  outline: none;
+}
+
+.toggle-password svg {
+  display: block;
+  pointer-events: none;
 }
 
 .button-group {
