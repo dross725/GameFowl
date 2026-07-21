@@ -30,9 +30,9 @@ def load_config():
 
 def money(value):
     try:
-        return f"{float(str(value).replace(',', '')):,.2f}"
+        return f"{int(round(float(str(value).replace(',', '')))):,}"
     except (TypeError, ValueError):
-        return str(value or "0.00")
+        return str(value or "0")
 
 
 def text_line(value="", code_page="cp437"):

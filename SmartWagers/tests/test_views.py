@@ -74,6 +74,23 @@ class TestRoleBasedLoginView:
         response = client.get('/login')
         assert response.status_code == 200
 
+    def test_authenticated_teller_visiting_login_goes_to_user(self, teller_user):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/login')
+        assert response.status_code in (301, 302)
+        assert '/user' in response['Location']
+
+    def test_teller_login_ignores_next_admin(self, teller_user):
+        client = Client()
+        response = client.post('/login?next=/administrator', {
+            'username': teller_user.username,
+            'password': 'tellerpass123',
+        })
+        assert response.status_code in (301, 302)
+        assert '/user' in response['Location']
+        assert '/administrator' not in response['Location']
+
 
 # ---------------------------------------------------------------------------
 # Group guards
@@ -93,12 +110,21 @@ class TestGroupGuards:
         client.force_login(teller_user)
         response = client.get('/administrator')
         assert response.status_code == 403
+        assert b'Access Denied' in response.content
+
+    def test_teller_accessing_index_gets_403(self, teller_user):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/')
+        assert response.status_code == 403
+        assert b'Access Denied' in response.content
 
     def test_admin_accessing_teller_page_gets_403(self, admin_user):
         client = Client()
         client.force_login(admin_user)
         response = client.get('/user')
         assert response.status_code == 403
+        assert b'Access Denied' in response.content
 
     def test_unauthenticated_teller_page_redirects_to_login(self):
         client = Client()
@@ -204,6 +230,7 @@ class TestAdminActionGuards:
         client.force_login(teller_user)
         response = client.post('/administrator/start-event/', {'name': 'Test'})
         assert response.status_code == 403
+        assert Event.objects.count() == 0
 
     def test_start_event_post_creates_event(self, admin_user, default_settings):
         client = Client()

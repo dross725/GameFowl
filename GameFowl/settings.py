@@ -13,6 +13,27 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 from pathlib import Path
 import logging.handlers  # noqa: F401 — ensures RotatingFileHandler is importable by LOGGING config
 import os
+import sys
+
+# ---------------------------------------------------------------------------
+# Python 3.14 + Django < 5.2 compatibility
+# ---------------------------------------------------------------------------
+# Python 3.14 made super() objects copyable, which breaks Django 5.1's
+# BaseContext.__copy__ and causes AttributeError on every admin changelist.
+# Fixed upstream in Django 5.2.  Remove this block after upgrading to 5.2+.
+# Prefer Python 3.12 for production with Django 5.1.
+if sys.version_info >= (3, 14):
+    from copy import copy as _copy
+    from django.template.context import BaseContext
+
+    def _patched_base_context_copy(self):
+        duplicate = BaseContext()
+        duplicate.__class__ = self.__class__
+        duplicate.__dict__ = _copy(self.__dict__)
+        duplicate.dicts = self.dicts[:]
+        return duplicate
+
+    BaseContext.__copy__ = _patched_base_context_copy
 
 # Load .env file if present (production uses environment variables set in the
 # service manager; .env is an optional convenience for local overrides).
@@ -229,13 +250,15 @@ LOGGING = {
             'propagate': False,
         },
         # Django HTTP 4xx/5xx errors and security violations
+        # Console is included so NSSM/daphne_stderr.log always captures 500s
+        # when DEBUG=False (production).
         'django.request': {
-            'handlers': ['app_file', 'debug_file'],
+            'handlers': ['app_file', 'debug_file', 'console'],
             'level': 'WARNING',
             'propagate': False,
         },
         'django.security': {
-            'handlers': ['app_file', 'debug_file'],
+            'handlers': ['app_file', 'debug_file', 'console'],
             'level': 'WARNING',
             'propagate': False,
         },
@@ -254,7 +277,9 @@ CHANNEL_LAYERS = {
 
 #LOGIN
 LOGIN_URL = '/login'  # Redirect here if not authenticated
-LOGIN_REDIRECT_URL = '/index'  # Where to go after login
+# Fallback only — RoleBasedLoginView.get_success_url() picks the role page.
+# Do not use /index here: that page is display-only and 403s tellers.
+LOGIN_REDIRECT_URL = '/user'
 
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SESSION_COOKIE_AGE = 86400  # 24 hours (in seconds)
@@ -266,3 +291,4 @@ SESSION_COOKIE_AGE = 86400  # 24 hours (in seconds)
 #    "true",
 #).lower() in ("1", "true", "yes", "on")
 WAGER_RECEIPT_PRINTING_ENABLED = False
+

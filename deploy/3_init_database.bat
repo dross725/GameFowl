@@ -32,7 +32,7 @@ echo.
 echo Next: create the Django superuser account.
 echo       python manage.py createsuperuser
 echo.
-echo After that, log in to http://localhost:8000/admin/ and:
+echo After that, log in to http://localhost:8080/admin/ and:
 echo   1. Create three Groups: admin, teller, display
 echo   2. Create user accounts and assign each to its group.
 echo.

@@ -31,7 +31,28 @@ class LogoutViaPost(LogoutView):
         return super().post(request, *args, **kwargs)
 
 
+def role_home_url(user):
+    """Return the landing URL for this user's primary role, or None."""
+    groups = set(user.groups.values_list('name', flat=True))
+    if 'admin' in groups:
+        return reverse('admin-page')
+    if 'teller' in groups:
+        return reverse('user-page')
+    if 'display' in groups:
+        return reverse('index')
+    return None
+
+
+def unauthorized(request):
+    """Shown when a user has no admin/teller/display group."""
+    return render(request, '403.html', status=403)
+
+
 class RoleBasedLoginView(LoginView):
+    # If the session cookie is still valid (browser closed without logout),
+    # send the user straight to their role page instead of showing login again.
+    redirect_authenticated_user = True
+
     def form_valid(self, form):
         response = super().form_valid(form)
         SessionLog.objects.create(user=self.request.user, login_time=now())
@@ -43,18 +64,16 @@ class RoleBasedLoginView(LoginView):
         return response
 
     def get_success_url(self):
-        user = self.request.user
-        groups = user.groups.values_list('name', flat=True)
-
-        if 'admin' in groups:
-            return reverse('admin-page')
-        elif 'teller' in groups:
-            return reverse('user-page')
-        elif 'display' in groups:
-            return reverse('index')
-        else:
-            logger.warning("LOGIN: user=%s has no recognized group — redirecting to /unauthorized/", user.username)
-            return '/unauthorized/'
+        # Intentionally ignore ?next= so a teller cannot be sent to /administrator
+        # (or any other path) via the login redirect parameter.
+        url = role_home_url(self.request.user)
+        if url:
+            return url
+        logger.warning(
+            "LOGIN: user=%s has no recognized group — redirecting to unauthorized",
+            self.request.user.username,
+        )
+        return reverse('unauthorized')
 
 
 def _get_client_ip(request):
@@ -64,12 +83,26 @@ def _get_client_ip(request):
         return x_forwarded.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR', '?')
 
+
 def group_required(group_name):
     def decorator(view_func):
         @login_required
         def _wrapped_view(request, *args, **kwargs):
             if request.user.groups.filter(name=group_name).exists():
                 return view_func(request, *args, **kwargs)
+
+            # Wrong role: show Access Denied modal for browser navigations
+            # (e.g. teller clicks Main/Admin). APIs get a JSON 403.
+            logger.warning(
+                "FORBIDDEN: user=%s requires group=%s method=%s path=%s",
+                request.user.username, group_name, request.method, request.path,
+            )
+            if (
+                request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or 'application/json' in request.headers.get('Accept', '')
+                or request.method not in ('GET', 'HEAD')
+            ):
+                return JsonResponse({'ok': False, 'error': 'Forbidden'}, status=403)
             return render(request, '403.html', status=403)
         return _wrapped_view
     return decorator
