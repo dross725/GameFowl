@@ -19,6 +19,7 @@ staticfiles/
 .env
 .env.*
 !.env.example
+deploy/python_path.txt
 
 # Logs and runtime files
 logs/

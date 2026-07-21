@@ -1,10 +1,10 @@
 @echo off
 REM ============================================================
-REM  SmartWagers — Step 5: Open Windows Firewall for port 8000
+REM  SmartWagers — Step 5: Open Windows Firewall for port 8080
 REM  Run as Administrator.
 REM ============================================================
 
-echo Adding Windows Firewall inbound rule for SmartWagers (port 8000)...
+echo Adding Windows Firewall inbound rule for SmartWagers (port 8080)...
 
 netsh advfirewall firewall show rule name="SmartWagers-Daphne" >nul 2>&1
 if not errorlevel 1 (
@@ -17,7 +17,7 @@ netsh advfirewall firewall add rule ^
     dir=in ^
     action=allow ^
     protocol=TCP ^
-    localport=8000 ^
+    localport=8080 ^
     description="Allow LAN access to SmartWagers wagering system"
 
 if errorlevel 1 (
@@ -27,7 +27,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo Firewall rule added. LAN clients can now reach port 8000.
-echo Test from another PC: http://<SERVER-IP>:8000/login
+echo Firewall rule added. LAN clients can now reach port 8080.
+echo Test from another PC: http://^<SERVER-IP^>:8080/login
 echo.
 pause

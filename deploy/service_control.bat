@@ -20,6 +20,22 @@ goto :end
 
 :start
 echo Starting %SERVICE% ...
+REM A PAUSED service (NSSM throttle-delay after a crash) cannot accept
+REM SC_CONTROL_START.  Detect the state and handle each case correctly.
+for /f "tokens=*" %%s in ('%NSSM% status %SERVICE% 2^>nul') do set _SVC_STATE=%%s
+
+if /i "%_SVC_STATE%"=="SERVICE_RUNNING" (
+    echo Service is already RUNNING.
+    goto :end
+)
+if /i "%_SVC_STATE%"=="SERVICE_PAUSED" (
+    echo Service is stuck in PAUSED state ^(NSSM throttle delay after a crash^).
+    echo Performing full stop-then-start to clear the throttle...
+    sc continue %SERVICE% >nul 2>&1
+    timeout /t 2 /nobreak >nul
+    %NSSM% stop %SERVICE% >nul 2>&1
+    timeout /t 3 /nobreak >nul
+)
 %NSSM% start %SERVICE%
 goto :end
 

@@ -5,7 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login</title>
-  <link rel="stylesheet" href="{% static 'SmartWagers/login.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'SmartWagers/login.css' %}?v=3">
 </head>
 <body>
   <div class="login-container">
@@ -16,8 +16,21 @@
       <input type="text" name="username" id="username" required>
 
       <label for="password">Password</label>
-      <input type="password" name="password" id="password" required>
-
+      <div class="password-field">
+        <input type="password" name="password" id="password" required>
+        <button type="button" class="toggle-password" id="toggle-password" aria-label="Show password" aria-pressed="false">
+          <svg class="icon-eye" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <svg class="icon-eye-off" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden>
+            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+            <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+            <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+            <line x1="1" y1="1" x2="23" y2="23"/>
+          </svg>
+        </button>
+      </div>
 
       <button type="submit">Login</button>
         
@@ -28,5 +41,24 @@
       {% endif %}
     </form>
   </div>
+  <script>
+    (function () {
+      var input = document.getElementById('password');
+      var toggle = document.getElementById('toggle-password');
+      if (!input || !toggle) return;
+
+      var iconEye = toggle.querySelector('.icon-eye');
+      var iconEyeOff = toggle.querySelector('.icon-eye-off');
+
+      toggle.addEventListener('click', function () {
+        var showing = input.type === 'text';
+        input.type = showing ? 'password' : 'text';
+        toggle.setAttribute('aria-pressed', showing ? 'false' : 'true');
+        toggle.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+        if (iconEye) iconEye.hidden = !showing;
+        if (iconEyeOff) iconEyeOff.hidden = showing;
+      });
+    })();
+  </script>
 </body>
 </html>

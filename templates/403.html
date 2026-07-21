@@ -19,7 +19,17 @@
             You do not have permission to view this page.<br>
             Please contact your administrator if you believe this is an error.
         </p>
-        <button id="access-denied-back" onclick="history.back()">Go Back</button>
+        <div id="access-denied-actions">
+            <button type="button" id="access-denied-back" onclick="history.back()">Go Back</button>
+            {% if user.is_authenticated %}
+            <form method="post" action="{% url 'logout' %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" id="access-denied-logout">Sign Out</button>
+            </form>
+            {% else %}
+            <a id="access-denied-home" href="{% url 'login' %}">Go to Login</a>
+            {% endif %}
+        </div>
     </div>
 </div>
 
@@ -79,7 +89,16 @@
         margin-bottom: 28px;
     }
 
-    #access-denied-back {
+    #access-denied-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+    #access-denied-back,
+    #access-denied-home,
+    #access-denied-logout {
         background: var(--meron);
         color: #fff;
         border: none;
@@ -88,15 +107,21 @@
         font-size: 0.95rem;
         font-weight: 600;
         cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
         transition: background 0.15s ease, transform 0.1s ease;
     }
 
-    #access-denied-back:hover {
+    #access-denied-back:hover,
+    #access-denied-home:hover,
+    #access-denied-logout:hover {
         background: var(--meron-dark);
         transform: translateY(-1px);
     }
 
-    #access-denied-back:active {
+    #access-denied-back:active,
+    #access-denied-home:active,
+    #access-denied-logout:active {
         transform: translateY(0);
     }
 </style>
