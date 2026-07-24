@@ -322,12 +322,16 @@ class TestCancelBet:
         assert m == 0
         assert pot == 0
 
-    def test_cancel_open_bet_removes_wager_row(self, default_settings):
+    def test_cancel_open_bet_marks_wager_cancelled(self, default_settings):
         _open_fight()
         w = services.add_wager(300, 'MERON', 1, cashier='teller1')
         tid = w.transactionid
-        services.cancel_bet(tid)
-        assert not Wagers.objects.filter(transactionid=tid, registered=True).exists()
+        result = services.cancel_bet(tid)
+        wager = Wagers.objects.get(transactionid=tid)
+        assert wager.registered is True
+        assert wager.cancelled is True
+        assert result.get('receipt', {}).get('receipt_type') == 'cancel'
+        assert result.get('receipt', {}).get('transaction_id') == tid
 
     def test_cancel_nonexistent_returns_error(self, default_settings):
         _open_fight()
@@ -350,3 +354,27 @@ class TestCancelBet:
         result = services.cancel_bet(w.transactionid)
         assert result.get('message') == 'betcancelled'
         assert '750' in str(result.get('amount', ''))
+
+    def test_cancel_already_cancelled_returns_notfound(self, default_settings):
+        _open_fight()
+        w = services.add_wager(200, 'MERON', 1, cashier='teller1')
+        services.cancel_bet(w.transactionid)
+        result = services.cancel_bet(w.transactionid)
+        assert result.get('error') == 'notfound'
+
+    def test_cancel_cashed_out_returns_alreadypaid(self, default_settings):
+        _open_fight()
+        w = services.add_wager(400, 'WALA', 1, cashier='teller1')
+        Wagers.objects.filter(pk=w.pk).update(cashed_out=True)
+        result = services.cancel_bet(w.transactionid)
+        assert result.get('error') == 'alreadypaid'
+        wager = Wagers.objects.get(pk=w.pk)
+        assert wager.cancelled is False
+
+    def test_cancel_includes_print_required_flag(self, default_settings):
+        _open_fight()
+        w = services.add_wager(100, 'MERON', 1, cashier='teller1')
+        result = services.cancel_bet(w.transactionid)
+        assert 'print_required' in result
+        assert 'receipt' in result
+        assert result['receipt']['receipt_type'] == 'cancel'

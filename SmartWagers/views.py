@@ -365,8 +365,9 @@ def teller_report(request):
         wager_qs = wager_qs.filter(created_at__gte=active_event.started_at)
 
     wagers = wager_qs.order_by('-created_at')
-    total_amount = wagers.aggregate(total=Sum('wager'))['total'] or 0.0
-    total_count = wagers.count()
+    active_wagers = wagers.filter(cancelled=False)
+    total_amount = active_wagers.aggregate(total=Sum('wager'))['total'] or 0.0
+    total_count = active_wagers.count()
 
     # Build the set of fight numbers that have a recorded result so the
     # template can disable the reprint button for completed fights.
@@ -410,7 +411,7 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True):
     balance     = grand_total − remits + collects (in scope).
     """
     username = str(user)
-    wager_qs = Wagers.objects.filter(cashier=username, registered=True)
+    wager_qs = Wagers.objects.filter(cashier=username, registered=True, cancelled=False)
     txn_qs = TellerTransaction.objects.filter(user=user)
 
     if event is not None:
@@ -448,8 +449,10 @@ def get_pending_payouts(request):
     username = str(request.user)
     active_event = services.get_active_event()
 
-    # Base: registered, uncashed wagers by this teller in the active event
-    pending_qs = Wagers.objects.filter(cashier=username, registered=True, cashed_out=False)
+    # Base: registered, uncashed, non-cancelled wagers by this teller in the active event
+    pending_qs = Wagers.objects.filter(
+        cashier=username, registered=True, cashed_out=False, cancelled=False,
+    )
     if active_event is not None:
         pending_qs = pending_qs.filter(created_at__gte=active_event.started_at)
         if active_event.ended_at:
@@ -496,6 +499,7 @@ def get_teller_fight_totals(request):
         cashier=username,
         fightnum=fightnum,
         registered=True,
+        cancelled=False,
     )
 
     # Scope to the active event's time window so bets from a previous event
@@ -811,6 +815,7 @@ def admin_event_report(request):
             winning_filter,
             cashed_out=False,
             registered=True,
+            cancelled=False,
             created_at__gte=event.started_at,
         ).exclude(cashier='System').order_by('cashier', 'fightnum', 'transactionid')
 
@@ -843,7 +848,7 @@ def admin_event_report(request):
         username = str(teller)
 
         wager_qs = Wagers.objects.filter(
-            cashier=username, registered=True,
+            cashier=username, registered=True, cancelled=False,
             created_at__gte=event.started_at,
         )
         if event.ended_at:
@@ -957,8 +962,9 @@ def admin_teller_transactions(request):
     if active_event is not None:
         wager_qs = wager_qs.filter(created_at__gte=active_event.started_at)
 
-    total_amount = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
-    total_count = wager_qs.count()
+    active_wagers = wager_qs.filter(cancelled=False)
+    total_amount = active_wagers.aggregate(total=Sum('wager'))['total'] or 0.0
+    total_count = active_wagers.count()
 
     return render(request, 'SmartWagers/admin_teller_transactions.html', {
         'wagers': wager_qs,

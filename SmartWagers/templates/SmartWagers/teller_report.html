@@ -212,6 +212,33 @@
     color: white;
   }
 
+  .status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .status-badge.active {
+    background: rgba(46, 204, 113, 0.18);
+    color: #2ecc71;
+  }
+
+  .status-badge.cancelled {
+    background: rgba(231, 76, 60, 0.18);
+    color: #e74c3c;
+  }
+
+  #report-table tbody tr.row-cancelled {
+    opacity: 0.55;
+  }
+
+  #report-table tbody tr.row-cancelled .td-wager {
+    text-decoration: line-through;
+  }
+
   .td-timestamp {
     font-size: 12px;
     color: rgba(255, 255, 255, 0.50) !important;
@@ -446,21 +473,41 @@ function showReprintToast(message, type) {
           <th style="text-align: left;">Side</th>
           <th style="text-align: left;">Timestamp</th>
           <th style="text-align: right;">Bet Amount</th>
+          <th style="text-align: center;">Status</th>
           <th style="text-align: center;">Reprint</th>
         </tr>
       </thead>
       <tbody>
         {% for w in wagers %}
-        <tr class="row-{{ w.side|lower }}">
+        <tr class="row-{{ w.side|lower }}{% if w.cancelled %} row-cancelled{% endif %}">
           <td style="color: rgba(255,255,255,0.30); font-size:11px;">{{ forloop.counter }}</td>
-          <td class="td-txid">{{ w.transactionid }}</td>
+          <td class="td-txid">
+            {% if w.fightnum in completed_fights and w.fightnum not in allowed_reprint %}
+              <span title="Hidden after 3 fights">••••••</span>
+            {% else %}
+              {{ w.transactionid }}
+            {% endif %}
+          </td>
           <td class="td-fightnum">{{ w.fightnum }}</td>
           <td>
             <span class="side-badge {{ w.side|lower }}">{{ w.side }}</span>
           </td>
           <td class="td-timestamp">{{ w.created_at|date:"Y-m-d" }} {{ w.created_at|time:"H:i:s" }}</td>
           <td class="td-wager">₱ {{ w.wager|floatformat:0|intcomma }}</td>
-          <td><button class="btn-reprint" onclick="reprintFromReport(this, '{{ w.transactionid }}')"{% if w.fightnum in completed_fights and w.fightnum not in allowed_reprint %} disabled title="Fight already completed"{% endif %}>Reprint</button></td>
+          <td style="text-align:center;">
+            {% if w.cancelled %}
+              <span class="status-badge cancelled">Cancelled</span>
+            {% else %}
+              <span class="status-badge active">Active</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if w.cancelled or w.fightnum in completed_fights and w.fightnum not in allowed_reprint %}
+              <button class="btn-reprint" disabled title="{% if w.cancelled %}Bet cancelled{% else %}Fight already completed{% endif %}">Reprint</button>
+            {% else %}
+              <button class="btn-reprint" onclick="reprintFromReport(this, '{{ w.transactionid }}')">Reprint</button>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -468,6 +515,7 @@ function showReprintToast(message, type) {
         <tr>
           <td colspan="5">Total ({{ total_count }} transactions)</td>
           <td class="td-wager">₱ {{ total_amount|floatformat:0|intcomma }}</td>
+          <td></td>
           <td></td>
         </tr>
       </tfoot>
