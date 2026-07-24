@@ -465,7 +465,10 @@ function updateBalanceButton(balance) {
 function updateBalanceModal(balance, grandTotal) {
     const display = document.getElementById('balance_display');
     const gtDisplay = document.getElementById('grand_total_display');
-    if (display) display.innerText = formatBalance(balance);
+    if (display) {
+        display.innerText = formatBalance(balance);
+        display.dataset.balance = String(Number(balance) || 0);
+    }
     if (gtDisplay) gtDisplay.innerText = formatBalance(grandTotal);
 }
 
@@ -594,6 +597,13 @@ async function submitTellerTransaction(type) {
         return;
     }
 
+    const balanceDisplay = document.getElementById('balance_display');
+    const cashOnHand = parseFloat(balanceDisplay?.dataset?.balance ?? '0');
+    if (!isNaN(cashOnHand) && amount > cashOnHand + 0.001) {
+        statusMsg.innerText = 'Remit amount cannot exceed cash on hand.';
+        return;
+    }
+
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
     statusMsg.innerText = 'Processing...';
 
@@ -613,9 +623,16 @@ async function submitTellerTransaction(type) {
         const data = await response.json();
 
         if (!data.ok) {
-            statusMsg.innerText = data.error === 'invalid_amount'
-                ? 'Please enter a valid amount greater than zero.'
-                : 'Error: ' + (data.error || 'Unknown error');
+            if (data.error === 'exceeds_cash_on_hand') {
+                statusMsg.innerText = 'Remit amount cannot exceed cash on hand.';
+                if (data.balance !== undefined) {
+                    updateBalanceModal(data.balance, data.grand_total ?? 0);
+                }
+            } else if (data.error === 'invalid_amount') {
+                statusMsg.innerText = 'Please enter a valid amount greater than zero.';
+            } else {
+                statusMsg.innerText = 'Error: ' + (data.error || 'Unknown error');
+            }
             return;
         }
 

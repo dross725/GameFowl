@@ -439,6 +439,8 @@ function openmodal(modalid, buttonid, side=null) {
             document.getElementById('payout_error_message').innerText = "This transaction has already been paid out.";
         } else if (buttonid === 'wrongside') {
             document.getElementById('payout_error_message').innerText = "The selected side did not win. No payout available.";
+        } else if (buttonid === 'exceeds_cash_on_hand') {
+            document.getElementById('payout_error_message').innerText = "Insufficient cash on hand to issue this payout.";
         } else if (buttonid === 'matchcomplete') {
             document.getElementById('payout_error_message').innerText = "The match is already complete. Bet cancellation is not allowed.";
         } else if (buttonid === 'matchnotopen') {

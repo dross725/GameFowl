@@ -923,6 +923,14 @@ async function submitTxn() {
     return;
   }
 
+  if (txnType === 'REMIT') {
+    const cashOnHand = Number(TELLER_BALANCES[tellerId]?.balance ?? 0);
+    if (amount > cashOnHand + 0.001) {
+      setStatus('error', 'Remit amount cannot exceed cash on hand.');
+      return;
+    }
+  }
+
   const btn = document.getElementById('btn-collect-confirm');
   btn.disabled = true;
   setStatus('', '');
@@ -938,7 +946,17 @@ async function submitTxn() {
     const data = await res.json();
 
     if (!data.ok) {
-      setStatus('error', `Error: ${data.error || 'Unknown error'}`);
+      const msg = data.error === 'exceeds_cash_on_hand'
+        ? 'Remit amount cannot exceed cash on hand.'
+        : `Error: ${data.error || 'Unknown error'}`;
+      setStatus('error', msg);
+      if (data.error === 'exceeds_cash_on_hand' && data.balance !== undefined) {
+        updateTellerCard({
+          teller_id: Number(tellerId),
+          balance: data.balance,
+          grand_total: data.grand_total,
+        });
+      }
       btn.disabled = false;
       return;
     }
