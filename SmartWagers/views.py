@@ -48,6 +48,32 @@ def unauthorized(request):
     return render(request, '403.html', status=403)
 
 
+def teller_is_online(user):
+    """Return True if the teller's admin-controlled online flag is set."""
+    ts, _ = TellerStatus.objects.get_or_create(user=user, defaults={'is_online': True})
+    return ts.is_online
+
+
+def teller_offline_response():
+    """JSON response when an offline teller attempts a restricted action."""
+    return JsonResponse({'ok': False, 'error': 'teller_offline'}, status=403)
+
+
+def notify_teller_online_status(teller_id, is_online):
+    """Broadcast a teller's online/offline change to all teller WebSocket clients."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    async_to_sync(channel_layer.group_send)(
+        'user',
+        {
+            'type': 'send_data',
+            'teller_online': is_online,
+            'teller_id': teller_id,
+        },
+    )
+
+
 class RoleBasedLoginView(LoginView):
     # If the session cookie is still valid (browser closed without logout),
     # send the user straight to their role page instead of showing login again.
@@ -164,6 +190,9 @@ def Reports(request):
 def reprint_wager(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    if request.user.groups.filter(name='teller').exists() and not teller_is_online(request.user):
+        return teller_offline_response()
 
     transaction_id = request.POST.get('transaction_id', '').strip()
     if not transaction_id:
@@ -293,8 +322,24 @@ def Teller(request):
     meron_total, meron_payout, wala_total, wala_payout, total_bet , fightnum= services.get_Totals() 
     #comm = services.get_comm_val()
     current_fn = services.get_fightnum()
+    is_online = teller_is_online(request.user)
+
+    def user_page_context(**extra):
+        ctx = {
+            'M_total_bet': format(int(meron_total), ','),
+            'M_payout': meron_payout,
+            'W_total_bet': format(int(wala_total), ','),
+            'W_payout': wala_payout,
+            'teller_is_online': is_online,
+            'teller_id': request.user.pk,
+        }
+        ctx.update(extra)
+        return ctx
 
     if request.method == 'POST':
+        if not is_online:
+            return teller_offline_response()
+
         action = request.POST.get('action', 'reserve')
         if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'cancel_pending':
             services.cancel_wager_receipt(request.POST.get('transaction_id', ''))
@@ -325,13 +370,9 @@ def Teller(request):
                     'error': 'betting_closed',
                     'blocked_betting_side': wager_id,
                 }, status=409)
-            return render( request, 'SmartWagers/user.html', {
-                'M_total_bet' : format(int(meron_total), ','),
-                'M_payout' : meron_payout,
-                'W_total_bet' : format(int(wala_total), ','),
-                'W_payout' : wala_payout,
-                'blocked_betting_side': wager_id,
-            })
+            return render(request, 'SmartWagers/user.html', user_page_context(
+                blocked_betting_side=wager_id,
+            ))
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
             return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
@@ -348,12 +389,7 @@ def Teller(request):
             'receipt': services.build_wager_receipt_payload(pending_wager),
         })
 
-    return render( request, 'SmartWagers/user.html', {
-        'M_total_bet' : format(int(meron_total), ','),
-        'M_payout' : meron_payout,
-        'W_total_bet' : format(int(wala_total), ','),
-        'W_payout' : wala_payout
-         })
+    return render(request, 'SmartWagers/user.html', user_page_context())
 
 
 @group_required('teller')
@@ -525,6 +561,9 @@ def get_teller_fight_totals(request):
 def teller_transaction(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    if not teller_is_online(request.user):
+        return teller_offline_response()
 
     transaction_type = request.POST.get('transaction_type', '').strip().upper()
     if transaction_type != TellerTransaction.REMIT:
@@ -1102,6 +1141,8 @@ def toggle_teller_online(request):
                     amount=round(initial_fund, 2),
                 )
                 fund_issued = True
+
+    notify_teller_online_status(teller_id, is_online)
 
     return JsonResponse({
         'ok': True,

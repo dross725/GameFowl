@@ -44,6 +44,16 @@ class WagersConsumer(AsyncWebsocketConsumer):
         groups = await self._get_user_groups()
         return bool(groups & {"teller", "admin"})
 
+    @database_sync_to_async
+    def _teller_is_online(self):
+        """Return True if the connected teller is marked online by admin."""
+        from .models import TellerStatus
+        user = self.scope.get("user")
+        if user is None or not user.is_authenticated:
+            return False
+        ts, _ = TellerStatus.objects.get_or_create(user=user, defaults={"is_online": True})
+        return ts.is_online
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -163,6 +173,12 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     })
 
             elif "barcode" in data:
+                if self.page == "user" and not await self._teller_is_online():
+                    await self.send(text_data=json.dumps({
+                        "payout": True,
+                        "error": "You are tagged as offline. Please report to the admin office.",
+                    }))
+                    return
                 transaction_id = data["barcode"]
                 # Tellers may only pay out bets made at their own terminal
                 requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
@@ -172,6 +188,12 @@ class WagersConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'payout': True, **payout_data}))
 
             elif "cancel_barcode" in data:
+                if self.page == "user" and not await self._teller_is_online():
+                    await self.send(text_data=json.dumps({
+                        "cancel_bet": True,
+                        "error": "You are tagged as offline. Please report to the admin office.",
+                    }))
+                    return
                 transaction_id = data["cancel_barcode"]
                 cancelbet_data = await self.cancel_bet(transaction_id)
                 # Same as above — reply only to the connection that submitted the scan.
