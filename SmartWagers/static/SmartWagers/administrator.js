@@ -64,6 +64,13 @@ administratorSocket.onmessage = async (event) => {
             document.getElementById('payout_message2').innerText = "Please refund: " + data.amount;
             document.getElementById('payout_message3').innerText = "";
             document.getElementById('payout_print_modal').style.display = 'flex';
+            if (data.receipt && data.print_required !== false) {
+                document.getElementById('payout_message3').innerText = "Sending cancel receipt to local printer...";
+                const printResult = await printWagerReceipt(data.receipt);
+                document.getElementById('payout_message3').innerText = printResult.ok
+                    ? "Cancel receipt sent to printer."
+                    : "Cancel receipt print failed: " + printResult.message;
+            }
         }
     }
     updateStatus("Connected");
@@ -76,6 +83,7 @@ async function printPayoutReceipt(data) {
         transaction_id: data.transaction_id,
         fightnum: data.fightnum,
         side: data.side,
+        amount: data.wager,
         odds: data.odds,
         multiplier: data.multiplier,
         Total_Payout: data.Total_Payout,
