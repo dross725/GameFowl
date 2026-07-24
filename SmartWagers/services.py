@@ -301,8 +301,13 @@ def get_event_scope():
     return last, False
 
 
-def _get_teller_outstanding_balance(user, event=None):
-    """Return the outstanding balance for a teller, optionally scoped to an event."""
+def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
+    """Return the outstanding balance for a teller, optionally scoped to an event.
+
+    apply_end_bound controls whether the event's ended_at timestamp is used as
+    an upper bound.  Pass False when the system is between events so that
+    post-event settlement transactions are still counted.
+    """
     from django.db.models import Sum
     wager_qs = Wagers.objects.filter(cashier=str(user), registered=True, cancelled=False)
     txn_qs   = TellerTransaction.objects.filter(user=user)
@@ -310,7 +315,7 @@ def _get_teller_outstanding_balance(user, event=None):
     if event is not None:
         wager_qs = wager_qs.filter(created_at__gte=event.started_at)
         txn_qs   = txn_qs.filter(created_at__gte=event.started_at)
-        if event.ended_at:
+        if apply_end_bound and event.ended_at:
             wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
             txn_qs   = txn_qs.filter(created_at__lte=event.ended_at)
 
@@ -320,6 +325,34 @@ def _get_teller_outstanding_balance(user, event=None):
     payout_total  = txn_qs.filter(transaction_type=TellerTransaction.PAYOUT ).aggregate(t=Sum('amount'))['t'] or 0.0
 
     return grand_total - remit_total + collect_total - payout_total
+
+
+def _payout_exceeds_cash_on_hand(cashier_username, amount, transaction_id):
+    """Return an error dict if *amount* exceeds the cashier's cash on hand, else None.
+
+    Uses the same event-scoped balance as the teller UI. Logs a warning on reject.
+    """
+    try:
+        cashier_user = User.objects.get(username=cashier_username)
+    except User.DoesNotExist:
+        return None
+
+    event_scope, apply_end_bound = get_event_scope()
+    balance = _get_teller_outstanding_balance(
+        cashier_user, event=event_scope, apply_end_bound=apply_end_bound,
+    )
+    amount = float(amount)
+    if round(amount, 2) > round(balance, 2):
+        logger.warning(
+            "PAYOUT REJECTED (exceeds_cash_on_hand): txn=%s amount=%.2f balance=%.2f cashier=%s",
+            transaction_id, amount, balance, cashier_username,
+        )
+        return {
+            'error': 'exceeds_cash_on_hand',
+            'balance': balance,
+            'required': round(amount, 2),
+        }
+    return None
 
 
 def _reset_teller_balances():
@@ -848,6 +881,13 @@ def payout_request(transaction_id, requesting_cashier=None):
         payout_fightresult_side = payout_fightresults.side
 
         if payout_fightresult_side.upper() == "CANCELLED":
+            reject = _payout_exceeds_cash_on_hand(
+                payout_data.cashier, payout_data.wager, transaction_id,
+            )
+            if reject:
+                payout_result.update(reject)
+                return payout_result
+
             payout_data.cashed_out = True
             payout_data.save(update_fields=['cashed_out'])
             try:
@@ -867,6 +907,13 @@ def payout_request(transaction_id, requesting_cashier=None):
             return payout_result
 
         if payout_fightresult_side.upper() == "DRAW":
+            reject = _payout_exceeds_cash_on_hand(
+                payout_data.cashier, payout_data.wager, transaction_id,
+            )
+            if reject:
+                payout_result.update(reject)
+                return payout_result
+
             payout_data.cashed_out = True
             payout_data.save(update_fields=['cashed_out'])
             try:
@@ -905,6 +952,13 @@ def payout_request(transaction_id, requesting_cashier=None):
 
         payout_multiplier = round(payout_multiplier / 100, 2)
         total_payout = wager * payout_multiplier
+
+        reject = _payout_exceeds_cash_on_hand(
+            payout_data.cashier, total_payout, transaction_id,
+        )
+        if reject:
+            payout_result.update(reject)
+            return payout_result
 
         # Mark paid and record teller transaction inside the same atomic block
         # so neither can succeed without the other.

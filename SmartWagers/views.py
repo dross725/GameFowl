@@ -472,6 +472,18 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True):
     return balance, grand_total
 
 
+def _remit_exceeds_cash_on_hand(user, amount, event=None, apply_end_bound=True):
+    """Return (exceeds, balance, grand_total) for a proposed REMIT amount.
+
+    Amounts are compared at 2 decimal places (currency precision).
+    """
+    balance, grand_total = _compute_teller_balance(
+        user, event=event, apply_end_bound=apply_end_bound,
+    )
+    exceeds = round(amount, 2) > round(balance, 2)
+    return exceeds, balance, grand_total
+
+
 @group_required('teller')
 def get_teller_balance(request):
     event_scope, apply_end_bound = services.get_event_scope()
@@ -577,6 +589,22 @@ def teller_transaction(request):
     if amount <= 0:
         return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
+    event_scope, apply_end_bound = services.get_event_scope()
+    exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
+        request.user, amount, event=event_scope, apply_end_bound=apply_end_bound,
+    )
+    if exceeds:
+        logger.warning(
+            "REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s",
+            amount, balance, request.user.username,
+        )
+        return JsonResponse({
+            'ok': False,
+            'error': 'exceeds_cash_on_hand',
+            'balance': balance,
+            'grand_total': grand_total,
+        }, status=400)
+
     txn = TellerTransaction.objects.create(
         user=request.user,
         transaction_type=transaction_type,
@@ -587,8 +615,9 @@ def teller_transaction(request):
         txn.transaction_id, transaction_type, amount, request.user.username,
     )
 
-    event_scope, apply_end_bound = services.get_event_scope()
-    balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
+    balance, grand_total = _compute_teller_balance(
+        request.user, event=event_scope, apply_end_bound=apply_end_bound,
+    )
     return JsonResponse({
         'ok': True,
         'print_required': services.is_wager_receipt_printing_enabled(),
@@ -680,6 +709,23 @@ def admin_teller_txn(request):
     except (Group.DoesNotExist, User.DoesNotExist):
         return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
 
+    scope, apply_end_bound = services.get_event_scope()
+    if transaction_type == TellerTransaction.REMIT:
+        exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
+            teller, amount, event=scope, apply_end_bound=apply_end_bound,
+        )
+        if exceeds:
+            logger.warning(
+                "ADMIN REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s by_admin=%s",
+                amount, balance, teller.username, request.user.username,
+            )
+            return JsonResponse({
+                'ok': False,
+                'error': 'exceeds_cash_on_hand',
+                'balance': balance,
+                'grand_total': grand_total,
+            }, status=400)
+
     txn = TellerTransaction.objects.create(
         user=teller,
         transaction_type=transaction_type,
@@ -690,8 +736,9 @@ def admin_teller_txn(request):
         txn.transaction_id, transaction_type, amount, teller.username, request.user.username,
     )
 
-    scope, apply_end_bound = services.get_event_scope()
-    balance, grand_total = _compute_teller_balance(teller, event=scope, apply_end_bound=apply_end_bound)
+    balance, grand_total = _compute_teller_balance(
+        teller, event=scope, apply_end_bound=apply_end_bound,
+    )
     display_name = (f"{teller.first_name} {teller.last_name}".strip() or teller.username)
 
     return JsonResponse({

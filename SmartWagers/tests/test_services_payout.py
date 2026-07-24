@@ -137,6 +137,69 @@ class TestPayoutRequestErrors:
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
         assert result.get('error') == 'notfound'
 
+    def test_payout_exceeds_cash_on_hand_returns_error(
+        self, teller_user, default_settings, active_event,
+    ):
+        """Teller remitted all cash — cannot pay out a winning ticket."""
+        w = _make_registered_wager(1, 'MERON', 100, teller_user.username)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=100,
+        )
+        _make_fight_result(1, 'MERON', event=active_event, mpayout=95.0)
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        )
+        assert result.get('error') == 'exceeds_cash_on_hand'
+        assert result.get('required') == pytest.approx(95.0)
+        assert result.get('balance') == pytest.approx(0.0)
+        w.refresh_from_db()
+        assert w.cashed_out is False
+        assert not TellerTransaction.objects.filter(
+            user=teller_user, transaction_type=TellerTransaction.PAYOUT,
+        ).exists()
+
+    def test_payout_exceeds_cash_on_hand_is_logged(
+        self, teller_user, default_settings, active_event,
+    ):
+        from unittest.mock import patch
+        w = _make_registered_wager(1, 'MERON', 100, teller_user.username)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=100,
+        )
+        _make_fight_result(1, 'MERON', event=active_event, mpayout=95.0)
+        with patch('SmartWagers.services.logger.warning') as mock_warn:
+            services.payout_request(
+                w.transactionid, requesting_cashier=teller_user.username,
+            )
+        assert mock_warn.called
+        logged = ' '.join(str(c) for c in mock_warn.call_args_list)
+        assert 'PAYOUT REJECTED' in logged
+        assert 'exceeds_cash_on_hand' in logged
+
+    def test_cancelled_refund_exceeds_cash_on_hand(
+        self, teller_user, default_settings, active_event,
+    ):
+        w = _make_registered_wager(1, 'MERON', 400, teller_user.username)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=400,
+        )
+        Fight_Results.objects.create(
+            fightnum=1, side='CANCELLED', mtotal=400, wtotal=0,
+            mpayout=0, wpayout=0, totalpot=400, odds='CANCELLED', event=active_event,
+        )
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        )
+        assert result.get('error') == 'exceeds_cash_on_hand'
+        w.refresh_from_db()
+        assert w.cashed_out is False
+
 
 # ---------------------------------------------------------------------------
 # payout_request — special outcomes
