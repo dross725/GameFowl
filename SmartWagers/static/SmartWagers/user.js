@@ -82,7 +82,36 @@ userSocket.onmessage = async (event) => {
         fetchTellerBalance();
         fetchFightTotals();
     }
-}; 
+
+    if ("teller_online" in data && "teller_id" in data) {
+        if (Number(data.teller_id) === Number(window.TELLER_ID)) {
+            setTellerOnlineStatus(Boolean(data.teller_online));
+        }
+    }
+};
+
+function openTellerOfflineModal() {
+    const modal = document.getElementById('teller_offline_modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeTellerOfflineModal() {
+    const modal = document.getElementById('teller_offline_modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function setTellerOnlineStatus(isOnline) {
+    window.TELLER_IS_ONLINE = isOnline;
+    if (isOnline) {
+        closeTellerOfflineModal();
+    } else {
+        openTellerOfflineModal();
+    }
+}
+
+function isTellerOffline() {
+    return window.TELLER_IS_ONLINE === false;
+} 
 
 userSocket.onopen = () => {
     console.log("WebSocket connected!");
@@ -406,6 +435,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const bettingDisabledCloseButton = document.getElementById("bettingdisabled-close-button");
     if (bettingDisabledCloseButton) {
         bettingDisabledCloseButton.addEventListener("click", closebettingdisabledModal);
+    }
+    if (isTellerOffline()) {
+        openTellerOfflineModal();
     }
     //fetchButtonState();
     get_fightstatus();  // Fetch fight status on page load
