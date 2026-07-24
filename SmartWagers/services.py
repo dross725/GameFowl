@@ -159,7 +159,7 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
         existing = (
             Wagers.objects
             .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
-                    registered=True, created_at__gte=duplicate_cutoff)
+                    registered=True, cancelled=False, created_at__gte=duplicate_cutoff)
             .order_by('-created_at')
             .first()
         )
@@ -191,7 +191,7 @@ def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
         registered_existing = (
             Wagers.objects
             .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
-                    registered=True, created_at__gte=duplicate_cutoff)
+                    registered=True, cancelled=False, created_at__gte=duplicate_cutoff)
             .order_by('-created_at')
             .first()
         )
@@ -304,7 +304,7 @@ def get_event_scope():
 def _get_teller_outstanding_balance(user, event=None):
     """Return the outstanding balance for a teller, optionally scoped to an event."""
     from django.db.models import Sum
-    wager_qs = Wagers.objects.filter(cashier=str(user), registered=True)
+    wager_qs = Wagers.objects.filter(cashier=str(user), registered=True, cancelled=False)
     txn_qs   = TellerTransaction.objects.filter(user=user)
 
     if event is not None:
@@ -445,7 +445,7 @@ def end_event():
 def build_wager_receipt_payload(wager):
     event = get_active_event()
     return {
-        'receipt_type': 'wager',
+        'receipt_type': 'cancel' if getattr(wager, 'cancelled', False) else 'wager',
         'event_name': event.name if event else '',
         'transaction_id': wager.transactionid,
         'fightnum': wager.fightnum,
@@ -555,12 +555,14 @@ def print_payout_reciept(payout_data):
     c.drawCentredString(width / 2, height - 50, f"CONGRATULATIONS!")
     c.drawCentredString(width / 2, height - 65, f"Fight Number: {fightnum}")
     c.drawCentredString(width / 2, height - 80, f"{side.upper()} - {bet_odds}")
-    c.drawCentredString(width / 2, height - 95, f"Odds: {odds}")
-    c.drawCentredString(width / 2, height - 110, f"Payout Amount: {amount:.2f}")
+    wager_amount = payout_data.get('wager', payout_data.get('amount', ''))
+    c.drawCentredString(width / 2, height - 95, f"Amount: {wager_amount}")
+    c.drawCentredString(width / 2, height - 110, f"Odds: {odds}")
+    c.drawCentredString(width / 2, height - 125, f"Payout Amount: {amount:.2f}")
     
     c.setFont("Helvetica", 10)
-    c.drawCentredString(width / 2, height - 130, f"Cashier: {cashier}")
-    c.drawCentredString(width / 2, height - 140, f"Transaction ID: {transaction_id}")
+    c.drawCentredString(width / 2, height - 145, f"Cashier: {cashier}")
+    c.drawCentredString(width / 2, height - 155, f"Transaction ID: {transaction_id}")
     
     # Generate barcode (can be a transaction ID, order number, etc.)
     barcode_value = transaction_id
@@ -568,7 +570,7 @@ def print_payout_reciept(payout_data):
 
     # Draw barcode (centered horizontally)
     barcode_x = (width - barcode.width) / 2
-    barcode_y = height - 170
+    barcode_y = height - 185
     barcode.drawOn(c, barcode_x, barcode_y)
 
     # Finalize PDF
@@ -792,7 +794,7 @@ def payout_request(transaction_id, requesting_cashier=None):
         # Lock the wager row so two simultaneous barcode scans cannot both
         # pass the cashed_out check and issue a double payout.
         base_qs = Wagers.objects.select_for_update().filter(
-            transactionid=transaction_id, registered=True
+            transactionid=transaction_id, registered=True, cancelled=False,
         )
 
         if active_event:
@@ -941,6 +943,7 @@ def payout_request(transaction_id, requesting_cashier=None):
             'transaction_id': transaction_id,
             'fightnum': payout_data_fn,
             'side': payout_fightresult_side,
+            'amount': format(wager, '.2f'),
             'odds': payout_fightresults.odds,
             'multiplier': format(payout_multiplier, '.2f'),
             'Total_Payout': format(total_payout, '.2f'),
@@ -968,6 +971,7 @@ def payout_old_ticket(event, teller_username, transaction_id):
         transactionid=transaction_id,
         cashier=teller_username,
         registered=True,
+        cancelled=False,
         created_at__gte=event.started_at,
     )
     if event.ended_at:
@@ -1071,7 +1075,9 @@ def payout_old_ticket(event, teller_username, transaction_id):
 
 def lookup_wager_for_reprint(transaction_id):
     active_event = get_active_event()
-    qs = Wagers.objects.filter(transactionid=transaction_id, registered=True)
+    qs = Wagers.objects.filter(
+        transactionid=transaction_id, registered=True, cancelled=False,
+    )
     if active_event:
         qs = qs.filter(created_at__gte=active_event.started_at)
     wager = qs.first()
@@ -1091,7 +1097,9 @@ def cancel_bet(transaction_id):
     cancel_result = {"cancel_bet": True}
 
     with db_transaction.atomic():
-        qs = Wagers.objects.select_for_update().filter(transactionid=transaction_id, registered=True)
+        qs = Wagers.objects.select_for_update().filter(
+            transactionid=transaction_id, registered=True, cancelled=False,
+        )
         if active_event:
             qs = qs.filter(created_at__gte=active_event.started_at)
         cancel_data = qs.first()
@@ -1104,6 +1112,25 @@ def cancel_bet(transaction_id):
 
         if cancel_data.transactionid is None:
             logger.warning("CANCEL BET: txn=%s has null transactionid", transaction_id)
+            cancel_result['error'] = 'notfound'
+            return cancel_result
+
+        if cancel_data.cashed_out:
+            logger.warning(
+                "CANCEL BET REJECTED (already paid): txn=%s fight=%s", transaction_id, cancel_data.fightnum
+            )
+            cancel_result['error'] = 'alreadypaid'
+            return cancel_result
+
+        if cancel_data.side not in ('MERON', 'WALA'):
+            logger.warning(
+                "CANCEL BET REJECTED (invalid side): txn=%s side=%s", transaction_id, cancel_data.side
+            )
+            cancel_result['error'] = 'notfound'
+            return cancel_result
+
+        if cancel_data.cashier == 'System':
+            logger.warning("CANCEL BET REJECTED (system wager): txn=%s", transaction_id)
             cancel_result['error'] = 'notfound'
             return cancel_result
 
@@ -1133,13 +1160,17 @@ def cancel_bet(transaction_id):
             cancel_result['error'] = 'matchnotopen'
             return cancel_result
 
-        # Deduct totals and delete the wager inside the same atomic block so
-        # neither can succeed without the other.
+        # Deduct totals and mark the wager cancelled inside the same atomic
+        # block so neither can succeed without the other. Row is retained for
+        # report audit with status=cancelled.
         deduct_totals(cancel_data.side, cancel_data.wager)
+        cancel_data.cancelled = True
+        cancel_data.save(update_fields=['cancelled'])
         cancel_result['message'] = 'betcancelled'
         cancel_result['amount'] = format(cancel_data.wager, ",")
         cancel_result['transaction_id'] = cancel_data.transactionid
-        cancel_data.delete()
+        cancel_result['receipt'] = build_wager_receipt_payload(cancel_data)
+        cancel_result['print_required'] = is_wager_receipt_printing_enabled()
 
     logger.info(
         "BET CANCELLED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",

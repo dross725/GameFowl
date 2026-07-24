@@ -15,6 +15,7 @@ class Wagers (models.Model):
     created_at = models.DateTimeField(default=now)
     cashed_out = models.BooleanField(default=False)
     registered = models.BooleanField(default=True)
+    cancelled = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.cashier == 'System':

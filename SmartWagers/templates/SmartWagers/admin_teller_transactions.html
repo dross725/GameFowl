@@ -219,6 +219,33 @@
     white-space: nowrap;
   }
 
+  .status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .status-badge.active {
+    background: rgba(46, 204, 113, 0.18);
+    color: #2ecc71;
+  }
+
+  .status-badge.cancelled {
+    background: rgba(231, 76, 60, 0.18);
+    color: #e74c3c;
+  }
+
+  #tt-table tbody tr.row-cancelled {
+    opacity: 0.55;
+  }
+
+  #tt-table tbody tr.row-cancelled .td-amount {
+    text-decoration: line-through;
+  }
+
   #tt-table tfoot td {
     padding: 10px 14px;
     background: #12151c;
@@ -304,12 +331,13 @@
           <th>Teller</th>
           <th>Side</th>
           <th style="text-align:right;">Bet Amount</th>
+          <th>Status</th>
           <th>Time</th>
         </tr>
       </thead>
       <tbody id="tt-tbody">
         {% for w in wagers %}
-        <tr data-search="{{ w.fightnum }} {{ w.transactionid|lower }} {{ w.cashier|lower }} {{ w.side|lower }}">
+        <tr class="{% if w.cancelled %}row-cancelled{% endif %}" data-search="{{ w.fightnum }} {{ w.transactionid|lower }} {{ w.cashier|lower }} {{ w.side|lower }} {% if w.cancelled %}cancelled{% else %}active{% endif %}">
           <td class="td-fightnum">{{ w.fightnum }}</td>
           <td class="td-txnid">{{ w.transactionid }}</td>
           <td class="td-teller">{{ w.cashier }}</td>
@@ -323,6 +351,13 @@
             {% endif %}
           </td>
           <td class="td-amount">₱ {{ w.wager|floatformat:2|intcomma }}</td>
+          <td>
+            {% if w.cancelled %}
+              <span class="status-badge cancelled">Cancelled</span>
+            {% else %}
+              <span class="status-badge active">Active</span>
+            {% endif %}
+          </td>
           <td class="td-time">{{ w.created_at|date:"Y-m-d H:i:s" }}</td>
         </tr>
         {% endfor %}
@@ -331,7 +366,7 @@
         <tr>
           <td colspan="4">Total ({{ total_count }} bets)</td>
           <td class="td-amount">₱ {{ total_amount|floatformat:2|intcomma }}</td>
-          <td></td>
+          <td colspan="2"></td>
         </tr>
       </tfoot>
     </table>

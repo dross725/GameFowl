@@ -43,6 +43,19 @@ def receipt_type(receipt):
     return str(receipt.get("receipt_type", "payout")).lower()
 
 
+def is_wager_style_receipt(receipt):
+    return receipt_type(receipt) in ("wager", "cancel")
+
+
+def receipt_title(receipt):
+    kind = receipt_type(receipt)
+    if kind == "cancel":
+        return "CANCEL RECEIPT"
+    if kind == "wager":
+        return "BET RECEIPT"
+    return "CONGRATULATIONS!"
+
+
 def escpos_receipt(receipt, code_page="cp437"):
     transaction_id = str(receipt.get("transaction_id", ""))
     event_name = str(receipt.get("event_name", "")).strip()
@@ -54,7 +67,7 @@ def escpos_receipt(receipt, code_page="cp437"):
     fightnum = str(receipt.get("fightnum", ""))
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
-    is_wager = receipt_type(receipt) == "wager"
+    is_wager = is_wager_style_receipt(receipt)
 
     output = bytearray()
     output += b"\x1b@"  # Initialize printer
@@ -66,10 +79,7 @@ def escpos_receipt(receipt, code_page="cp437"):
         output += text_line("", code_page)
     output += text_line(date, code_page)
     output += b"\x1bE\x01"
-    if is_wager:
-        output += text_line("BET RECEIPT", code_page)
-    else:
-        output += text_line("CONGRATULATIONS!", code_page)
+    output += text_line(receipt_title(receipt), code_page)
     output += text_line(f"Fight Number: {fightnum}", code_page)
     if is_wager:
         output += b"\x1d!\x11"  # Double width + double height
@@ -80,6 +90,7 @@ def escpos_receipt(receipt, code_page="cp437"):
         output += b"\x1d!\x11"  # Double width + double height
         output += text_line(f"{side} - {odds}", code_page)
         output += b"\x1d!\x00"  # Back to normal size
+        output += text_line(f"Amount: {amount}", code_page)
         output += text_line(f"Odds: {multiplier}", code_page)
         output += text_line("Payout Amount:", code_page)
         output += b"\x1d!\x11"  # Double width + double height
@@ -267,7 +278,7 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0):
     fightnum = str(receipt.get("fightnum", ""))
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
-    is_wager = receipt_type(receipt) == "wager"
+    is_wager = is_wager_style_receipt(receipt)
 
     dc = win32ui.CreateDC()
     dc.CreatePrinterDC(printer_name)
@@ -323,13 +334,14 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0):
             draw_centered(event_name, bold_font)
             y += line_gap
         draw_centered(date, normal_font)
-        draw_centered("BET RECEIPT" if is_wager else "CONGRATULATIONS!", bold_font)
+        draw_centered(receipt_title(receipt), bold_font)
         draw_centered(f"Fight Number: {fightnum}", bold_font)
         if is_wager:
             draw_centered(side, highlight_font)
             draw_centered(f"Amount: {amount}", highlight_font)
         else:
             draw_centered(f"{side} - {odds}", highlight_font)
+            draw_centered(f"Amount: {amount}", bold_font)
             draw_centered(f"Odds: {multiplier}", bold_font)
             draw_centered("Payout Amount:", bold_font)
             draw_centered(total_payout, highlight_font)

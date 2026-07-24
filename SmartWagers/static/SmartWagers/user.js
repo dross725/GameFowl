@@ -1,7 +1,7 @@
 const userWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
 const userSocket = new WebSocket(`${userWebsocketProtocol}://${window.location.host}/ws/user/`);
 
-userSocket.onmessage = (event) => {
+userSocket.onmessage = async (event) => {
     const data = JSON.parse(event.data);
     console.log("Data received from server: ", data);
     console.log("This is the user.js file");
@@ -70,6 +70,13 @@ userSocket.onmessage = (event) => {
             document.getElementById('payout_message2').innerText = "Please refund: ₱ " + data.amount;
             document.getElementById('payout_message3').innerText = "";
             document.getElementById('payout_print_modal').style.display = 'flex';
+            if (data.receipt && data.print_required !== false) {
+                document.getElementById('payout_message3').innerText = "Sending cancel receipt to local printer...";
+                const printResult = await printWagerReceipt(data.receipt);
+                document.getElementById('payout_message3').innerText = printResult.ok
+                    ? "Cancel receipt sent to printer."
+                    : "Cancel receipt print failed: " + printResult.message;
+            }
         }
         // Refresh balance and per-fight totals — cancel reverses collected cash
         fetchTellerBalance();
