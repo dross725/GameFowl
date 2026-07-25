@@ -53,7 +53,7 @@ userSocket.onmessage = async (event) => {
 
     if ("payout" in data) {
         console.log("[user.js] payout message received:", data);
-        handlePayoutMessage(data);
+        await handlePayoutMessage(data);
         // Payout processed — refresh pending count and balance
         fetchPendingPayouts();
         fetchTellerBalance();

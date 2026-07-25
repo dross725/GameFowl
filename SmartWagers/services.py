@@ -330,12 +330,20 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
 def _payout_exceeds_cash_on_hand(cashier_username, amount, transaction_id):
     """Return an error dict if *amount* exceeds the cashier's cash on hand, else None.
 
-    Uses the same event-scoped balance as the teller UI. Logs a warning on reject.
+    Locks the cashier row to serialize payouts across different tickets for the
+    same teller. Must be called inside a transaction.atomic() block.
     """
     try:
-        cashier_user = User.objects.get(username=cashier_username)
+        cashier_user = User.objects.select_for_update().get(username=cashier_username)
     except User.DoesNotExist:
-        return None
+        logger.error(
+            "PAYOUT REJECTED (cashier_not_found): txn=%s cashier=%s",
+            transaction_id, cashier_username,
+        )
+        return {
+            'error': 'cashier_not_found',
+            'cashier': cashier_username,
+        }
 
     event_scope, apply_end_bound = get_event_scope()
     balance = _get_teller_outstanding_balance(
@@ -816,14 +824,96 @@ def update_fight_status(fightstatus, side=None):
     return
 
 
-def payout_request(transaction_id, requesting_cashier=None):
+def build_payout_reprint_payload(wager):
+    """Rebuild a payout receipt for an already-paid winning wager."""
     from django.db.models import Q
+
+    event = Event.objects.filter(
+        started_at__lte=wager.created_at,
+    ).filter(
+        Q(ended_at__isnull=True) | Q(ended_at__gte=wager.created_at),
+    ).order_by('-started_at').first()
+
+    results = Fight_Results.objects.filter(fightnum=wager.fightnum)
+    if event:
+        results = results.filter(event=event)
+    fight_result = results.order_by('id').first()
+
+    if fight_result is None:
+        return None
+
+    side = fight_result.side.upper()
+    if side == "DRAW":
+        receipt_kind = "draw_refund"
+        payout_rate = 100
+        odds = "FULL REFUND"
+    elif side == "CANCELLED":
+        receipt_kind = "cancel_refund"
+        payout_rate = 100
+        odds = "FULL REFUND"
+    elif side == wager.side.upper() == "MERON":
+        receipt_kind = "payout"
+        payout_rate = fight_result.mpayout
+        odds = fight_result.odds
+    elif side == wager.side.upper() == "WALA":
+        receipt_kind = "payout"
+        payout_rate = fight_result.wpayout
+        odds = fight_result.odds
+    else:
+        return None
+
+    multiplier = round(payout_rate / 100, 2)
+    total_payout = wager.wager * multiplier
+    receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        'receipt_type': receipt_kind,
+        'transaction_id': wager.transactionid,
+        'fightnum': wager.fightnum,
+        'side': side,
+        'amount': format(wager.wager, '.2f'),
+        'odds': odds,
+        'multiplier': format(multiplier, '.2f'),
+        'Total_Payout': format(total_payout, '.2f'),
+        'cashier': wager.cashier,
+        'date': receipt_date,
+        'reprint': True,
+    }
+
+
+def payout_request(transaction_id, requesting_cashier=None):
+    """Serialize payouts for the ticket's cashier before validating balance."""
+    active_event = get_active_event()
+    wager_qs = Wagers.objects.filter(
+        transactionid=transaction_id, registered=True, cancelled=False,
+    )
+    if active_event:
+        wager = wager_qs.filter(created_at__gte=active_event.started_at).first()
+    else:
+        wager = wager_qs.first()
+
+    cashier_hint = wager.cashier if wager else None
+    return _payout_request_locked(
+        transaction_id,
+        requesting_cashier=requesting_cashier,
+        cashier_hint=cashier_hint,
+    )
+
+
+def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint=None):
+    from django.db.models import Q
+    from django.db.models import F
 
     payout_result = {'payout': True}
     comm = get_comm_val()
     active_event = get_active_event()
 
     with db_transaction.atomic():
+        if cashier_hint:
+            # This no-op UPDATE is deliberately the first query in the atomic
+            # block. It acquires SQLite's write lock before any balance read;
+            # on row-locking databases it serializes payouts for this cashier.
+            User.objects.filter(username=cashier_hint).update(username=F('username'))
+
         # Lock the wager row so two simultaneous barcode scans cannot both
         # pass the cashed_out check and issue a double payout.
         base_qs = Wagers.objects.select_for_update().filter(
@@ -846,6 +936,10 @@ def payout_request(transaction_id, requesting_cashier=None):
                 transaction_id, payout_data.fightnum, payout_data.cashier,
             )
             payout_result['error'] = 'alreadypaid'
+            receipt = build_payout_reprint_payload(payout_data)
+            if receipt:
+                payout_result['receipt'] = receipt
+                payout_result['reprint_available'] = True
             return payout_result
 
         if requesting_cashier and payout_data.cashier != requesting_cashier:
@@ -902,8 +996,28 @@ def payout_request(transaction_id, requesting_cashier=None):
                     "PAYOUT CANCELLED: cashier user %r not found in auth.User — teller balance not updated for txn=%s",
                     payout_data.cashier, transaction_id,
                 )
-            payout_result['side'] = "CANCELLED"
-            payout_result['wager'] = format(payout_data.wager, ',')
+            receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
+            payout_result.update({
+                'print_required': is_wager_receipt_printing_enabled(),
+                'transaction_id': transaction_id,
+                'fightnum': payout_data_fn,
+                'side': "CANCELLED",
+                'wager': format(payout_data.wager, ','),
+                'cashier': payout_data.cashier,
+                'receipt_date': receipt_date,
+                'receipt': {
+                    'receipt_type': 'cancel_refund',
+                    'transaction_id': transaction_id,
+                    'fightnum': payout_data_fn,
+                    'side': 'CANCELLED',
+                    'amount': format(payout_data.wager, '.2f'),
+                    'odds': 'FULL REFUND',
+                    'multiplier': '1.00',
+                    'Total_Payout': format(payout_data.wager, '.2f'),
+                    'cashier': payout_data.cashier,
+                    'date': receipt_date,
+                },
+            })
             return payout_result
 
         if payout_fightresult_side.upper() == "DRAW":
@@ -928,8 +1042,28 @@ def payout_request(transaction_id, requesting_cashier=None):
                     "PAYOUT DRAW: cashier user %r not found in auth.User — teller balance not updated for txn=%s",
                     payout_data.cashier, transaction_id,
                 )
-            payout_result['side'] = "DRAW"
-            payout_result['wager'] = format(payout_data.wager, ',')
+            receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
+            payout_result.update({
+                'print_required': is_wager_receipt_printing_enabled(),
+                'transaction_id': transaction_id,
+                'fightnum': payout_data_fn,
+                'side': "DRAW",
+                'wager': format(payout_data.wager, ','),
+                'cashier': payout_data.cashier,
+                'receipt_date': receipt_date,
+                'receipt': {
+                    'receipt_type': 'draw_refund',
+                    'transaction_id': transaction_id,
+                    'fightnum': payout_data_fn,
+                    'side': 'DRAW',
+                    'amount': format(payout_data.wager, '.2f'),
+                    'odds': 'FULL REFUND',
+                    'multiplier': '1.00',
+                    'Total_Payout': format(payout_data.wager, '.2f'),
+                    'cashier': payout_data.cashier,
+                    'date': receipt_date,
+                },
+            })
             return payout_result
 
         if payout_fightresult_side != payout_data.side:

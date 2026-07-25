@@ -94,6 +94,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'SmartWagers.middleware.MasterLockMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -286,9 +287,43 @@ SESSION_COOKIE_AGE = 86400  # 24 hours (in seconds)
 
 # Set to False, or set WAGER_RECEIPT_PRINTING_ENABLED=false in the environment,
 # to register bets without requiring receipt printing.
-#WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
-#    "WAGER_RECEIPT_PRINTING_ENABLED",
-#    "true",
-#).lower() in ("1", "true", "yes", "on")
-WAGER_RECEIPT_PRINTING_ENABLED = False
+WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
+    "WAGER_RECEIPT_PRINTING_ENABLED",
+    "true",
+).lower() in ("1", "true", "yes", "on")
+
+# ---------------------------------------------------------------------------
+# Master lock (offline monthly activation)
+# ---------------------------------------------------------------------------
+# Production must set MASTER_LOCK_REQUIRED=True and supply both a signing key
+# and a Django password hash of the master key (never the plaintext key).
+# Generate a hash with:
+#   python manage.py hash_master_lock_key
+# Bootstrap state with:
+#   python manage.py init_master_lock
+_master_lock_required_env = os.environ.get('MASTER_LOCK_REQUIRED', '').strip().lower()
+if _master_lock_required_env:
+    MASTER_LOCK_REQUIRED = _master_lock_required_env in ('1', 'true', 'yes', 'on')
+else:
+    MASTER_LOCK_REQUIRED = not DEBUG
+
+MASTER_LOCK_SIGNING_KEY = os.environ.get('MASTER_LOCK_SIGNING_KEY', '')
+MASTER_LOCK_PASSWORD_HASH = os.environ.get('MASTER_LOCK_PASSWORD_HASH', '')
+_master_lock_state = os.environ.get('MASTER_LOCK_STATE_PATH', '').strip()
+if _master_lock_state:
+    MASTER_LOCK_STATE_PATH = _master_lock_state
+elif os.name == 'nt' and MASTER_LOCK_REQUIRED:
+    MASTER_LOCK_STATE_PATH = r'C:\SmartWagers\data\master_lock.state'
+else:
+    MASTER_LOCK_STATE_PATH = str(BASE_DIR / 'master_lock.state')
+
+if MASTER_LOCK_REQUIRED:
+    from django.core.exceptions import ImproperlyConfigured as _ImproperlyConfigured
+    if not MASTER_LOCK_SIGNING_KEY:
+        raise _ImproperlyConfigured(
+            'MASTER_LOCK_SIGNING_KEY must be set when MASTER_LOCK_REQUIRED is enabled.'
+        )
+    # MASTER_LOCK_PASSWORD_HASH is intentionally NOT required at import time so
+    # `python manage.py hash_master_lock_key` can run to generate it. Runtime
+    # enable/verify still refuses an empty hash when MASTER_LOCK_REQUIRED is True.
 
