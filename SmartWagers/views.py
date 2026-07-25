@@ -2,7 +2,10 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden
 from django.db.models import Sum, Count, Q
+from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.csrf import ensure_csrf_cookie
 from . import services as services
+from . import masterlock
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
@@ -46,6 +49,101 @@ def role_home_url(user):
 def unauthorized(request):
     """Shown when a user has no admin/teller/display group."""
     return render(request, '403.html', status=403)
+
+
+@require_GET
+def health(request):
+    """Process readiness probe — always 200 while Daphne is up."""
+    status = masterlock.get_status(touch_heartbeat=False)
+    response = JsonResponse({
+        'ok': True,
+        'locked': bool(status.get('locked')),
+        'enabled': bool(status.get('enabled')),
+        'valid_until': status.get('valid_until'),
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@ensure_csrf_cookie
+@require_http_methods(['GET', 'POST'])
+def master_lock_page(request):
+    """
+    Standalone activation page (accessible while locked).
+    GET renders the form; POST enable/extend/disable with the master key.
+    """
+    client_id = _get_client_ip(request)
+    status = masterlock.get_status(touch_heartbeat=False)
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip().lower()
+        # Disable is only available to logged-in superusers (Settings page).
+        # The locked recovery page may only enable/extend with the master key.
+        if action == 'disable':
+            if not (request.user.is_authenticated and request.user.is_superuser):
+                return JsonResponse(
+                    {'ok': False, 'error': 'Only superusers can disable the master lock.'},
+                    status=403,
+                )
+        master_key = request.POST.get('master_key') or ''
+        try:
+            if action == 'enable':
+                status = masterlock.enable_lock(master_key=master_key, client_id=client_id)
+            elif action == 'extend':
+                status = masterlock.extend_lock(master_key=master_key, client_id=client_id)
+            elif action == 'disable':
+                status = masterlock.disable_lock(master_key=master_key, client_id=client_id)
+            else:
+                return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=400)
+
+            logger.info(
+                'MASTER LOCK UI action=%s ok=1 locked=%s ip=%s',
+                action, status.get('locked'), client_id,
+            )
+            payload = {'ok': True, **{k: status.get(k) for k in (
+                'locked', 'enabled', 'valid_until', 'extension_count', 'extension_days',
+            )}}
+            # Prefer JSON for fetch; form posts without Accept still get JSON.
+            return JsonResponse(payload)
+        except masterlock.MasterLockAuthError:
+            logger.warning('MASTER LOCK UI action=%s rejected ip=%s', action, client_id)
+            return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=403)
+        except masterlock.MasterLockError as exc:
+            logger.warning('MASTER LOCK UI action=%s failed ip=%s err=%s', action, client_id, exc)
+            return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=400)
+        finally:
+            # Avoid retaining the submitted key in locals longer than needed.
+            master_key = ''
+
+    # If already unlocked, send operators back to login / home.
+    if not status.get('locked'):
+        if request.user.is_authenticated:
+            home = role_home_url(request.user)
+            if home:
+                return redirect(home)
+        return redirect('login')
+
+    response = render(request, 'SmartWagers/master_lock.html', {
+        'lock_status': status,
+        'extension_days': masterlock.EXTENSION_DAYS,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@require_GET
+def master_lock_status(request):
+    """Lightweight poll endpoint for open pages (allowlisted under /master-lock/)."""
+    status = masterlock.get_status(touch_heartbeat=False)
+    response = JsonResponse({
+        'ok': True,
+        'locked': bool(status.get('locked')),
+        'enabled': bool(status.get('enabled')),
+        'valid_until': status.get('valid_until'),
+        'extension_days': masterlock.EXTENSION_DAYS,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 def teller_is_online(user):
@@ -671,6 +769,8 @@ def admin_tellers(request):
             'is_online': is_online,
             'has_activity': has_activity,
         })
+
+    teller_data.sort(key=lambda td: (-td['balance'], td['user'].username.lower()))
 
     setting = Settings.objects.order_by('-id').first()
     teller_max_balance = setting.teller_max_balance if setting else 0.0
@@ -1305,6 +1405,48 @@ def admin_settings(request):
 
             return JsonResponse({'ok': True, 'result_id': result_id, 'side': new_side})
 
+        if action in ('master_lock_enable', 'master_lock_extend', 'master_lock_disable'):
+            if not request.user.is_superuser:
+                logger.warning(
+                    'MASTER LOCK admin action=%s denied (not superuser) by=%s',
+                    action, request.user.username,
+                )
+                return JsonResponse(
+                    {'ok': False, 'error': 'Only superusers can manage the master lock.'},
+                    status=403,
+                )
+            client_id = _get_client_ip(request)
+            master_key = request.POST.get('master_key') or ''
+            try:
+                if action == 'master_lock_enable':
+                    status = masterlock.enable_lock(master_key=master_key, client_id=client_id)
+                elif action == 'master_lock_extend':
+                    status = masterlock.extend_lock(master_key=master_key, client_id=client_id)
+                else:
+                    status = masterlock.disable_lock(master_key=master_key, client_id=client_id)
+                logger.info(
+                    'MASTER LOCK admin action=%s by=%s locked=%s',
+                    action, request.user.username, status.get('locked'),
+                )
+                return JsonResponse({
+                    'ok': True,
+                    'locked': status.get('locked'),
+                    'enabled': status.get('enabled'),
+                    'valid_until': status.get('valid_until'),
+                    'extension_count': status.get('extension_count'),
+                    'extension_days': masterlock.EXTENSION_DAYS,
+                })
+            except masterlock.MasterLockAuthError:
+                logger.warning(
+                    'MASTER LOCK admin action=%s rejected by=%s',
+                    action, request.user.username,
+                )
+                return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=403)
+            except masterlock.MasterLockError:
+                return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=400)
+            finally:
+                master_key = ''
+
         return JsonResponse({'ok': False, 'error': 'Unknown action'}, status=400)
 
     plasada = services.get_comm_val()
@@ -1316,6 +1458,7 @@ def admin_settings(request):
     teller_max_balance  = setting.teller_max_balance  if setting else 0.0
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
     teller_min_balance  = setting.teller_min_balance  if setting else 0.0
+    lock_status = masterlock.get_status(touch_heartbeat=False)
 
     return render(request, 'SmartWagers/admin_settings.html', {
         'plasada': plasada,
@@ -1325,4 +1468,6 @@ def admin_settings(request):
         'teller_max_balance': teller_max_balance,
         'teller_initial_fund': teller_initial_fund,
         'teller_min_balance': teller_min_balance,
+        'lock_status': lock_status,
+        'extension_days': masterlock.EXTENSION_DAYS,
     })

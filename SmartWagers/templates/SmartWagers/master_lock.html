@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Master Lock — SmartWagers</title>
+  <link rel="stylesheet" href="{% static 'SmartWagers/login.css' %}?v=3">
+  <meta http-equiv="Cache-Control" content="no-store">
+  <style>
+    .lock-meta {
+      margin: 12px 0 18px;
+      font-size: 0.9rem;
+      color: #333;
+      line-height: 1.5;
+      text-align: left;
+    }
+    .lock-meta strong { color: #111; }
+    .lock-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .lock-actions button {
+      width: 100%;
+    }
+    .status-message {
+      margin-top: 12px;
+      font-size: 0.9rem;
+      min-height: 1.4em;
+    }
+    .status-message.err { color: #c0392b; }
+    .status-message.ok { color: #1e8449; }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <h2>Application Locked</h2>
+    <div class="lock-meta">
+      <div>SmartWagers requires a valid master lock period.</div>
+      <div>Status:
+        {% if lock_status.enabled %}
+          <strong>Enabled</strong>{% if lock_status.locked %} (expired){% endif %}
+        {% else %}
+          <strong>Disabled</strong>
+        {% endif %}
+      </div>
+      {% if lock_status.valid_until %}
+      <div>Valid until: <strong>{{ lock_status.valid_until }}</strong></div>
+      {% endif %}
+      <div>Each enable/extend grants <strong>{{ extension_days }}</strong> days.</div>
+    </div>
+
+    <form id="master-lock-form" method="post" autocomplete="off">
+      {% csrf_token %}
+      <label for="master_key">Master Lock Key</label>
+      <input type="password" name="master_key" id="master_key" required autocomplete="off">
+
+      <div class="lock-actions">
+        <button type="submit" name="action" value="enable" id="btn-enable">Activate ({{ extension_days }} days)</button>
+        <button type="submit" name="action" value="extend" id="btn-extend">Extend (+{{ extension_days }} days)</button>
+      </div>
+      <div class="status-message" id="status-message"></div>
+      <p style="margin-top:14px;font-size:0.8rem;color:#555;text-align:left;">
+        Disable is only available to a logged-in superuser under Settings.
+      </p>
+    </form>
+  </div>
+  <script>
+  (function () {
+    var form = document.getElementById('master-lock-form');
+    var keyInput = document.getElementById('master_key');
+    var statusEl = document.getElementById('status-message');
+    if (!form) return;
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var submitter = e.submitter;
+      var action = submitter ? submitter.value : 'enable';
+      statusEl.className = 'status-message';
+      statusEl.textContent = 'Working…';
+
+      var fd = new FormData(form);
+      fd.set('action', action);
+
+      try {
+        var res = await fetch(form.action || window.location.href, {
+          method: 'POST',
+          body: fd,
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+          credentials: 'same-origin',
+        });
+        var data = await res.json().catch(function () { return {}; });
+        keyInput.value = '';
+        if (data.ok) {
+          statusEl.className = 'status-message ok';
+          statusEl.textContent = data.locked
+            ? 'Updated, but still locked.'
+            : 'Unlocked. Redirecting…';
+          if (!data.locked) {
+            setTimeout(function () { window.location.href = '/login'; }, 700);
+          }
+        } else {
+          statusEl.className = 'status-message err';
+          statusEl.textContent = data.error || 'Request failed.';
+        }
+      } catch (err) {
+        keyInput.value = '';
+        statusEl.className = 'status-message err';
+        statusEl.textContent = 'Network error.';
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

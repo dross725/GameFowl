@@ -300,6 +300,61 @@
     </div>
   </div>
 
+  <!-- ── Master Lock (superuser only for controls) ── -->
+  {% if user.is_superuser %}
+  <div class="st-panel" id="st-master-lock-panel">
+    <div class="st-panel-title">Master Lock</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:14px;line-height:1.5;">
+      Superuser only. Enable or extend for {{ extension_days }} days, or disable enforcement.
+      Every action requires the master lock key.
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:14px;font-size:13px;color:rgba(255,255,255,0.75);">
+      <div>Status:
+        {% if lock_status.enabled %}
+          <strong style="color:{% if lock_status.locked %}#e74c3c{% else %}#2ecc71{% endif %};">
+            {% if lock_status.locked %}Enabled (expired){% else %}Enabled (active){% endif %}
+          </strong>
+        {% else %}
+          <strong style="color:#f1c40f;">Disabled</strong>
+        {% endif %}
+      </div>
+      <div>Valid until: <strong>{{ lock_status.valid_until|default:"—" }}</strong></div>
+      <div>Extensions: <strong>{{ lock_status.extension_count|default:0 }}</strong></div>
+    </div>
+    <div class="st-input-group" style="margin-bottom:12px;">
+      <label for="master-lock-key">Master Key</label>
+      <input type="password" id="master-lock-key" autocomplete="off"
+             style="background:#12141b;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;padding:8px 12px;min-width:220px;">
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;">
+      <button class="st-save-btn" type="button" onclick="masterLockAction('master_lock_enable')">Enable</button>
+      <button class="st-save-btn" type="button" onclick="masterLockAction('master_lock_extend')">Extend +{{ extension_days }}d</button>
+      <button class="st-save-btn" type="button" onclick="masterLockAction('master_lock_disable')"
+              style="background:#c0392b;">Disable</button>
+    </div>
+    <div id="st-master-lock-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:8px;"></div>
+  </div>
+  {% else %}
+  <div class="st-panel" id="st-master-lock-status-panel">
+    <div class="st-panel-title">License Status</div>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:rgba(255,255,255,0.75);">
+      <div>Status:
+        {% if lock_status.enabled %}
+          <strong style="color:{% if lock_status.locked %}#e74c3c{% else %}#2ecc71{% endif %};">
+            {% if lock_status.locked %}Expired{% else %}Active{% endif %}
+          </strong>
+        {% else %}
+          <strong style="color:#f1c40f;">Not enforced</strong>
+        {% endif %}
+      </div>
+      <div>Valid until: <strong>{{ lock_status.valid_until|default:"—" }}</strong></div>
+    </div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.40);margin-top:10px;">
+      Only a superuser can enable, extend, or disable the master lock.
+    </div>
+  </div>
+  {% endif %}
+
   <!-- ── Plasada panel ── -->
   <div class="st-panel">
     <div class="st-panel-title">Plasada (Commission Rate)</div>
@@ -529,6 +584,46 @@ document.addEventListener('DOMContentLoaded', () => {
     setupCommaInput('threshold-input');
     setupCommaInput('min-balance-input');
 });
+
+async function masterLockAction(action) {
+    const keyEl = document.getElementById('master-lock-key');
+    const statusEl = document.getElementById('st-master-lock-status');
+    const masterKey = keyEl ? keyEl.value : '';
+    if (!masterKey) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Enter the master lock key.';
+        return;
+    }
+    statusEl.className = '';
+    statusEl.textContent = 'Working…';
+    const fd = new FormData();
+    fd.append('action', action);
+    fd.append('master_key', masterKey);
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+    try {
+        const res = await fetch(SETTINGS_URL, {
+            method: 'POST',
+            body: fd,
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+        });
+        const data = await res.json();
+        if (keyEl) keyEl.value = '';
+        if (data.ok) {
+            statusEl.className = 'st-ok';
+            statusEl.textContent = data.enabled
+                ? (`Saved. Valid until ${data.valid_until || '—'}. Reloading…`)
+                : 'Lock disabled. Reloading…';
+            setTimeout(() => window.location.reload(), 800);
+        } else {
+            statusEl.className = 'st-err';
+            statusEl.textContent = data.error || 'Request failed.';
+        }
+    } catch (err) {
+        if (keyEl) keyEl.value = '';
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Network error.';
+    }
+}
 
 async function savePlasada() {
     const pctVal = parseFloat(document.getElementById('plasada-input').value);

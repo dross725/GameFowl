@@ -7,6 +7,9 @@ urlpatterns = [
     path('login', views.RoleBasedLoginView.as_view(template_name='SmartWagers/login.html'), name='login'),
     path('logout', views.LogoutViaPost.as_view(next_page='/login'), name='logout'),
     path('unauthorized/', views.unauthorized, name='unauthorized'),
+    path('health/', views.health, name='health'),
+    path('master-lock/', views.master_lock_page, name='master-lock'),
+    path('master-lock/status/', views.master_lock_status, name='master-lock-status'),
     path("", views.index, name="index"),
     path("index", views.index, name="index"),
     path("administrator", views.Main_admin, name="admin-page"), #admin/<admin-name>

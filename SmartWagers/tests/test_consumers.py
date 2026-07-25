@@ -17,7 +17,7 @@ from unittest.mock import patch, AsyncMock
 
 from GameFowl.asgi import application
 from SmartWagers.models import (
-    Event, Fight_Results, Fight_Status, Totals, Wagers,
+    Event, Fight_Results, Fight_Status, TellerStatus, Totals, Wagers,
 )
 
 
@@ -184,6 +184,31 @@ async def test_barcode_nonexistent_returns_notfound(teller_user, settings, activ
     response = await communicator.receive_json_from(timeout=3)
     assert response.get('payout') is True
     assert response.get('error') == 'notfound'
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_offline_teller_barcode_returns_stable_error_code(
+        teller_user, settings, active_event):
+    from asgiref.sync import sync_to_async
+
+    settings.CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    }
+    await sync_to_async(TellerStatus.objects.update_or_create)(
+        user=teller_user, defaults={'is_online': False},
+    )
+
+    communicator = WebsocketCommunicator(application, '/ws/user/')
+    communicator.scope['user'] = teller_user
+    connected, _ = await communicator.connect()
+    assert connected
+
+    await communicator.send_json_to({'barcode': '123456'})
+    response = await communicator.receive_json_from(timeout=3)
+
+    assert response == {'payout': True, 'error': 'teller_offline'}
     await communicator.disconnect()
 
 

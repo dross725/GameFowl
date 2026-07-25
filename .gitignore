@@ -20,6 +20,9 @@ staticfiles/
 .env.*
 !.env.example
 deploy/python_path.txt
+master_lock.state
+master_lock.state.lock
+*.master_lock.*.tmp
 
 # Logs and runtime files
 logs/
