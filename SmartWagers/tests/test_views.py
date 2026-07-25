@@ -300,6 +300,14 @@ class TestReprintWager:
 @pytest.mark.django_db
 class TestTellerTransactionView:
 
+    def _seed_cash_on_hand(self, teller_user, amount=5000):
+        """Give the teller cash on hand via a COLLECT (borrow) so remits can succeed."""
+        return TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=amount,
+        )
+
     def test_get_returns_405(self, teller_user):
         client = Client()
         client.force_login(teller_user)
@@ -330,7 +338,37 @@ class TestTellerTransactionView:
         })
         assert response.status_code == 400
 
+    def test_remit_exceeding_cash_on_hand_returns_400(self, teller_user, default_settings):
+        self._seed_cash_on_hand(teller_user, amount=1000)
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/teller_transaction/', {
+            'transaction_type': 'REMIT', 'amount': '1000.01',
+        })
+        assert response.status_code == 400
+        data = json.loads(response.content)
+        assert data['ok'] is False
+        assert data['error'] == 'exceeds_cash_on_hand'
+        assert data['balance'] == 1000
+        assert not TellerTransaction.objects.filter(
+            user=teller_user, transaction_type='REMIT'
+        ).exists()
+
+    def test_remit_with_zero_cash_on_hand_returns_400(self, teller_user, default_settings):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/teller_transaction/', {
+            'transaction_type': 'REMIT', 'amount': '100',
+        })
+        assert response.status_code == 400
+        data = json.loads(response.content)
+        assert data['error'] == 'exceeds_cash_on_hand'
+        assert not TellerTransaction.objects.filter(
+            user=teller_user, transaction_type='REMIT'
+        ).exists()
+
     def test_valid_remit_creates_transaction(self, teller_user, default_settings):
+        self._seed_cash_on_hand(teller_user, amount=5000)
         client = Client()
         client.force_login(teller_user)
         response = client.post('/teller_transaction/', {
@@ -343,7 +381,20 @@ class TestTellerTransactionView:
             user=teller_user, transaction_type='REMIT', amount=1000
         ).exists()
 
+    def test_remit_equal_to_cash_on_hand_succeeds(self, teller_user, default_settings):
+        self._seed_cash_on_hand(teller_user, amount=1500)
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/teller_transaction/', {
+            'transaction_type': 'REMIT', 'amount': '1500',
+        })
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data['ok'] is True
+        assert data['balance'] == 0
+
     def test_remit_response_contains_updated_balance(self, teller_user, default_settings):
+        self._seed_cash_on_hand(teller_user, amount=5000)
         client = Client()
         client.force_login(teller_user)
         response = client.post('/teller_transaction/', {
@@ -352,3 +403,68 @@ class TestTellerTransactionView:
         data = json.loads(response.content)
         assert 'balance' in data
         assert 'transaction_id' in data
+        assert data['balance'] == 4500
+
+
+# ---------------------------------------------------------------------------
+# admin_teller_txn (REMIT / COLLECT)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAdminTellerTxnView:
+
+    def _seed_cash_on_hand(self, teller_user, amount=5000):
+        return TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=amount,
+        )
+
+    def test_admin_remit_exceeding_cash_on_hand_returns_400(
+        self, admin_user, teller_user, default_settings,
+    ):
+        self._seed_cash_on_hand(teller_user, amount=800)
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/teller-txn/', {
+            'teller_id': teller_user.pk,
+            'transaction_type': 'REMIT',
+            'amount': '801',
+        })
+        assert response.status_code == 400
+        data = json.loads(response.content)
+        assert data['error'] == 'exceeds_cash_on_hand'
+        assert not TellerTransaction.objects.filter(
+            user=teller_user, transaction_type='REMIT'
+        ).exists()
+
+    def test_admin_remit_within_cash_on_hand_succeeds(
+        self, admin_user, teller_user, default_settings,
+    ):
+        self._seed_cash_on_hand(teller_user, amount=800)
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/teller-txn/', {
+            'teller_id': teller_user.pk,
+            'transaction_type': 'REMIT',
+            'amount': '800',
+        })
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data['ok'] is True
+        assert data['balance'] == 0
+
+    def test_admin_collect_not_limited_by_cash_on_hand(
+        self, admin_user, teller_user, default_settings,
+    ):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/teller-txn/', {
+            'teller_id': teller_user.pk,
+            'transaction_type': 'COLLECT',
+            'amount': '5000',
+        })
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data['ok'] is True
+        assert data['balance'] == 5000

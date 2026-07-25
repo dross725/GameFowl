@@ -47,6 +47,10 @@ function wala_addValue(value) { addValue(value); }
 
 function check_total(side) {
     if (isSubmitting) return;
+    if (typeof isTellerOffline === 'function' && isTellerOffline()) {
+        if (typeof openTellerOfflineModal === 'function') openTellerOfflineModal();
+        return;
+    }
 
     const activeSide = side || getSelectedSide();
 
@@ -463,6 +467,8 @@ document.addEventListener('keydown', (e) => {
     /* Ordered by priority — first visible modal wins */
     const modals = [
         /* id                      Enter action                           Esc action */
+        /* Offline lockout: no dismiss via keyboard */
+        ['teller_offline_modal',   null,                                  null],
         ['confirmationModal',      () => click('submitvalue'),            () => call(closeModal)],
         ['invalidtotalModal',      () => call(closeInvalidTotalModal),    () => call(closeInvalidTotalModal)],
         ['control_confirmationModal', () => click('cm-yes-button'),       () => click('cm-no-button')],

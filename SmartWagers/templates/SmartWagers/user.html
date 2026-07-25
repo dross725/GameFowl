@@ -3,13 +3,17 @@
 
 {% block css_files %}
     <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=23">
-    <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
+    <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=10">
 {% endblock css_files %}
 
 {% block script_files %}
+    <script>
+        window.TELLER_ID = {{ teller_id|default:"null" }};
+        window.TELLER_IS_ONLINE = {{ teller_is_online|yesno:"true,false" }};
+    </script>
     <script src="{% static 'SmartWagers/administrator.js' %}?v=cancel-socket-fix-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
-    <script src="{% static 'SmartWagers/user.js' %}?v=pending-badge-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=teller-offline-1"></script>
+    <script src="{% static 'SmartWagers/user.js' %}?v=teller-offline-1"></script>
 {% endblock script_files %}
 
 {% block content %}
@@ -123,6 +127,22 @@
         </div>        
     </div>
 
+    <div id='teller_offline_modal' class='modal' {% if not teller_is_online %}style='display:flex'{% endif %}>
+        <div class='modal-content teller-offline-modal-content'>
+            <h2>You Are Offline</h2>
+            <br>
+            <p>You have been tagged as <strong>offline</strong> by the administrator.</p>
+            <p>Please report to the admin office before continuing.</p>
+            <br>
+            <p class='teller-offline-wait'>This message will close automatically once you are tagged online again.</p>
+            <br>
+            <form method='post' action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type='submit'>Sign Out</button>
+            </form>
+        </div>
+    </div>
+
     
 
     <div id='payoutmodal' class='modal'>
@@ -156,8 +176,10 @@
                 <h2 id='payout_error_header'>Payout Error</h2>
                 <br>
                 <p id='payout_error_message'>Message</p>
+                <p id='payout_reprint_status'></p>
                 <br>
-                
+
+                <button id='payout_reprint_button' style='display:none' onclick='reprintPaidPayoutReceipt()'>Reprint Payout Receipt</button>
                 <button id='payout_error_button' onclick='closemodal("payout_error_modal")'>Close</button>
             </div>
         </div>

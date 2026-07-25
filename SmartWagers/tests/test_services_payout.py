@@ -108,6 +108,10 @@ class TestPayoutRequestErrors:
         _make_fight_result(1, 'MERON', event=active_event)
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
         assert result.get('error') == 'alreadypaid'
+        assert result.get('reprint_available') is True
+        assert result['receipt']['receipt_type'] == 'payout'
+        assert result['receipt']['transaction_id'] == w.transactionid
+        assert float(result['receipt']['Total_Payout']) == pytest.approx(475.0)
 
     def test_cross_teller_returns_wrong_teller_error(self, teller_user, teller_user2,
                                                       default_settings, active_event):
@@ -121,6 +125,19 @@ class TestPayoutRequestErrors:
     def test_nonexistent_transaction_returns_notfound(self, teller_user, active_event):
         result = services.payout_request('999999')
         assert result.get('error') == 'notfound'
+
+    def test_missing_cashier_account_blocks_payout(self, default_settings, active_event):
+        w = _make_registered_wager(1, 'MERON', 500, 'deleted-teller')
+        _make_fight_result(1, 'MERON', event=active_event)
+
+        result = services.payout_request(w.transactionid)
+
+        assert result.get('error') == 'cashier_not_found'
+        w.refresh_from_db()
+        assert w.cashed_out is False
+        assert not TellerTransaction.objects.filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        ).exists()
 
     def test_unregistered_wager_returns_notfound(self, teller_user, active_event):
         """A pending (registered=False) wager must not be payable."""
@@ -136,6 +153,69 @@ class TestPayoutRequestErrors:
         # No Fight_Results row — fight hasn't ended yet
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
         assert result.get('error') == 'notfound'
+
+    def test_payout_exceeds_cash_on_hand_returns_error(
+        self, teller_user, default_settings, active_event,
+    ):
+        """Teller remitted all cash — cannot pay out a winning ticket."""
+        w = _make_registered_wager(1, 'MERON', 100, teller_user.username)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=100,
+        )
+        _make_fight_result(1, 'MERON', event=active_event, mpayout=95.0)
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        )
+        assert result.get('error') == 'exceeds_cash_on_hand'
+        assert result.get('required') == pytest.approx(95.0)
+        assert result.get('balance') == pytest.approx(0.0)
+        w.refresh_from_db()
+        assert w.cashed_out is False
+        assert not TellerTransaction.objects.filter(
+            user=teller_user, transaction_type=TellerTransaction.PAYOUT,
+        ).exists()
+
+    def test_payout_exceeds_cash_on_hand_is_logged(
+        self, teller_user, default_settings, active_event,
+    ):
+        from unittest.mock import patch
+        w = _make_registered_wager(1, 'MERON', 100, teller_user.username)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=100,
+        )
+        _make_fight_result(1, 'MERON', event=active_event, mpayout=95.0)
+        with patch('SmartWagers.services.logger.warning') as mock_warn:
+            services.payout_request(
+                w.transactionid, requesting_cashier=teller_user.username,
+            )
+        assert mock_warn.called
+        logged = ' '.join(str(c) for c in mock_warn.call_args_list)
+        assert 'PAYOUT REJECTED' in logged
+        assert 'exceeds_cash_on_hand' in logged
+
+    def test_cancelled_refund_exceeds_cash_on_hand(
+        self, teller_user, default_settings, active_event,
+    ):
+        w = _make_registered_wager(1, 'MERON', 400, teller_user.username)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=400,
+        )
+        Fight_Results.objects.create(
+            fightnum=1, side='CANCELLED', mtotal=400, wtotal=0,
+            mpayout=0, wpayout=0, totalpot=400, odds='CANCELLED', event=active_event,
+        )
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        )
+        assert result.get('error') == 'exceeds_cash_on_hand'
+        w.refresh_from_db()
+        assert w.cashed_out is False
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +234,16 @@ class TestPayoutRequestSpecialOutcomes:
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
         assert result.get('side') == 'CANCELLED'
         assert float(result['wager'].replace(',', '')) == 400
+        assert result.get('print_required') is True
+        assert result['receipt']['receipt_type'] == 'cancel_refund'
+        assert result['receipt']['side'] == 'CANCELLED'
+        assert result['receipt']['odds'] == 'FULL REFUND'
+        assert float(result['receipt']['Total_Payout']) == pytest.approx(400.0)
+
+        reprint = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
+        assert reprint.get('error') == 'alreadypaid'
+        assert reprint.get('reprint_available') is True
+        assert reprint['receipt']['receipt_type'] == 'cancel_refund'
 
     def test_draw_fight_refunds_wager(self, teller_user, default_settings, active_event):
         w = _make_registered_wager(1, 'WALA', 300, teller_user.username)
@@ -163,6 +253,16 @@ class TestPayoutRequestSpecialOutcomes:
         )
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
         assert result.get('side') == 'DRAW'
+        assert result.get('print_required') is True
+        assert result['receipt']['receipt_type'] == 'draw_refund'
+        assert result['receipt']['side'] == 'DRAW'
+        assert result['receipt']['odds'] == 'FULL REFUND'
+        assert float(result['receipt']['Total_Payout']) == pytest.approx(300.0)
+
+        reprint = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
+        assert reprint.get('error') == 'alreadypaid'
+        assert reprint.get('reprint_available') is True
+        assert reprint['receipt']['receipt_type'] == 'draw_refund'
 
     def test_cancelled_payout_marks_cashed_out(self, teller_user, default_settings, active_event):
         w = _make_registered_wager(1, 'MERON', 200, teller_user.username)

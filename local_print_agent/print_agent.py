@@ -47,12 +47,20 @@ def is_wager_style_receipt(receipt):
     return receipt_type(receipt) in ("wager", "cancel")
 
 
+def is_refund_receipt(receipt):
+    return receipt_type(receipt) in ("draw_refund", "cancel_refund")
+
+
 def receipt_title(receipt):
     kind = receipt_type(receipt)
     if kind == "cancel":
         return "CANCEL RECEIPT"
     if kind == "wager":
         return "BET RECEIPT"
+    if kind == "draw_refund":
+        return "DRAW - REFUND RECEIPT"
+    if kind == "cancel_refund":
+        return "CANCELLED - REFUND RECEIPT"
     return "CONGRATULATIONS!"
 
 
@@ -68,6 +76,7 @@ def escpos_receipt(receipt, code_page="cp437"):
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
     is_wager = is_wager_style_receipt(receipt)
+    is_refund = is_refund_receipt(receipt)
 
     output = bytearray()
     output += b"\x1b@"  # Initialize printer
@@ -92,7 +101,7 @@ def escpos_receipt(receipt, code_page="cp437"):
         output += b"\x1d!\x00"  # Back to normal size
         output += text_line(f"Amount: {amount}", code_page)
         output += text_line(f"Odds: {multiplier}", code_page)
-        output += text_line("Payout Amount:", code_page)
+        output += text_line("Refund Amount:" if is_refund else "Payout Amount:", code_page)
         output += b"\x1d!\x11"  # Double width + double height
         output += text_line(total_payout, code_page)
         output += b"\x1d!\x00"  # Back to normal size
@@ -279,6 +288,7 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0):
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
     is_wager = is_wager_style_receipt(receipt)
+    is_refund = is_refund_receipt(receipt)
 
     dc = win32ui.CreateDC()
     dc.CreatePrinterDC(printer_name)
@@ -343,7 +353,7 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0):
             draw_centered(f"{side} - {odds}", highlight_font)
             draw_centered(f"Amount: {amount}", bold_font)
             draw_centered(f"Odds: {multiplier}", bold_font)
-            draw_centered("Payout Amount:", bold_font)
+            draw_centered("Refund Amount:" if is_refund else "Payout Amount:", bold_font)
             draw_centered(total_payout, highlight_font)
         y += line_gap
         draw_centered(f"Cashier: {cashier}", normal_font)

@@ -29,8 +29,14 @@ This creates `C:\SmartWagers\GameFowl\.env` with:
 - `DJANGO_DEBUG=False`
 - `ALLOWED_HOSTS` locked to localhost + your server IP
 - `CSRF_TRUSTED_ORIGINS` set to `http://<SERVER-IP>:8080`
+- Master lock signing key placeholders (`MASTER_LOCK_*`)
 
-> **Never commit `.env` to git.** It is already listed in `.gitignore`.
+Then:
+1. Run `python manage.py hash_master_lock_key` and paste the hash into `MASTER_LOCK_PASSWORD_HASH=`
+2. Run `deploy\6_init_master_lock.bat` to create `C:\SmartWagers\data\master_lock.state` (disabled)
+3. Restrict ACLs on `C:\SmartWagers\data` to Administrators + the Daphne service account
+
+> **Never commit `.env` or `master_lock.state` to git.**
 
 ---
 
@@ -168,6 +174,28 @@ Test from a LAN client browser at `http://<SERVER-IP>:8080/login`:
 | Print agent not printing | Verify `printer_name` in `config.json`; run `http://127.0.0.1:8765/printers` to list available printers |
 | `service_control.bat start` says **"Unexpected status SERVICE_PAUSED"** and logs are empty | Daphne crashed under the service account. **1)** `memurai-cli ping` must return `PONG`. **2)** Open `C:\SmartWagers\logs\daphne_wrapper.log`. **3)** Manual test: `python -m daphne -v 2 -b 0.0.0.0 -p 8080 GameFowl.asgi:application`. **4)** Re-run `4_install_service.bat` as Administrator after fixing. |
 | Admin pages show **Server Error 500** with `AttributeError: 'super' object has no attribute 'dicts'` | Python 3.14 is not supported by Django 5.1. Install **Python 3.12**, re-run `2_install_deps.bat`, update `deploy\python_path.txt`, and restart the service. A temporary compatibility patch is in `settings.py` for 3.14, but 3.12 is recommended for production. |
+| App redirects to `/master-lock/` | Lock is enabled and expired (or state missing/tampered in production). Enter the master key to **Enable** or **Extend**. |
+| Daphne will not start: `MASTER_LOCK_SIGNING_KEY` / `PASSWORD_HASH` | Set both in `.env`, then restart the service. Generate hash with `python manage.py hash_master_lock_key`. |
+| `init_master_lock` refuses to run | Existing state file is present or unusable. Do **not** overwrite casually — restore from backup or use recovery procedures. |
+
+---
+
+## Master Lock
+
+Offline monthly activation. Disabled by default after `6_init_master_lock.bat`.
+
+| Action | Effect |
+|--------|--------|
+| **Enable** | Requires master key; grants 30 days from now |
+| **Extend** | Requires master key; adds 30 days to `max(now, valid_until)` |
+| **Disable** | Requires master key; turns enforcement off |
+
+- Activation UI: `http://<SERVER-IP>:8080/master-lock/`
+- Admin settings also has Enable / Extend / Disable controls
+- Health probe (always 200 while Daphne is up): `http://127.0.0.1:8080/health/`
+- State file: `C:\SmartWagers\data\master_lock.state` (HMAC-signed; deleting it fails closed in production)
+
+**Limitation:** This deters casual tampering. A Windows administrator who can patch Python/source or read process secrets can bypass an offline lock.
 
 ---
 
@@ -178,6 +206,7 @@ Test from a LAN client browser at `http://<SERVER-IP>:8080/login`:
 | Project root | `C:\SmartWagers\GameFowl\` |
 | Production config | `C:\SmartWagers\GameFowl\.env` |
 | Database | `C:\SmartWagers\GameFowl\db.sqlite3` |
+| Master lock state | `C:\SmartWagers\data\master_lock.state` |
 | Static files | `C:\SmartWagers\GameFowl\staticfiles\` |
 | Service logs | `C:\SmartWagers\logs\` |
 | NSSM | `C:\SmartWagers\nssm\nssm.exe` |

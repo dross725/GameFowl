@@ -742,7 +742,7 @@
 
           <button class="txn-btn remit-btn"
                   onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'REMIT')">
-            Remit
+            Advance
           </button>
           <button class="txn-btn collect-btn"
                   onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'COLLECT')">
@@ -878,6 +878,27 @@ function toggleCard(tellerId) {
   card.classList.toggle('expanded');
 }
 
+function sortTellerCards() {
+  const container = document.getElementById('teller-cards');
+  if (!container) return;
+
+  const cards = Array.from(container.querySelectorAll('.teller-card'));
+  cards.sort((a, b) => {
+    const aId = a.id.replace('teller-card-', '');
+    const bId = b.id.replace('teller-card-', '');
+    const balanceDifference =
+      Number(TELLER_BALANCES[bId]?.balance ?? 0) -
+      Number(TELLER_BALANCES[aId]?.balance ?? 0);
+
+    if (balanceDifference !== 0) return balanceDifference;
+    return (TELLER_BALANCES[aId]?.name ?? '').localeCompare(
+      TELLER_BALANCES[bId]?.name ?? ''
+    );
+  });
+
+  cards.forEach(card => container.appendChild(card));
+}
+
 /* ── Transaction modal (REMIT or COLLECT) ──────────── */
 function openTxnModal(event, tellerId, tellerName, txnType) {
   event.stopPropagation();
@@ -923,6 +944,14 @@ async function submitTxn() {
     return;
   }
 
+  if (txnType === 'REMIT') {
+    const cashOnHand = Number(TELLER_BALANCES[tellerId]?.balance ?? 0);
+    if (amount > cashOnHand + 0.001) {
+      setStatus('error', 'Remit amount cannot exceed cash on hand.');
+      return;
+    }
+  }
+
   const btn = document.getElementById('btn-collect-confirm');
   btn.disabled = true;
   setStatus('', '');
@@ -938,7 +967,17 @@ async function submitTxn() {
     const data = await res.json();
 
     if (!data.ok) {
-      setStatus('error', `Error: ${data.error || 'Unknown error'}`);
+      const msg = data.error === 'exceeds_cash_on_hand'
+        ? 'Remit amount cannot exceed cash on hand.'
+        : `Error: ${data.error || 'Unknown error'}`;
+      setStatus('error', msg);
+      if (data.error === 'exceeds_cash_on_hand' && data.balance !== undefined) {
+        updateTellerCard({
+          teller_id: Number(tellerId),
+          balance: data.balance,
+          grand_total: data.grand_total,
+        });
+      }
       btn.disabled = false;
       return;
     }
@@ -977,6 +1016,7 @@ function updateTellerCard(data) {
     // REMIT/COLLECT transactions here must not set it, as those are not
     // evidence of an offline teller taking bets.
   }
+  sortTellerCards();
   refreshWarningBanner();
 }
 

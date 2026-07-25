@@ -53,7 +53,7 @@ userSocket.onmessage = async (event) => {
 
     if ("payout" in data) {
         console.log("[user.js] payout message received:", data);
-        handlePayoutMessage(data);
+        await handlePayoutMessage(data);
         // Payout processed — refresh pending count and balance
         fetchPendingPayouts();
         fetchTellerBalance();
@@ -82,7 +82,36 @@ userSocket.onmessage = async (event) => {
         fetchTellerBalance();
         fetchFightTotals();
     }
-}; 
+
+    if ("teller_online" in data && "teller_id" in data) {
+        if (Number(data.teller_id) === Number(window.TELLER_ID)) {
+            setTellerOnlineStatus(Boolean(data.teller_online));
+        }
+    }
+};
+
+function openTellerOfflineModal() {
+    const modal = document.getElementById('teller_offline_modal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeTellerOfflineModal() {
+    const modal = document.getElementById('teller_offline_modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function setTellerOnlineStatus(isOnline) {
+    window.TELLER_IS_ONLINE = isOnline;
+    if (isOnline) {
+        closeTellerOfflineModal();
+    } else {
+        openTellerOfflineModal();
+    }
+}
+
+function isTellerOffline() {
+    return window.TELLER_IS_ONLINE === false;
+} 
 
 userSocket.onopen = () => {
     console.log("WebSocket connected!");
@@ -407,6 +436,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (bettingDisabledCloseButton) {
         bettingDisabledCloseButton.addEventListener("click", closebettingdisabledModal);
     }
+    if (isTellerOffline()) {
+        openTellerOfflineModal();
+    }
     //fetchButtonState();
     get_fightstatus();  // Fetch fight status on page load
     fetchTellerBalance();
@@ -433,7 +465,10 @@ function updateBalanceButton(balance) {
 function updateBalanceModal(balance, grandTotal) {
     const display = document.getElementById('balance_display');
     const gtDisplay = document.getElementById('grand_total_display');
-    if (display) display.innerText = formatBalance(balance);
+    if (display) {
+        display.innerText = formatBalance(balance);
+        display.dataset.balance = String(Number(balance) || 0);
+    }
     if (gtDisplay) gtDisplay.innerText = formatBalance(grandTotal);
 }
 
@@ -562,6 +597,13 @@ async function submitTellerTransaction(type) {
         return;
     }
 
+    const balanceDisplay = document.getElementById('balance_display');
+    const cashOnHand = parseFloat(balanceDisplay?.dataset?.balance ?? '0');
+    if (!isNaN(cashOnHand) && amount > cashOnHand + 0.001) {
+        statusMsg.innerText = 'Remit amount cannot exceed cash on hand.';
+        return;
+    }
+
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
     statusMsg.innerText = 'Processing...';
 
@@ -581,9 +623,16 @@ async function submitTellerTransaction(type) {
         const data = await response.json();
 
         if (!data.ok) {
-            statusMsg.innerText = data.error === 'invalid_amount'
-                ? 'Please enter a valid amount greater than zero.'
-                : 'Error: ' + (data.error || 'Unknown error');
+            if (data.error === 'exceeds_cash_on_hand') {
+                statusMsg.innerText = 'Remit amount cannot exceed cash on hand.';
+                if (data.balance !== undefined) {
+                    updateBalanceModal(data.balance, data.grand_total ?? 0);
+                }
+            } else if (data.error === 'invalid_amount') {
+                statusMsg.innerText = 'Please enter a valid amount greater than zero.';
+            } else {
+                statusMsg.innerText = 'Error: ' + (data.error || 'Unknown error');
+            }
             return;
         }
 

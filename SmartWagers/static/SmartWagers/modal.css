@@ -98,6 +98,30 @@
   box-shadow: none;
 }
 
+/* ── Teller offline lockout ──────────────────────────────── */
+#teller_offline_modal {
+  z-index: 9999;
+  pointer-events: auto;
+}
+
+.teller-offline-modal-content {
+  border-color: rgba(192, 57, 43, 0.45);
+  box-shadow:
+    0 0 40px rgba(192, 57, 43, 0.25),
+    0 24px 60px rgba(0, 0, 0, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.teller-offline-modal-content h2 {
+  color: #e74c3c;
+}
+
+.teller-offline-wait {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
+}
+
 /* ── Confirm / primary action ────────────────────────────── */
 #submitvalue,
 #payout_yes,

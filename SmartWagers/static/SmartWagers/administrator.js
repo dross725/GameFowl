@@ -132,6 +132,39 @@ async function printPayoutReceipt(data) {
     }
 }
 
+let payoutReprintReceipt = null;
+
+function setPayoutReprintOption(data) {
+    const button = document.getElementById('payout_reprint_button');
+    const status = document.getElementById('payout_reprint_status');
+    payoutReprintReceipt = data.error === 'alreadypaid' && data.receipt
+        ? data.receipt
+        : null;
+
+    if (button) {
+        button.style.display = payoutReprintReceipt ? '' : 'none';
+        button.disabled = false;
+    }
+    if (status) status.innerText = '';
+}
+
+async function reprintPaidPayoutReceipt() {
+    if (!payoutReprintReceipt) return;
+
+    const button = document.getElementById('payout_reprint_button');
+    const status = document.getElementById('payout_reprint_status');
+    if (button) button.disabled = true;
+    if (status) status.innerText = 'Sending payout receipt to local printer...';
+
+    const printResult = await printPayoutReceipt({ receipt: payoutReprintReceipt });
+    if (status) {
+        status.innerText = printResult.ok
+            ? 'Payout receipt sent to printer.'
+            : 'Payout receipt print failed: ' + printResult.message;
+    }
+    if (button) button.disabled = false;
+}
+
 function updateStatus(status) {
     document.getElementById("ws_status").innerText = "Status: " + status;
     document.getElementById("ws_status").style.color = status === "Connected" ? "green" : "red";
@@ -372,7 +405,7 @@ function closeWala() {
     console.log("Wala betting closed");
 }
 
-function openmodal(modalid, buttonid, side=null) {
+function openmodal(modalid, buttonid, side=null, preservePayoutReprint=false) {
     console.log ("open modal");
     console.log ("modal id : " +modalid);
     console.log ("button id : " + buttonid);
@@ -425,6 +458,9 @@ function openmodal(modalid, buttonid, side=null) {
         }, timeout); // Slight delay to ensure the modal is rendered
 
     } else if (modalid == 'payout_error_modal') {
+        if (!preservePayoutReprint) {
+            setPayoutReprintOption({ error: buttonid });
+        }
         if (buttonid === 'invalid_barcode') {
             document.getElementById('payout_error_message').innerText = "Invalid barcode. Please try again.";
         } else if (buttonid === 'notfound_barcode') {
@@ -439,6 +475,12 @@ function openmodal(modalid, buttonid, side=null) {
             document.getElementById('payout_error_message').innerText = "This transaction has already been paid out.";
         } else if (buttonid === 'wrongside') {
             document.getElementById('payout_error_message').innerText = "The selected side did not win. No payout available.";
+        } else if (buttonid === 'exceeds_cash_on_hand') {
+            document.getElementById('payout_error_message').innerText = "Insufficient cash on hand to issue this payout.";
+        } else if (buttonid === 'cashier_not_found') {
+            document.getElementById('payout_error_message').innerText = "The ticket's cashier account could not be found. Payout was blocked.";
+        } else if (buttonid === 'teller_offline') {
+            document.getElementById('payout_error_message').innerText = "You are tagged as offline. Please report to the admin office.";
         } else if (buttonid === 'matchcomplete') {
             document.getElementById('payout_error_message').innerText = "The match is already complete. Bet cancellation is not allowed.";
         } else if (buttonid === 'matchnotopen') {
@@ -478,12 +520,13 @@ async function handlePayoutMessage(data) {
     console.log("Payout result received:", data);
     if ("error" in data) {
         console.log("Payout error:", data.error);
+        setPayoutReprintOption(data);
         if (data.error === 'wrong_teller') {
             document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
             document.getElementById('wrong_teller_modal').style.display = 'flex';
         } else {
             document.getElementById('payout_error_header').innerText = "Payout Error";
-            openmodal('payout_error_modal', data.error);
+            openmodal('payout_error_modal', data.error, null, true);
         }
     } else if ("transaction_id" in data && "Total_Payout" in data) {
         document.getElementById('payout_success_header').innerText = "Payout request valid!";
@@ -504,14 +547,32 @@ async function handlePayoutMessage(data) {
         document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
         document.getElementById('payout_message1').innerText = "Please refund the bettor.";
         document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
-        document.getElementById('payout_message3').innerText = "";
         document.getElementById('payout_print_modal').style.display = 'flex';
+
+        if (data.receipt && data.print_required !== false) {
+            document.getElementById('payout_message3').innerText = "Sending cancelled fight refund receipt to local printer...";
+            const printResult = await printPayoutReceipt(data);
+            document.getElementById('payout_message3').innerText = printResult.ok
+                ? "Cancelled fight refund receipt sent to printer."
+                : "Cancelled fight refund receipt print failed: " + printResult.message;
+        } else {
+            document.getElementById('payout_message3').innerText = "";
+        }
     } else if ("side" in data && data.side === "DRAW") {
         document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
         document.getElementById('payout_message1').innerText = "Fight result is a draw.";
         document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
-        document.getElementById('payout_message3').innerText = "";
         document.getElementById('payout_print_modal').style.display = 'flex';
+
+        if (data.receipt && data.print_required !== false) {
+            document.getElementById('payout_message3').innerText = "Sending draw refund receipt to local printer...";
+            const printResult = await printPayoutReceipt(data);
+            document.getElementById('payout_message3').innerText = printResult.ok
+                ? "Draw refund receipt sent to printer."
+                : "Draw refund receipt print failed: " + printResult.message;
+        } else {
+            document.getElementById('payout_message3').innerText = "";
+        }
     }
 }
 

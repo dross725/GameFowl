@@ -2,7 +2,10 @@ from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden
 from django.db.models import Sum, Count, Q
+from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.csrf import ensure_csrf_cookie
 from . import services as services
+from . import masterlock
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
@@ -46,6 +49,127 @@ def role_home_url(user):
 def unauthorized(request):
     """Shown when a user has no admin/teller/display group."""
     return render(request, '403.html', status=403)
+
+
+@require_GET
+def health(request):
+    """Process readiness probe — always 200 while Daphne is up."""
+    status = masterlock.get_status(touch_heartbeat=False)
+    response = JsonResponse({
+        'ok': True,
+        'locked': bool(status.get('locked')),
+        'enabled': bool(status.get('enabled')),
+        'valid_until': status.get('valid_until'),
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@ensure_csrf_cookie
+@require_http_methods(['GET', 'POST'])
+def master_lock_page(request):
+    """
+    Standalone activation page (accessible while locked).
+    GET renders the form; POST enable/extend/disable with the master key.
+    """
+    client_id = _get_client_ip(request)
+    status = masterlock.get_status(touch_heartbeat=False)
+
+    if request.method == 'POST':
+        action = (request.POST.get('action') or '').strip().lower()
+        # Disable is only available to logged-in superusers (Settings page).
+        # The locked recovery page may only enable/extend with the master key.
+        if action == 'disable':
+            if not (request.user.is_authenticated and request.user.is_superuser):
+                return JsonResponse(
+                    {'ok': False, 'error': 'Only superusers can disable the master lock.'},
+                    status=403,
+                )
+        master_key = request.POST.get('master_key') or ''
+        try:
+            if action == 'enable':
+                status = masterlock.enable_lock(master_key=master_key, client_id=client_id)
+            elif action == 'extend':
+                status = masterlock.extend_lock(master_key=master_key, client_id=client_id)
+            elif action == 'disable':
+                status = masterlock.disable_lock(master_key=master_key, client_id=client_id)
+            else:
+                return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=400)
+
+            logger.info(
+                'MASTER LOCK UI action=%s ok=1 locked=%s ip=%s',
+                action, status.get('locked'), client_id,
+            )
+            payload = {'ok': True, **{k: status.get(k) for k in (
+                'locked', 'enabled', 'valid_until', 'extension_count', 'extension_days',
+            )}}
+            # Prefer JSON for fetch; form posts without Accept still get JSON.
+            return JsonResponse(payload)
+        except masterlock.MasterLockAuthError:
+            logger.warning('MASTER LOCK UI action=%s rejected ip=%s', action, client_id)
+            return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=403)
+        except masterlock.MasterLockError as exc:
+            logger.warning('MASTER LOCK UI action=%s failed ip=%s err=%s', action, client_id, exc)
+            return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=400)
+        finally:
+            # Avoid retaining the submitted key in locals longer than needed.
+            master_key = ''
+
+    # If already unlocked, send operators back to login / home.
+    if not status.get('locked'):
+        if request.user.is_authenticated:
+            home = role_home_url(request.user)
+            if home:
+                return redirect(home)
+        return redirect('login')
+
+    response = render(request, 'SmartWagers/master_lock.html', {
+        'lock_status': status,
+        'extension_days': masterlock.EXTENSION_DAYS,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@require_GET
+def master_lock_status(request):
+    """Lightweight poll endpoint for open pages (allowlisted under /master-lock/)."""
+    status = masterlock.get_status(touch_heartbeat=False)
+    response = JsonResponse({
+        'ok': True,
+        'locked': bool(status.get('locked')),
+        'enabled': bool(status.get('enabled')),
+        'valid_until': status.get('valid_until'),
+        'extension_days': masterlock.EXTENSION_DAYS,
+    })
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+def teller_is_online(user):
+    """Return True if the teller's admin-controlled online flag is set."""
+    ts, _ = TellerStatus.objects.get_or_create(user=user, defaults={'is_online': True})
+    return ts.is_online
+
+
+def teller_offline_response():
+    """JSON response when an offline teller attempts a restricted action."""
+    return JsonResponse({'ok': False, 'error': 'teller_offline'}, status=403)
+
+
+def notify_teller_online_status(teller_id, is_online):
+    """Broadcast a teller's online/offline change to all teller WebSocket clients."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    async_to_sync(channel_layer.group_send)(
+        'user',
+        {
+            'type': 'send_data',
+            'teller_online': is_online,
+            'teller_id': teller_id,
+        },
+    )
 
 
 class RoleBasedLoginView(LoginView):
@@ -164,6 +288,9 @@ def Reports(request):
 def reprint_wager(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    if request.user.groups.filter(name='teller').exists() and not teller_is_online(request.user):
+        return teller_offline_response()
 
     transaction_id = request.POST.get('transaction_id', '').strip()
     if not transaction_id:
@@ -293,8 +420,24 @@ def Teller(request):
     meron_total, meron_payout, wala_total, wala_payout, total_bet , fightnum= services.get_Totals() 
     #comm = services.get_comm_val()
     current_fn = services.get_fightnum()
+    is_online = teller_is_online(request.user)
+
+    def user_page_context(**extra):
+        ctx = {
+            'M_total_bet': format(int(meron_total), ','),
+            'M_payout': meron_payout,
+            'W_total_bet': format(int(wala_total), ','),
+            'W_payout': wala_payout,
+            'teller_is_online': is_online,
+            'teller_id': request.user.pk,
+        }
+        ctx.update(extra)
+        return ctx
 
     if request.method == 'POST':
+        if not is_online:
+            return teller_offline_response()
+
         action = request.POST.get('action', 'reserve')
         if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'cancel_pending':
             services.cancel_wager_receipt(request.POST.get('transaction_id', ''))
@@ -325,13 +468,9 @@ def Teller(request):
                     'error': 'betting_closed',
                     'blocked_betting_side': wager_id,
                 }, status=409)
-            return render( request, 'SmartWagers/user.html', {
-                'M_total_bet' : format(int(meron_total), ','),
-                'M_payout' : meron_payout,
-                'W_total_bet' : format(int(wala_total), ','),
-                'W_payout' : wala_payout,
-                'blocked_betting_side': wager_id,
-            })
+            return render(request, 'SmartWagers/user.html', user_page_context(
+                blocked_betting_side=wager_id,
+            ))
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
             return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
@@ -348,12 +487,7 @@ def Teller(request):
             'receipt': services.build_wager_receipt_payload(pending_wager),
         })
 
-    return render( request, 'SmartWagers/user.html', {
-        'M_total_bet' : format(int(meron_total), ','),
-        'M_payout' : meron_payout,
-        'W_total_bet' : format(int(wala_total), ','),
-        'W_payout' : wala_payout
-         })
+    return render(request, 'SmartWagers/user.html', user_page_context())
 
 
 @group_required('teller')
@@ -434,6 +568,18 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True):
 
     balance = grand_total - remit_total + collect_total - payout_total
     return balance, grand_total
+
+
+def _remit_exceeds_cash_on_hand(user, amount, event=None, apply_end_bound=True):
+    """Return (exceeds, balance, grand_total) for a proposed REMIT amount.
+
+    Amounts are compared at 2 decimal places (currency precision).
+    """
+    balance, grand_total = _compute_teller_balance(
+        user, event=event, apply_end_bound=apply_end_bound,
+    )
+    exceeds = round(amount, 2) > round(balance, 2)
+    return exceeds, balance, grand_total
 
 
 @group_required('teller')
@@ -526,6 +672,9 @@ def teller_transaction(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
+    if not teller_is_online(request.user):
+        return teller_offline_response()
+
     transaction_type = request.POST.get('transaction_type', '').strip().upper()
     if transaction_type != TellerTransaction.REMIT:
         return JsonResponse({'ok': False, 'error': 'invalid_type'}, status=400)
@@ -538,6 +687,22 @@ def teller_transaction(request):
     if amount <= 0:
         return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
+    event_scope, apply_end_bound = services.get_event_scope()
+    exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
+        request.user, amount, event=event_scope, apply_end_bound=apply_end_bound,
+    )
+    if exceeds:
+        logger.warning(
+            "REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s",
+            amount, balance, request.user.username,
+        )
+        return JsonResponse({
+            'ok': False,
+            'error': 'exceeds_cash_on_hand',
+            'balance': balance,
+            'grand_total': grand_total,
+        }, status=400)
+
     txn = TellerTransaction.objects.create(
         user=request.user,
         transaction_type=transaction_type,
@@ -548,8 +713,9 @@ def teller_transaction(request):
         txn.transaction_id, transaction_type, amount, request.user.username,
     )
 
-    event_scope, apply_end_bound = services.get_event_scope()
-    balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
+    balance, grand_total = _compute_teller_balance(
+        request.user, event=event_scope, apply_end_bound=apply_end_bound,
+    )
     return JsonResponse({
         'ok': True,
         'print_required': services.is_wager_receipt_printing_enabled(),
@@ -604,6 +770,8 @@ def admin_tellers(request):
             'has_activity': has_activity,
         })
 
+    teller_data.sort(key=lambda td: (-td['balance'], td['user'].username.lower()))
+
     setting = Settings.objects.order_by('-id').first()
     teller_max_balance = setting.teller_max_balance if setting else 0.0
     teller_min_balance = setting.teller_min_balance if setting else 0.0
@@ -641,6 +809,23 @@ def admin_teller_txn(request):
     except (Group.DoesNotExist, User.DoesNotExist):
         return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
 
+    scope, apply_end_bound = services.get_event_scope()
+    if transaction_type == TellerTransaction.REMIT:
+        exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
+            teller, amount, event=scope, apply_end_bound=apply_end_bound,
+        )
+        if exceeds:
+            logger.warning(
+                "ADMIN REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s by_admin=%s",
+                amount, balance, teller.username, request.user.username,
+            )
+            return JsonResponse({
+                'ok': False,
+                'error': 'exceeds_cash_on_hand',
+                'balance': balance,
+                'grand_total': grand_total,
+            }, status=400)
+
     txn = TellerTransaction.objects.create(
         user=teller,
         transaction_type=transaction_type,
@@ -651,8 +836,9 @@ def admin_teller_txn(request):
         txn.transaction_id, transaction_type, amount, teller.username, request.user.username,
     )
 
-    scope, apply_end_bound = services.get_event_scope()
-    balance, grand_total = _compute_teller_balance(teller, event=scope, apply_end_bound=apply_end_bound)
+    balance, grand_total = _compute_teller_balance(
+        teller, event=scope, apply_end_bound=apply_end_bound,
+    )
     display_name = (f"{teller.first_name} {teller.last_name}".strip() or teller.username)
 
     return JsonResponse({
@@ -1103,6 +1289,8 @@ def toggle_teller_online(request):
                 )
                 fund_issued = True
 
+    notify_teller_online_status(teller_id, is_online)
+
     return JsonResponse({
         'ok': True,
         'teller_id': teller_id,
@@ -1217,6 +1405,48 @@ def admin_settings(request):
 
             return JsonResponse({'ok': True, 'result_id': result_id, 'side': new_side})
 
+        if action in ('master_lock_enable', 'master_lock_extend', 'master_lock_disable'):
+            if not request.user.is_superuser:
+                logger.warning(
+                    'MASTER LOCK admin action=%s denied (not superuser) by=%s',
+                    action, request.user.username,
+                )
+                return JsonResponse(
+                    {'ok': False, 'error': 'Only superusers can manage the master lock.'},
+                    status=403,
+                )
+            client_id = _get_client_ip(request)
+            master_key = request.POST.get('master_key') or ''
+            try:
+                if action == 'master_lock_enable':
+                    status = masterlock.enable_lock(master_key=master_key, client_id=client_id)
+                elif action == 'master_lock_extend':
+                    status = masterlock.extend_lock(master_key=master_key, client_id=client_id)
+                else:
+                    status = masterlock.disable_lock(master_key=master_key, client_id=client_id)
+                logger.info(
+                    'MASTER LOCK admin action=%s by=%s locked=%s',
+                    action, request.user.username, status.get('locked'),
+                )
+                return JsonResponse({
+                    'ok': True,
+                    'locked': status.get('locked'),
+                    'enabled': status.get('enabled'),
+                    'valid_until': status.get('valid_until'),
+                    'extension_count': status.get('extension_count'),
+                    'extension_days': masterlock.EXTENSION_DAYS,
+                })
+            except masterlock.MasterLockAuthError:
+                logger.warning(
+                    'MASTER LOCK admin action=%s rejected by=%s',
+                    action, request.user.username,
+                )
+                return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=403)
+            except masterlock.MasterLockError:
+                return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=400)
+            finally:
+                master_key = ''
+
         return JsonResponse({'ok': False, 'error': 'Unknown action'}, status=400)
 
     plasada = services.get_comm_val()
@@ -1228,6 +1458,7 @@ def admin_settings(request):
     teller_max_balance  = setting.teller_max_balance  if setting else 0.0
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
     teller_min_balance  = setting.teller_min_balance  if setting else 0.0
+    lock_status = masterlock.get_status(touch_heartbeat=False)
 
     return render(request, 'SmartWagers/admin_settings.html', {
         'plasada': plasada,
@@ -1237,4 +1468,6 @@ def admin_settings(request):
         'teller_max_balance': teller_max_balance,
         'teller_initial_fund': teller_initial_fund,
         'teller_min_balance': teller_min_balance,
+        'lock_status': lock_status,
+        'extension_days': masterlock.EXTENSION_DAYS,
     })
