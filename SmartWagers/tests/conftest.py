@@ -86,6 +86,7 @@ def default_settings(db):
         plasada=0.05,
         M_control_status='OPEN',
         W_control_status='OPEN',
+        admin_initial_fund=100000.0,
         teller_max_balance=50000.0,
         teller_initial_fund=10000.0,
         teller_min_balance=1000.0,

@@ -1,7 +1,8 @@
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden
-from django.db.models import Sum, Count, Q
+from django.db import transaction as db_transaction
+from django.db.models import Sum, Count, Q, F
 from django.views.decorators.http import require_GET, require_http_methods
 from django.views.decorators.csrf import ensure_csrf_cookie
 from . import services as services
@@ -9,7 +10,10 @@ from . import masterlock
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
-from .models import SessionLog, TellerTransaction, Wagers, Event, Fight_Results, Settings, TellerStatus
+from .models import (
+    AdminBankTransaction, Event, Fight_Results, SessionLog, Settings,
+    TellerStatus, TellerTransaction, Wagers,
+)
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
@@ -349,6 +353,7 @@ def Main_admin(request):
     #initialize
     meron_total, meron_payout, wala_total, wala_payout, total_bet, fightnum = services.get_Totals() 
     current_fn = services.get_fightnum()
+    admin_fund = services.get_admin_fund_summary()
 
     logger.debug("Main_admin page: user=%s", request.user)
 
@@ -389,6 +394,7 @@ def Main_admin(request):
                 'W_total_bet': format(int(wala_total), ','),
                 'W_payout': wala_payout,
                 'blocked_betting_side': wager_id,
+                'admin_fund': admin_fund,
             })
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
@@ -410,8 +416,125 @@ def Main_admin(request):
         'M_total_bet' : format(int(meron_total), ','),
         'M_payout' : meron_payout,
         'W_total_bet' : format(int(wala_total), ','),
-        'W_payout' : wala_payout
+        'W_payout' : wala_payout,
+        'admin_fund': admin_fund,
     })
+
+
+def _admin_fund_payload(event):
+    summary = services.get_admin_fund_summary(event=event)
+    transactions = AdminBankTransaction.objects.filter(
+        event=event,
+    ).select_related('admin')[:20]
+    return {
+        'ok': True,
+        'active': True,
+        'event_id': event.pk,
+        'event_name': event.name,
+        **summary,
+        'transactions': [
+            {
+                'id': txn.pk,
+                'transaction_type': txn.transaction_type,
+                'amount': round(txn.amount, 2),
+                'admin': (
+                    f"{txn.admin.first_name} {txn.admin.last_name}".strip()
+                    or txn.admin.username
+                ),
+                'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            }
+            for txn in transactions
+        ],
+    }
+
+
+@group_required('admin')
+def admin_fund_status(request):
+    if request.method != 'GET':
+        return JsonResponse(
+            {'ok': False, 'error': 'method_not_allowed'},
+            status=405,
+        )
+    event = services.get_active_event()
+    if event is None:
+        return JsonResponse({
+            'ok': True,
+            'active': False,
+            'balance': 0.0,
+            'bank_borrowed': 0.0,
+            'bank_remitted': 0.0,
+            'net_bank_funding': 0.0,
+            'transactions': [],
+        })
+    return JsonResponse(_admin_fund_payload(event))
+
+
+@group_required('admin')
+def admin_bank_transaction(request):
+    if request.method != 'POST':
+        return JsonResponse(
+            {'ok': False, 'error': 'method_not_allowed'},
+            status=405,
+        )
+
+    transaction_type = request.POST.get(
+        'transaction_type', '',
+    ).strip().upper()
+    if transaction_type not in (
+        AdminBankTransaction.BORROW,
+        AdminBankTransaction.REMIT,
+    ):
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_type'},
+            status=400,
+        )
+    try:
+        amount = round(float(request.POST.get('amount', '')), 2)
+    except (ValueError, TypeError):
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_amount'},
+            status=400,
+        )
+    if amount <= 0:
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_amount'},
+            status=400,
+        )
+
+    with db_transaction.atomic():
+        Event.objects.filter(is_active=True).update(
+            is_active=F('is_active'),
+        )
+        event = Event.objects.filter(is_active=True).order_by(
+            '-started_at',
+        ).first()
+        if event is None:
+            return JsonResponse(
+                {'ok': False, 'error': 'no_active_event'},
+                status=409,
+            )
+
+        if transaction_type == AdminBankTransaction.REMIT:
+            balance = services.get_admin_fund_summary(event=event)['balance']
+            if amount > balance:
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'exceeds_admin_fund',
+                    'balance': balance,
+                }, status=400)
+
+        txn = AdminBankTransaction.objects.create(
+            event=event,
+            admin=request.user,
+            transaction_type=transaction_type,
+            amount=amount,
+        )
+
+    logger.info(
+        "ADMIN BANK TXN: id=%s type=%s amount=%.2f admin=%s event=%s",
+        txn.pk, transaction_type, amount, request.user.username, event.pk,
+    )
+    return JsonResponse(_admin_fund_payload(event))
 
    
 @group_required('teller')
@@ -585,8 +708,24 @@ def _remit_exceeds_cash_on_hand(user, amount, event=None, apply_end_bound=True):
 @group_required('teller')
 def get_teller_balance(request):
     event_scope, apply_end_bound = services.get_event_scope()
+    if request.user.groups.filter(name='admin').exists():
+        summary = services.get_admin_fund_summary(
+            event=event_scope,
+            apply_end_bound=apply_end_bound,
+        )
+        return JsonResponse({
+            'ok': True,
+            'balance': summary['balance'],
+            'grand_total': summary['admin_wagers'],
+            'shared_admin_fund': True,
+        })
     balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
-    return JsonResponse({'ok': True, 'balance': balance, 'grand_total': grand_total})
+    return JsonResponse({
+        'ok': True,
+        'balance': balance,
+        'grand_total': grand_total,
+        'shared_admin_fund': False,
+    })
 
 
 @group_required('teller')
@@ -733,7 +872,12 @@ def admin_tellers(request):
     """Admin view: shows all tellers with balances and TellerTransaction history."""
     try:
         teller_group = Group.objects.get(name='teller')
-        tellers = teller_group.user_set.all().order_by('username')
+        admin_ids = User.objects.filter(
+            groups__name='admin',
+        ).values_list('pk', flat=True)
+        tellers = teller_group.user_set.exclude(
+            pk__in=admin_ids,
+        ).order_by('username')
     except Group.DoesNotExist:
         tellers = []
 
@@ -775,12 +919,22 @@ def admin_tellers(request):
     setting = Settings.objects.order_by('-id').first()
     teller_max_balance = setting.teller_max_balance if setting else 0.0
     teller_min_balance = setting.teller_min_balance if setting else 0.0
+    teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
+    admin_initial_fund = setting.admin_initial_fund if setting else 100000.0
+    online_teller_count = sum(1 for td in teller_data if td['is_online'])
+    planned_teller_funds = online_teller_count * teller_initial_fund
+    planned_bank_funds = admin_initial_fund + planned_teller_funds
 
     return render(request, 'SmartWagers/admin_tellers.html', {
         'teller_data': teller_data,
         'active_event': active_event,
         'teller_max_balance': teller_max_balance,
         'teller_min_balance': teller_min_balance,
+        'teller_initial_fund': teller_initial_fund,
+        'admin_initial_fund': admin_initial_fund,
+        'online_teller_count': online_teller_count,
+        'planned_teller_funds': planned_teller_funds,
+        'planned_bank_funds': planned_bank_funds,
     })
 
 
@@ -805,7 +959,12 @@ def admin_teller_txn(request):
 
     try:
         teller_group = Group.objects.get(name='teller')
-        teller = teller_group.user_set.get(pk=teller_id)
+        admin_ids = User.objects.filter(
+            groups__name='admin',
+        ).values_list('pk', flat=True)
+        teller = teller_group.user_set.exclude(
+            pk__in=admin_ids,
+        ).get(pk=teller_id)
     except (Group.DoesNotExist, User.DoesNotExist):
         return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
 
@@ -826,11 +985,44 @@ def admin_teller_txn(request):
                 'grand_total': grand_total,
             }, status=400)
 
-    txn = TellerTransaction.objects.create(
-        user=teller,
-        transaction_type=transaction_type,
-        amount=amount,
-    )
+    if transaction_type == TellerTransaction.COLLECT:
+        with db_transaction.atomic():
+            Event.objects.filter(is_active=True).update(
+                is_active=F('is_active'),
+            )
+            active_event = Event.objects.filter(is_active=True).order_by(
+                '-started_at',
+            ).first()
+            if active_event is None:
+                return JsonResponse(
+                    {'ok': False, 'error': 'no_active_event'},
+                    status=409,
+                )
+            admin_balance = services.get_admin_fund_summary(
+                event=active_event,
+            )['balance']
+            if amount > admin_balance:
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'exceeds_admin_fund',
+                    'admin_fund_balance': admin_balance,
+                }, status=400)
+            txn = TellerTransaction.objects.create(
+                user=teller,
+                transaction_type=transaction_type,
+                amount=amount,
+                affects_admin_fund=True,
+            )
+    else:
+        txn = TellerTransaction.objects.create(
+            user=teller,
+            transaction_type=transaction_type,
+            amount=amount,
+            affects_admin_fund=True,
+            # An admin-entered REMIT/Advance is a direct physical handoff,
+            # so it is received immediately and increases the shared fund.
+            received=True,
+        )
     logger.info(
         "ADMIN TXN: txn_id=%s type=%s amount=%.2f teller=%s by_admin=%s",
         txn.transaction_id, transaction_type, amount, teller.username, request.user.username,
@@ -852,6 +1044,7 @@ def admin_teller_txn(request):
         'amount': amount,
         'transaction_type': transaction_type,
         'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        'admin_fund_balance': services.get_admin_fund_summary()['balance'],
     })
 
 
@@ -891,6 +1084,9 @@ def admin_mark_received(request):
         'ok': True,
         'transaction_id': txn.transaction_id,
         'teller_id': txn.user.pk,
+        'admin_fund_balance': services.get_admin_fund_summary(
+            event=active_event,
+        )['balance'],
     })
 
 
@@ -955,7 +1151,12 @@ def admin_event_report(request):
 
     try:
         teller_group = Group.objects.get(name='teller')
-        tellers = teller_group.user_set.all().order_by('username')
+        admin_ids = User.objects.filter(
+            groups__name='admin',
+        ).values_list('pk', flat=True)
+        tellers = teller_group.user_set.exclude(
+            pk__in=admin_ids,
+        ).order_by('username')
     except Group.DoesNotExist:
         tellers = []
 
@@ -1202,7 +1403,10 @@ def admin_teller_alerts(request):
     """Lightweight JSON endpoint: returns tellers whose balance is out of range."""
     try:
         teller_group = Group.objects.get(name='teller')
-        tellers = teller_group.user_set.all()
+        admin_ids = User.objects.filter(
+            groups__name='admin',
+        ).values_list('pk', flat=True)
+        tellers = teller_group.user_set.exclude(pk__in=admin_ids)
     except Group.DoesNotExist:
         tellers = []
 
@@ -1264,7 +1468,12 @@ def toggle_teller_online(request):
 
     try:
         teller_group = Group.objects.get(name='teller')
-        teller = teller_group.user_set.get(pk=teller_id)
+        admin_ids = User.objects.filter(
+            groups__name='admin',
+        ).values_list('pk', flat=True)
+        teller = teller_group.user_set.exclude(
+            pk__in=admin_ids,
+        ).get(pk=teller_id)
     except (Group.DoesNotExist, User.DoesNotExist):
         return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
 
@@ -1286,6 +1495,7 @@ def toggle_teller_online(request):
                     user=teller,
                     transaction_type=TellerTransaction.COLLECT,
                     amount=round(initial_fund, 2),
+                    affects_admin_fund=False,
                 )
                 fund_issued = True
 
@@ -1355,6 +1565,26 @@ def admin_settings(request):
                 setting.teller_initial_fund = new_fund
             setting.save()
             return JsonResponse({'ok': True, 'teller_initial_fund': new_fund})
+
+        if action == 'update_admin_initial_fund':
+            try:
+                new_fund = float(request.POST.get('admin_initial_fund', ''))
+                if new_fund < 0:
+                    return JsonResponse({'ok': False, 'error': 'Initial fund must be 0 or greater'}, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid initial fund value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(admin_initial_fund=new_fund)
+            else:
+                setting.admin_initial_fund = new_fund
+            setting.save()
+            logger.info(
+                "SETTINGS: admin initial fund updated to %.2f by admin=%s",
+                new_fund, request.user.username,
+            )
+            return JsonResponse({'ok': True, 'admin_initial_fund': new_fund})
 
         if action == 'update_teller_min_balance':
             try:
@@ -1455,6 +1685,7 @@ def admin_settings(request):
         fight_results = fight_results.filter(event=active_event)
 
     setting = Settings.objects.order_by('-id').first()
+    admin_initial_fund  = setting.admin_initial_fund  if setting else 100000.0
     teller_max_balance  = setting.teller_max_balance  if setting else 0.0
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
     teller_min_balance  = setting.teller_min_balance  if setting else 0.0
@@ -1465,6 +1696,7 @@ def admin_settings(request):
         'plasada_pct': plasada * 100,
         'fight_results': fight_results,
         'active_event': active_event,
+        'admin_initial_fund': admin_initial_fund,
         'teller_max_balance': teller_max_balance,
         'teller_initial_fund': teller_initial_fund,
         'teller_min_balance': teller_min_balance,

@@ -9,7 +9,8 @@ import json
 import pytest
 from django.test import Client
 from SmartWagers.models import (
-    Event, Fight_Status, Settings, TellerTransaction, Totals, Wagers,
+    Event, Fight_Status, Settings, TellerStatus, TellerTransaction, Totals,
+    Wagers,
 )
 
 
@@ -205,6 +206,19 @@ class TestJsonApiEndpoints:
         assert 'balance' in data
         assert data['ok'] is True
 
+    def test_dual_role_admin_sees_shared_admin_balance_on_teller_page(
+            self, admin_user, teller_group, default_settings, active_event):
+        admin_user.groups.add(teller_group)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.get('/get_teller_balance/')
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['balance'] == 100000
+        assert data['shared_admin_fund'] is True
+
 
 # ---------------------------------------------------------------------------
 # Admin action POST guards
@@ -240,6 +254,22 @@ class TestAdminActionGuards:
         data = json.loads(response.content)
         assert data.get('ok') is True
         assert Event.objects.filter(is_active=True).exists()
+
+    def test_admin_can_update_admin_initial_fund(
+            self, admin_user, default_settings):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/settings/', {
+            'action': 'update_admin_initial_fund',
+            'admin_initial_fund': '125000',
+        })
+        assert response.status_code == 200
+        assert response.json() == {
+            'ok': True,
+            'admin_initial_fund': 125000.0,
+        }
+        default_settings.refresh_from_db()
+        assert default_settings.admin_initial_fund == 125000.0
 
     def test_end_event_post_ends_active_event(self, admin_user, active_event):
         client = Client()
@@ -439,7 +469,7 @@ class TestAdminTellerTxnView:
         ).exists()
 
     def test_admin_remit_within_cash_on_hand_succeeds(
-        self, admin_user, teller_user, default_settings,
+        self, admin_user, teller_user, default_settings, active_event,
     ):
         self._seed_cash_on_hand(teller_user, amount=800)
         client = Client()
@@ -453,9 +483,15 @@ class TestAdminTellerTxnView:
         data = json.loads(response.content)
         assert data['ok'] is True
         assert data['balance'] == 0
+        assert data['admin_fund_balance'] == 100000
+        remit = TellerTransaction.objects.get(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+        )
+        assert remit.received is True
 
-    def test_admin_collect_not_limited_by_cash_on_hand(
-        self, admin_user, teller_user, default_settings,
+    def test_admin_collect_uses_shared_admin_fund(
+        self, admin_user, teller_user, default_settings, active_event,
     ):
         client = Client()
         client.force_login(admin_user)
@@ -468,3 +504,187 @@ class TestAdminTellerTxnView:
         data = json.loads(response.content)
         assert data['ok'] is True
         assert data['balance'] == 5000
+        assert data['admin_fund_balance'] == 95000
+
+    def test_admin_collect_rejected_when_shared_fund_is_insufficient(
+        self, admin_user, teller_user, default_settings, active_event,
+    ):
+        active_event.admin_opening_fund = 1000
+        active_event.save(update_fields=['admin_opening_fund'])
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/teller-txn/', {
+            'teller_id': teller_user.pk,
+            'transaction_type': 'COLLECT',
+            'amount': '1001',
+        })
+        assert response.status_code == 400
+        assert response.json()['error'] == 'exceeds_admin_fund'
+        assert not TellerTransaction.objects.filter(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+        ).exists()
+
+    def test_admin_cannot_issue_teller_borrow_to_dual_role_user(
+            self, admin_user, teller_user, admin_group, active_event):
+        teller_user.groups.add(admin_group)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/teller-txn/', {
+            'teller_id': teller_user.pk,
+            'transaction_type': 'COLLECT',
+            'amount': '5000',
+        })
+
+        assert response.status_code == 404
+        assert response.json()['error'] == 'teller_not_found'
+        assert not TellerTransaction.objects.filter(user=teller_user).exists()
+
+
+# ---------------------------------------------------------------------------
+# shared admin fund / bank
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAdminFundViews:
+
+    def test_status_returns_shared_event_balance(
+            self, admin_user, active_event):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/administrator/fund/')
+        assert response.status_code == 200
+        data = response.json()
+        assert data['active'] is True
+        assert data['balance'] == 100000
+        assert data['bank_borrowed'] == 100000
+
+    def test_admin_can_borrow_from_and_remit_to_bank(
+            self, admin_user, active_event):
+        client = Client()
+        client.force_login(admin_user)
+
+        borrow = client.post('/administrator/fund/bank-transaction/', {
+            'transaction_type': 'BORROW',
+            'amount': '25000',
+        })
+        assert borrow.status_code == 200
+        assert borrow.json()['balance'] == 125000
+
+        remit = client.post('/administrator/fund/bank-transaction/', {
+            'transaction_type': 'REMIT',
+            'amount': '5000',
+        })
+        assert remit.status_code == 200
+        assert remit.json()['balance'] == 120000
+        assert remit.json()['bank_borrowed'] == 125000
+        assert remit.json()['bank_remitted'] == 5000
+        assert remit.json()['net_bank_funding'] == 120000
+
+    def test_bank_remit_cannot_exceed_shared_balance(
+            self, admin_user, active_event):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post(
+            '/administrator/fund/bank-transaction/',
+            {'transaction_type': 'REMIT', 'amount': '100001'},
+        )
+        assert response.status_code == 400
+        assert response.json()['error'] == 'exceeds_admin_fund'
+
+    def test_bank_transaction_requires_active_event(self, admin_user):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post(
+            '/administrator/fund/bank-transaction/',
+            {'transaction_type': 'BORROW', 'amount': '1000'},
+        )
+        assert response.status_code == 409
+        assert response.json()['error'] == 'no_active_event'
+
+    def test_teller_cannot_use_bank_endpoint(
+            self, teller_user, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/administrator/fund/bank-transaction/',
+            {'transaction_type': 'BORROW', 'amount': '1000'},
+        )
+        assert response.status_code == 403
+
+    def test_remit_increases_pool_only_when_marked_received(
+            self, admin_user, teller_user, active_event):
+        txn = TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=500,
+        )
+        client = Client()
+        client.force_login(admin_user)
+
+        before = client.get('/administrator/fund/').json()
+        assert before['balance'] == 100000
+
+        response = client.post('/administrator/mark-received/', {
+            'transaction_id': txn.transaction_id,
+        })
+        assert response.status_code == 200
+        assert response.json()['admin_fund_balance'] == 100500
+
+
+# ---------------------------------------------------------------------------
+# pre-event teller preparation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestPreEventTellerPreparation:
+
+    def test_tellers_page_excludes_users_who_are_also_admins(
+            self, admin_user, teller_user, teller_user2, admin_group):
+        teller_user.groups.add(admin_group)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.get('/administrator/tellers/')
+
+        visible_ids = {
+            item['user'].pk for item in response.context['teller_data']
+        }
+        assert teller_user.pk not in visible_ids
+        assert teller_user2.pk in visible_ids
+
+    def test_tellers_page_available_without_active_event(
+            self, admin_user, teller_user, default_settings):
+        TellerStatus.objects.create(user=teller_user, is_online=True)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.get('/administrator/tellers/')
+
+        assert response.status_code == 200
+        assert response.context['active_event'] is None
+        assert response.context['online_teller_count'] == 1
+        assert response.context['planned_teller_funds'] == 10000
+        assert response.context['planned_bank_funds'] == 110000
+        assert b'pre-event-funding' in response.content
+
+    def test_online_status_can_be_set_without_issuing_funds(
+            self, admin_user, teller_user, default_settings):
+        status = TellerStatus.objects.create(
+            user=teller_user,
+            is_online=False,
+        )
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post(
+            '/administrator/teller-online-toggle/',
+            {'teller_id': teller_user.pk, 'is_online': 'true'},
+        )
+
+        assert response.status_code == 200
+        assert response.json()['fund_issued'] is False
+        status.refresh_from_db()
+        assert status.is_online is True
+        assert not TellerTransaction.objects.filter(user=teller_user).exists()

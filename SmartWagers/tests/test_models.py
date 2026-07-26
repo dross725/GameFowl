@@ -12,6 +12,7 @@ from django.contrib.auth.models import User
 from django.db import IntegrityError
 
 from SmartWagers.models import (
+    AdminBankTransaction,
     Event,
     Fight_Status,
     Settings,
@@ -115,6 +116,7 @@ class TestSettingsModel:
 
     def test_defaults_are_sane(self):
         s = Settings.objects.create(plasada=0.05)
+        assert s.admin_initial_fund == 100000.0
         assert s.teller_initial_fund == 10000.0
         assert s.M_control_status == 'OPEN'
         assert s.W_control_status == 'OPEN'
@@ -122,6 +124,35 @@ class TestSettingsModel:
     def test_str_contains_plasada(self):
         s = Settings.objects.create(plasada=0.07)
         assert '0.07' in str(s)
+
+
+# ---------------------------------------------------------------------------
+# AdminBankTransaction — bank ledger
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAdminBankTransactionModel:
+
+    def test_records_admin_event_type_and_amount(
+            self, active_event, admin_user):
+        txn = AdminBankTransaction.objects.create(
+            event=active_event,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.BORROW,
+            amount=25000,
+        )
+        assert txn.event == active_event
+        assert txn.admin == admin_user
+        assert txn.amount == 25000
+
+    def test_amount_must_be_positive(self, active_event, admin_user):
+        with pytest.raises(IntegrityError):
+            AdminBankTransaction.objects.create(
+                event=active_event,
+                admin=admin_user,
+                transaction_type=AdminBankTransaction.REMIT,
+                amount=0,
+            )
 
 
 # ---------------------------------------------------------------------------

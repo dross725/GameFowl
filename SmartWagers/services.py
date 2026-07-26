@@ -4,6 +4,7 @@ from .models import Settings
 from .models import Fight_Results
 from .models import Fight_Status
 from .models import Event
+from .models import AdminBankTransaction
 from .models import TellerTransaction
 from .models import TellerStatus
 from django.contrib.auth.models import User
@@ -301,6 +302,101 @@ def get_event_scope():
     return last, False
 
 
+def get_admin_fund_summary(event=None, apply_end_bound=True):
+    """Return the shared admin fund balance and bank totals for an event."""
+    from django.db.models import Sum
+
+    if event is None:
+        event, apply_end_bound = get_event_scope()
+    if event is None:
+        return {
+            'balance': 0.0,
+            'opening_fund': 0.0,
+            'bank_borrowed': 0.0,
+            'bank_remitted': 0.0,
+            'net_bank_funding': 0.0,
+            'admin_wagers': 0.0,
+            'admin_payouts': 0.0,
+            'teller_remits': 0.0,
+            'teller_borrows': 0.0,
+        }
+
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('id', flat=True)
+    admin_usernames = User.objects.filter(
+        groups__name='admin',
+    ).values_list('username', flat=True)
+    teller_ids = User.objects.filter(
+        groups__name='teller',
+    ).exclude(
+        pk__in=admin_ids,
+    ).values_list('id', flat=True)
+
+    admin_wager_qs = Wagers.objects.filter(
+        cashier__in=admin_usernames,
+        registered=True,
+        cancelled=False,
+        created_at__gte=event.started_at,
+    )
+    admin_payout_qs = TellerTransaction.objects.filter(
+        user_id__in=admin_ids,
+        transaction_type=TellerTransaction.PAYOUT,
+        affects_admin_fund=True,
+        created_at__gte=event.started_at,
+    )
+    teller_txn_qs = TellerTransaction.objects.filter(
+        user_id__in=teller_ids,
+        affects_admin_fund=True,
+        created_at__gte=event.started_at,
+    )
+
+    if apply_end_bound and event.ended_at:
+        admin_wager_qs = admin_wager_qs.filter(created_at__lte=event.ended_at)
+        admin_payout_qs = admin_payout_qs.filter(created_at__lte=event.ended_at)
+        teller_txn_qs = teller_txn_qs.filter(created_at__lte=event.ended_at)
+
+    opening_fund = float(event.admin_opening_fund)
+    explicit_borrows = AdminBankTransaction.objects.filter(
+        event=event,
+        transaction_type=AdminBankTransaction.BORROW,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    bank_remitted = AdminBankTransaction.objects.filter(
+        event=event,
+        transaction_type=AdminBankTransaction.REMIT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    admin_wagers = admin_wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
+    admin_payouts = admin_payout_qs.aggregate(total=Sum('amount'))['total'] or 0.0
+    teller_remits = teller_txn_qs.filter(
+        transaction_type=TellerTransaction.REMIT,
+        received=True,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    teller_borrows = teller_txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+
+    bank_borrowed = opening_fund + float(explicit_borrows)
+    net_bank_funding = bank_borrowed - float(bank_remitted)
+    balance = (
+        net_bank_funding
+        + float(admin_wagers)
+        - float(admin_payouts)
+        + float(teller_remits)
+        - float(teller_borrows)
+    )
+    return {
+        'balance': round(balance, 2),
+        'opening_fund': round(opening_fund, 2),
+        'bank_borrowed': round(bank_borrowed, 2),
+        'bank_remitted': round(float(bank_remitted), 2),
+        'net_bank_funding': round(net_bank_funding, 2),
+        'admin_wagers': round(float(admin_wagers), 2),
+        'admin_payouts': round(float(admin_payouts), 2),
+        'teller_remits': round(float(teller_remits), 2),
+        'teller_borrows': round(float(teller_borrows), 2),
+    }
+
+
 def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     """Return the outstanding balance for a teller, optionally scoped to an event.
 
@@ -346,9 +442,15 @@ def _payout_exceeds_cash_on_hand(cashier_username, amount, transaction_id):
         }
 
     event_scope, apply_end_bound = get_event_scope()
-    balance = _get_teller_outstanding_balance(
-        cashier_user, event=event_scope, apply_end_bound=apply_end_bound,
-    )
+    if cashier_user.groups.filter(name='admin').exists():
+        balance = get_admin_fund_summary(
+            event=event_scope,
+            apply_end_bound=apply_end_bound,
+        )['balance']
+    else:
+        balance = _get_teller_outstanding_balance(
+            cashier_user, event=event_scope, apply_end_bound=apply_end_bound,
+        )
     amount = float(amount)
     if round(amount, 2) > round(balance, 2):
         logger.warning(
@@ -371,32 +473,44 @@ def _reset_teller_balances():
 
     Positive balance  → teller owes the house  → record a REMIT to clear it.
     Negative balance  → house owes the teller  → record a COLLECT to clear it.
+
+    These rollover entries are accounting-only. The outgoing event is settled
+    with the bank, so they must not change the next event's shared admin fund.
     """
     active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
-    tellers = User.objects.filter(groups__name='teller')
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    cashiers = User.objects.filter(groups__name='teller').exclude(
+        pk__in=admin_ids,
+    )
 
-    for teller in tellers:
-        balance = _get_teller_outstanding_balance(teller, event=active_event)
+    for cashier in cashiers:
+        balance = _get_teller_outstanding_balance(cashier, event=active_event)
         if balance == 0:
             continue
         if balance > 0:
             TellerTransaction.objects.create(
-                user=teller,
+                user=cashier,
                 transaction_type=TellerTransaction.REMIT,
                 amount=round(balance, 2),
+                received=True,
+                affects_admin_fund=False,
             )
         else:
             TellerTransaction.objects.create(
-                user=teller,
+                user=cashier,
                 transaction_type=TellerTransaction.COLLECT,
                 amount=round(abs(balance), 2),
+                affects_admin_fund=False,
             )
 
 
 def _issue_initial_teller_funds():
-    """Create a COLLECT (borrow) transaction for every *online* teller equal to
-    the configured initial fund amount.  Called immediately after the new event
-    object is created so the transactions fall inside the new event's window.
+    """Issue bank-sourced opening funds to online tellers.
+
+    Called immediately after the new event object is created so the
+    transactions fall inside the new event's window.
 
     A COLLECT increases the teller's balance (they owe the house the borrowed
     amount on top of any bets they collect during the event).
@@ -410,27 +524,32 @@ def _issue_initial_teller_funds():
     """
     setting = Settings.objects.order_by('-id').first()
     initial_fund = setting.teller_initial_fund if setting else 10000.0
-    if initial_fund <= 0:
-        return
-
-    tellers = User.objects.filter(groups__name='teller')
-    for teller in tellers:
-        status, _ = TellerStatus.objects.get_or_create(user=teller)
-        if not status.is_online:
-            continue
-        TellerTransaction.objects.create(
-            user=teller,
-            transaction_type=TellerTransaction.COLLECT,
-            amount=round(initial_fund, 2),
+    if initial_fund > 0:
+        admin_ids = User.objects.filter(
+            groups__name='admin',
+        ).values_list('pk', flat=True)
+        tellers = User.objects.filter(groups__name='teller').exclude(
+            pk__in=admin_ids,
         )
+        for teller in tellers:
+            status, _ = TellerStatus.objects.get_or_create(user=teller)
+            if not status.is_online:
+                continue
+            TellerTransaction.objects.create(
+                user=teller,
+                transaction_type=TellerTransaction.COLLECT,
+                amount=round(initial_fund, 2),
+                affects_admin_fund=False,
+            )
 
 
 def start_event(name):
     """Deactivate any running event, create a new one, and reset the fight counter to 0
     so the first call to startnewmatch() produces fight #1.
 
-    Teller balances are settled before the new event opens so every teller
-    starts the new event at zero and the outgoing event's report is clean.
+    Cashier balances are settled before the new event opens so every teller
+    and admin starts the new event at zero and the outgoing event's report is
+    clean.
     """
     logger.info("EVENT STARTING: name=%r — settling teller balances", name)
 
@@ -441,12 +560,18 @@ def start_event(name):
 
     Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
 
-    event = Event.objects.create(name=name, is_active=True)
+    setting = Settings.objects.order_by('-id').first()
+    admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
+    event = Event.objects.create(
+        name=name,
+        is_active=True,
+        admin_opening_fund=round(admin_opening_fund, 2),
+    )
     logger.info("EVENT STARTED: id=%s name=%r started_at=%s", event.id, event.name, event.started_at)
 
-    # Issue the configured starting fund as a borrowed (COLLECT) transaction
-    # for every teller.  These land inside the new event's time window so
-    # teller balances correctly reflect the borrowed cash from day one.
+    # Issue configured starting funds as borrowed (COLLECT) transactions.
+    # These land inside the new event's time window so cashier balances
+    # correctly reflect the borrowed cash from day one.
     _issue_initial_teller_funds()
 
     fight_status = Fight_Status.objects.order_by('id').first()
@@ -908,6 +1033,12 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
     active_event = get_active_event()
 
     with db_transaction.atomic():
+        if active_event:
+            # All admin cashiers share one fund. This write serializes payouts,
+            # teller borrows, and bank remits against that event-wide balance.
+            Event.objects.filter(pk=active_event.pk).update(
+                is_active=F('is_active'),
+            )
         if cashier_hint:
             # This no-op UPDATE is deliberately the first query in the atomic
             # block. It acquires SQLite's write lock before any balance read;
