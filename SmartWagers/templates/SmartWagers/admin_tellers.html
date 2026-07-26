@@ -52,6 +52,32 @@
     margin-top: 2px;
   }
 
+  #pre-event-funding {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid rgba(52,152,219,0.28);
+    border-radius: 12px;
+    background: rgba(52,152,219,0.08);
+  }
+
+  .pre-event-stat {
+    color: rgba(255,255,255,0.48);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .pre-event-stat strong {
+    display: block;
+    margin-top: 4px;
+    color: white;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    text-transform: none;
+  }
+
   /* ── Balance warning banner ──────────────────────────── */
   #balance-warning-banner {
     display: none;
@@ -260,6 +286,11 @@
 
   .txn-btn:hover { opacity: 0.85; transform: translateY(-1px); }
   .txn-btn:active { transform: translateY(0); }
+  .txn-btn:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+    transform: none;
+  }
 
   .expand-chevron {
     color: rgba(255,255,255,0.30);
@@ -682,6 +713,7 @@
   }
 
   @media (max-width: 600px) {
+    #pre-event-funding { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .teller-stats { gap: 10px; }
     .teller-stat { min-width: 70px; }
     .teller-stat-value { font-size: 14px; }
@@ -699,9 +731,36 @@
   <div id="tellers-header">
     <div>
       <div id="tellers-title">Teller Balances</div>
-      <div id="tellers-subtitle">Manage remit / borrow &amp; view transaction history</div>
+      <div id="tellers-subtitle">
+        {% if active_event %}
+          Manage remit / borrow &amp; view transaction history
+        {% else %}
+          Select the tellers who will receive opening funds for the next event
+        {% endif %}
+      </div>
     </div>
   </div>
+
+  {% if not active_event %}
+  <div id="pre-event-funding">
+    <div class="pre-event-stat">
+      Online Tellers
+      <strong id="pre-event-online-count">{{ online_teller_count }}</strong>
+    </div>
+    <div class="pre-event-stat">
+      Fund per Teller
+      <strong>₱ {{ teller_initial_fund|floatformat:0|intcomma }}</strong>
+    </div>
+    <div class="pre-event-stat">
+      Teller Funds from Bank
+      <strong id="pre-event-teller-funds">₱ {{ planned_teller_funds|floatformat:0|intcomma }}</strong>
+    </div>
+    <div class="pre-event-stat">
+      Total from Bank
+      <strong id="pre-event-bank-total">₱ {{ planned_bank_funds|floatformat:0|intcomma }}</strong>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- ── Balance Warning Banner ── -->
   <div id="balance-warning-banner">
@@ -741,10 +800,12 @@
           </div>
 
           <button class="txn-btn remit-btn"
+                  {% if not active_event %}disabled title="Available after an event starts"{% endif %}
                   onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'REMIT')">
             Advance
           </button>
           <button class="txn-btn collect-btn"
+                  {% if not active_event %}disabled title="Available after an event starts"{% endif %}
                   onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'COLLECT')">
             Borrow
           </button>
@@ -860,6 +921,9 @@ const PRINT_AGENT_URL     = "http://127.0.0.1:8765/print-remit";
 const CSRF_TOKEN          = "{{ csrf_token }}";
 const TELLER_MAX_BALANCE  = {{ teller_max_balance|floatformat:2 }};
 const TELLER_MIN_BALANCE  = {{ teller_min_balance|floatformat:2 }};
+const EVENT_ACTIVE        = {{ active_event|yesno:"true,false" }};
+const TELLER_INITIAL_FUND = {{ teller_initial_fund|floatformat:2 }};
+const ADMIN_INITIAL_FUND  = {{ admin_initial_fund|floatformat:2 }};
 
 const TELLER_BALANCES = {
   {% for td in teller_data %}
@@ -969,7 +1033,11 @@ async function submitTxn() {
     if (!data.ok) {
       const msg = data.error === 'exceeds_cash_on_hand'
         ? 'Remit amount cannot exceed cash on hand.'
-        : `Error: ${data.error || 'Unknown error'}`;
+        : data.error === 'exceeds_admin_fund'
+          ? `Shared admin fund only has ₱ ${fmtNum(data.admin_fund_balance)} available. Borrow from the bank first.`
+          : data.error === 'no_active_event'
+            ? 'Start an event before lending funds to a teller.'
+            : `Error: ${data.error || 'Unknown error'}`;
       setStatus('error', msg);
       if (data.error === 'exceeds_cash_on_hand' && data.balance !== undefined) {
         updateTellerCard({
@@ -1151,11 +1219,28 @@ async function handleOnlineToggle(checkbox) {
       if (TELLER_BALANCES[tid] !== undefined) {
         TELLER_BALANCES[tid].is_online = isOnline;
       }
+      updatePreEventFunding();
       refreshWarningBanner();
     }
   } catch {
     checkbox.checked = !isOnline;
     applyOfflineCardState(tid, !isOnline);
+  }
+}
+
+function updatePreEventFunding() {
+  if (EVENT_ACTIVE) return;
+  const onlineCount = Object.values(TELLER_BALANCES).filter(
+    teller => teller.is_online
+  ).length;
+  const tellerFunds = onlineCount * TELLER_INITIAL_FUND;
+  const countEl = document.getElementById('pre-event-online-count');
+  const tellerFundsEl = document.getElementById('pre-event-teller-funds');
+  const bankTotalEl = document.getElementById('pre-event-bank-total');
+  if (countEl) countEl.textContent = onlineCount;
+  if (tellerFundsEl) tellerFundsEl.textContent = `₱ ${fmtNum(tellerFunds)}`;
+  if (bankTotalEl) {
+    bankTotalEl.textContent = `₱ ${fmtNum(ADMIN_INITIAL_FUND + tellerFunds)}`;
   }
 }
 
