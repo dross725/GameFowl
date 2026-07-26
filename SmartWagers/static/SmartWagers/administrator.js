@@ -742,10 +742,14 @@ function applyEventState(event_active) {
             endLink.onclick = e => e.preventDefault();
         }
 
-        document.querySelectorAll('.button').forEach(btn => {
+        document.querySelectorAll('.button:not(#tellers_button)').forEach(btn => {
             btn.onclick = null;
             btn.classList.add('btn-event-disabled');
         });
+        const tellersButton = document.getElementById('tellers_button');
+        if (tellersButton) {
+            tellersButton.classList.remove('btn-event-disabled');
+        }
     }
 }
 

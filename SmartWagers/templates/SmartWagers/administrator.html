@@ -177,11 +177,63 @@
         transition: opacity 0.15s;
       }
       #tap-goto-btn:hover { opacity: 0.85; }
+
+      #admin-fund-button {
+        min-width: 150px;
+        height: 34px;
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+        justify-content: center;
+        font-variant-numeric: tabular-nums;
+      }
+
+      #admin-fund-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin: 12px 0;
+      }
+
+      .admin-fund-stat {
+        background: rgba(255,255,255,0.06);
+        border-radius: 8px;
+        padding: 9px;
+      }
+
+      .admin-fund-stat span {
+        display: block;
+        color: rgba(255,255,255,0.5);
+        font-size: 10px;
+        text-transform: uppercase;
+      }
+
+      .admin-fund-stat strong {
+        display: block;
+        margin-top: 3px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      #admin-bank-history {
+        max-height: 160px;
+        overflow-y: auto;
+        margin: 12px 0;
+        font-size: 12px;
+        text-align: left;
+      }
+
+      .admin-bank-history-row {
+        display: grid;
+        grid-template-columns: 60px 1fr auto;
+        gap: 8px;
+        padding: 6px 2px;
+        border-bottom: 1px solid rgba(255,255,255,0.07);
+      }
     </style>
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=sidebar-v4"></script>
+    <script src="{% static 'SmartWagers/administrator.js' %}?v=pre-event-tellers-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -290,6 +342,9 @@
               <span id="teller-alert-badge">0</span>
             </a>
             <div class='button' id='received_button' onclick='openreceivedmodal()'>Received</div>
+            <div class='button' id='admin-fund-button' onclick='openAdminFundModal()'>
+              Fund ₱ {{ admin_fund.balance|floatformat:0 }}
+            </div>
         </section>
     </section>
 
@@ -462,6 +517,38 @@
             </div>
         </div>
 
+        <div id='adminfundmodal' class='modal'>
+            <div class='modal-content'>
+                <h2>Shared Admin Fund</h2>
+                <p id='admin-fund-event' style='margin-top:6px;'></p>
+                <div id='admin-fund-summary'>
+                    <div class='admin-fund-stat'>
+                        <span>Available</span>
+                        <strong id='admin-fund-balance'>₱ 0</strong>
+                    </div>
+                    <div class='admin-fund-stat'>
+                        <span>Net Bank Funding</span>
+                        <strong id='admin-fund-net'>₱ 0</strong>
+                    </div>
+                    <div class='admin-fund-stat'>
+                        <span>Total from Bank</span>
+                        <strong id='admin-fund-borrowed'>₱ 0</strong>
+                    </div>
+                    <div class='admin-fund-stat'>
+                        <span>Remitted to Bank</span>
+                        <strong id='admin-fund-remitted'>₱ 0</strong>
+                    </div>
+                </div>
+                <input type='text' inputmode='numeric' id='admin-bank-amount'
+                       placeholder='Amount' autocomplete='off'>
+                <p id='admin-bank-status' style='min-height:1.2em;'></p>
+                <button id='admin-bank-borrow-btn' onclick='submitAdminBankTransaction("BORROW")'>Borrow from Bank</button>
+                <button id='admin-bank-remit-btn' onclick='submitAdminBankTransaction("REMIT")'>Remit to Bank</button>
+                <button onclick='closemodal("adminfundmodal")'>Close</button>
+                <div id='admin-bank-history'></div>
+            </div>
+        </div>
+
     {% if blocked_betting_side %}
         <script>
             document.addEventListener("DOMContentLoaded", () => {
@@ -515,7 +602,115 @@
 
     <script>
     const MARK_RECEIVED_URL = "{% url 'admin-mark-received' %}";
+    const ADMIN_FUND_STATUS_URL = "{% url 'admin-fund-status' %}";
+    const ADMIN_BANK_TXN_URL = "{% url 'admin-bank-transaction' %}";
     const ADMIN_CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+    function formatAdminFund(value) {
+        return `₱ ${Number(value || 0).toLocaleString('en-PH', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+        })}`;
+    }
+
+    function renderAdminFund(data) {
+        const button = document.getElementById('admin-fund-button');
+        if (!data.active) {
+            button.textContent = 'Fund — No Event';
+            document.getElementById('admin-fund-event').textContent = 'Start an event to use the shared fund.';
+        } else {
+            button.textContent = `Fund ${formatAdminFund(data.balance)}`;
+            document.getElementById('admin-fund-event').textContent = data.event_name;
+        }
+        document.getElementById('admin-fund-balance').textContent = formatAdminFund(data.balance);
+        document.getElementById('admin-fund-net').textContent = formatAdminFund(data.net_bank_funding);
+        document.getElementById('admin-fund-borrowed').textContent = formatAdminFund(data.bank_borrowed);
+        document.getElementById('admin-fund-remitted').textContent = formatAdminFund(data.bank_remitted);
+
+        const history = document.getElementById('admin-bank-history');
+        const rows = data.transactions || [];
+        history.innerHTML = rows.length
+            ? rows.map(txn => `
+                <div class="admin-bank-history-row">
+                    <strong>${txn.transaction_type}</strong>
+                    <span>${_escHtml(txn.admin)}</span>
+                    <span>${formatAdminFund(txn.amount)}</span>
+                </div>
+              `).join('')
+            : '<div style="color:rgba(255,255,255,0.4);padding:8px 0;">No bank transactions for this event.</div>';
+    }
+
+    async function refreshAdminFund() {
+        try {
+            const res = await fetch(ADMIN_FUND_STATUS_URL, {
+                headers: { 'Accept': 'application/json' },
+            });
+            const data = await res.json();
+            if (data.ok) renderAdminFund(data);
+        } catch (err) {
+            console.error('Admin fund refresh failed', err);
+        }
+    }
+
+    function openAdminFundModal() {
+        document.getElementById('admin-bank-amount').value = '';
+        document.getElementById('admin-bank-status').textContent = '';
+        document.getElementById('adminfundmodal').style.display = 'flex';
+        refreshAdminFund();
+        setTimeout(() => document.getElementById('admin-bank-amount').focus(), 80);
+    }
+
+    async function submitAdminBankTransaction(transactionType) {
+        const input = document.getElementById('admin-bank-amount');
+        const statusEl = document.getElementById('admin-bank-status');
+        const amount = Number(input.value.replace(/,/g, ''));
+        if (!Number.isFinite(amount) || amount <= 0) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.textContent = 'Enter a positive amount.';
+            return;
+        }
+
+        const buttons = [
+            document.getElementById('admin-bank-borrow-btn'),
+            document.getElementById('admin-bank-remit-btn'),
+        ];
+        buttons.forEach(button => { button.disabled = true; });
+        statusEl.style.color = '';
+        statusEl.textContent = 'Processing...';
+
+        const fd = new FormData();
+        fd.append('transaction_type', transactionType);
+        fd.append('amount', amount.toString());
+        fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
+
+        try {
+            const res = await fetch(ADMIN_BANK_TXN_URL, {
+                method: 'POST',
+                body: fd,
+            });
+            const data = await res.json();
+            if (!data.ok) {
+                statusEl.style.color = '#e74c3c';
+                statusEl.textContent = data.error === 'exceeds_admin_fund'
+                    ? `Only ${formatAdminFund(data.balance)} is available.`
+                    : data.error === 'no_active_event'
+                        ? 'Start an event first.'
+                        : 'Transaction failed.';
+                return;
+            }
+            renderAdminFund(data);
+            input.value = '';
+            statusEl.style.color = '#2ecc71';
+            statusEl.textContent = transactionType === 'BORROW'
+                ? 'Funds received from the bank.'
+                : 'Funds remitted to the bank.';
+        } catch (err) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.textContent = 'Network error. Check connection.';
+        } finally {
+            buttons.forEach(button => { button.disabled = false; });
+        }
+    }
 
     function openreceivedmodal() {
         document.getElementById('received_txn_id').value = '';
@@ -757,6 +952,8 @@
     /* Poll every 30 seconds; run immediately on load */
     fetchTellerAlerts();
     setInterval(fetchTellerAlerts, 30000);
+    refreshAdminFund();
+    setInterval(refreshAdminFund, 5000);
     </script>
 
 

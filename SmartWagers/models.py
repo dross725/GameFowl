@@ -72,6 +72,7 @@ class Settings (models.Model):
     plasada = models.FloatField(default=0.5, null=False, blank=False)
     M_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False) 
     W_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False)
+    admin_initial_fund = models.FloatField(default=100000.0, null=False, blank=False)
     teller_max_balance = models.FloatField(default=0.0, null=False, blank=False)
     teller_initial_fund = models.FloatField(default=10000.0, null=False, blank=False)
     teller_min_balance = models.FloatField(default=0.0, null=False, blank=False)
@@ -141,6 +142,7 @@ class TellerTransaction(models.Model):
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.FloatField()
     received = models.BooleanField(null=True, blank=True, default=None)
+    affects_admin_fund = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -192,6 +194,7 @@ class Event(models.Model):
     started_at = models.DateTimeField(default=now)
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    admin_opening_fund = models.FloatField(default=100000.0)
 
     class Meta:
         ordering = ['-started_at']
@@ -199,3 +202,44 @@ class Event(models.Model):
     def __str__(self):
         status = 'Active' if self.is_active else 'Ended'
         return f"{self.name} ({status}) — {self.started_at.strftime('%Y-%m-%d')}"
+
+
+class AdminBankTransaction(models.Model):
+    BORROW = 'BORROW'
+    REMIT = 'REMIT'
+    TRANSACTION_TYPES = [
+        (BORROW, 'Borrow'),
+        (REMIT, 'Remit'),
+    ]
+
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.CASCADE,
+        related_name='admin_bank_transactions',
+    )
+    admin = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='admin_bank_transactions',
+    )
+    transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
+    amount = models.FloatField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['event', 'transaction_type']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(amount__gt=0),
+                name='admin_bank_transaction_amount_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.event} | {self.admin} | "
+            f"{self.transaction_type} | {self.amount}"
+        )

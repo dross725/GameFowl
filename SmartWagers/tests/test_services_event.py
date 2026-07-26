@@ -9,7 +9,7 @@ _issue_initial_teller_funds.
 import pytest
 from django.utils.timezone import now
 from SmartWagers.models import (
-    Event, TellerStatus, TellerTransaction, Wagers,
+    AdminBankTransaction, Event, TellerStatus, TellerTransaction, Wagers,
 )
 from SmartWagers import services
 
@@ -65,6 +65,12 @@ class TestStartEvent:
         assert not TellerTransaction.objects.filter(
             user=teller_user, transaction_type=TellerTransaction.COLLECT
         ).exists()
+
+    def test_admin_opening_fund_is_snapshotted_without_per_admin_transaction(
+            self, default_settings, admin_user):
+        event = services.start_event('Event A')
+        assert event.admin_opening_fund == default_settings.admin_initial_fund
+        assert not TellerTransaction.objects.filter(user=admin_user).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +218,7 @@ class TestIssueInitialTellerFunds:
         )
         assert txns.count() == 1
         assert txns.first().amount == default_settings.teller_initial_fund
+        assert txns.first().affects_admin_fund is False
 
     def test_skips_offline_teller(
             self, default_settings, teller_user, teller_status_offline):
@@ -222,9 +229,148 @@ class TestIssueInitialTellerFunds:
 
     def test_skips_when_initial_fund_is_zero(self, teller_user, teller_status_online):
         from SmartWagers.models import Settings
-        Settings.objects.create(teller_initial_fund=0.0, plasada=0.05)
+        Settings.objects.create(
+            teller_initial_fund=0.0,
+            admin_initial_fund=0.0,
+            plasada=0.05,
+        )
         services._issue_initial_teller_funds()
         assert not TellerTransaction.objects.filter(user=teller_user).exists()
+
+    def test_does_not_issue_individual_fund_for_admin(
+            self, default_settings, admin_user):
+        services._issue_initial_teller_funds()
+        assert not TellerTransaction.objects.filter(user=admin_user).exists()
+
+    def test_dual_role_admin_does_not_receive_teller_opening_fund(
+            self, default_settings, admin_user, teller_group):
+        admin_user.groups.add(teller_group)
+        TellerStatus.objects.create(user=admin_user, is_online=True)
+
+        services._issue_initial_teller_funds()
+
+        assert not TellerTransaction.objects.filter(user=admin_user).exists()
+
+
+# ---------------------------------------------------------------------------
+# shared admin fund
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestSharedAdminFund:
+
+    def test_opening_fund_is_shared_once_across_admins(
+            self, active_event, admin_user, admin_group):
+        from django.contrib.auth.models import User
+        second_admin = User.objects.create_user(username='admin2')
+        second_admin.groups.add(admin_group)
+
+        summary = services.get_admin_fund_summary(event=active_event)
+
+        assert summary['balance'] == active_event.admin_opening_fund
+        assert summary['bank_borrowed'] == active_event.admin_opening_fund
+
+    def test_bank_borrow_and_remit_change_shared_balance(
+            self, active_event, admin_user):
+        AdminBankTransaction.objects.create(
+            event=active_event,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.BORROW,
+            amount=25000,
+        )
+        AdminBankTransaction.objects.create(
+            event=active_event,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.REMIT,
+            amount=5000,
+        )
+
+        summary = services.get_admin_fund_summary(event=active_event)
+
+        assert summary['bank_borrowed'] == 125000
+        assert summary['bank_remitted'] == 5000
+        assert summary['net_bank_funding'] == 120000
+        assert summary['balance'] == 120000
+
+    def test_teller_remit_counts_only_after_received(
+            self, active_event, admin_user, teller_user):
+        txn = TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=7000,
+            received=False,
+        )
+        assert services.get_admin_fund_summary(
+            event=active_event,
+        )['balance'] == 100000
+
+        txn.received = True
+        txn.save(update_fields=['received'])
+        assert services.get_admin_fund_summary(
+            event=active_event,
+        )['balance'] == 107000
+
+    def test_teller_borrow_reduces_fund_but_opening_float_does_not(
+            self, active_event, admin_user, teller_user):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=10000,
+            affects_admin_fund=False,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=3000,
+            affects_admin_fund=True,
+        )
+
+        summary = services.get_admin_fund_summary(event=active_event)
+        assert summary['teller_borrows'] == 3000
+        assert summary['balance'] == 97000
+
+    def test_admin_wagers_and_payouts_are_pooled(
+            self, active_event, admin_user):
+        Wagers.objects.create(
+            fightnum=1,
+            side='MERON',
+            wager=8000,
+            cashier=admin_user.username,
+            registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=admin_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=2500,
+        )
+
+        summary = services.get_admin_fund_summary(event=active_event)
+        assert summary['admin_wagers'] == 8000
+        assert summary['admin_payouts'] == 2500
+        assert summary['balance'] == 105500
+
+    def test_legacy_admin_payout_does_not_change_shared_fund(
+            self, active_event, admin_user):
+        TellerTransaction.objects.create(
+            user=admin_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=2500,
+            affects_admin_fund=False,
+        )
+        summary = services.get_admin_fund_summary(event=active_event)
+        assert summary['admin_payouts'] == 0
+        assert summary['balance'] == 100000
+
+    def test_admin_payout_limit_uses_shared_fund(
+            self, active_event, admin_user):
+        assert services._payout_exceeds_cash_on_hand(
+            admin_user.username, 100000, 'TEST001',
+        ) is None
+        rejected = services._payout_exceeds_cash_on_hand(
+            admin_user.username, 100001, 'TEST002',
+        )
+        assert rejected['error'] == 'exceeds_cash_on_hand'
+        assert rejected['balance'] == 100000
 
 
 # ---------------------------------------------------------------------------
@@ -242,11 +388,29 @@ class TestResetTellerBalances:
             cashier=teller_user.username, registered=True,
         )
         services._reset_teller_balances()
-        assert TellerTransaction.objects.filter(
+        settlement = TellerTransaction.objects.get(
             user=teller_user, transaction_type=TellerTransaction.REMIT
-        ).exists()
+        )
+        assert settlement.affects_admin_fund is False
 
     def test_zero_balance_no_transaction_created(
             self, default_settings, active_event, teller_user):
         services._reset_teller_balances()
         assert TellerTransaction.objects.filter(user=teller_user).count() == 0
+
+    def test_negative_balance_settlement_does_not_debit_admin_fund(
+            self, default_settings, active_event, teller_user):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=500,
+        )
+
+        services._reset_teller_balances()
+
+        settlement = TellerTransaction.objects.filter(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+        ).latest('id')
+        assert settlement.amount == 500
+        assert settlement.affects_admin_fund is False

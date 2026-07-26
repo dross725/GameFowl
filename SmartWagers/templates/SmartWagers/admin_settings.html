@@ -373,6 +373,28 @@
     <div id="st-plasada-status"></div>
   </div>
 
+  <!-- ── Admin Funds panel ── -->
+  <div class="st-panel">
+    <div class="st-panel-title">Admin Funds</div>
+    <div>
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.40);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Shared Initial Admin Fund</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="st-input-group">
+          <label>Amount</label>
+          <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.50);margin-right:4px;">₱</span>
+          <input type="text" id="admin-initial-fund-input" value="{{ admin_initial_fund|floatformat:0|intcomma }}"
+                 inputmode="numeric" autocomplete="off"
+                 style="background:transparent;border:none;outline:none;color:white;font-size:20px;font-weight:800;width:130px;text-align:center;">
+        </div>
+        <span style="font-size:12px;color:rgba(255,255,255,0.35);flex:1;min-width:200px;">
+          Opening fund supplied by the bank and shared by all admins when the next event starts.
+        </span>
+        <button class="st-save-btn" id="st-admin-initial-fund-btn" onclick="saveAdminInitialFund()">Save</button>
+      </div>
+      <div id="st-admin-initial-fund-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
+    </div>
+  </div>
+
   <!-- ── Teller Fund & Balance Thresholds panel ── -->
   <div class="st-panel">
     <div class="st-panel-title">Teller Funds &amp; Balance Warnings</div>
@@ -580,6 +602,7 @@ function setupCommaInput(id) {
 
 document.addEventListener('DOMContentLoaded', () => {
     update_trends();
+    setupCommaInput('admin-initial-fund-input');
     setupCommaInput('initial-fund-input');
     setupCommaInput('threshold-input');
     setupCommaInput('min-balance-input');
@@ -691,6 +714,46 @@ async function saveInitialFund() {
             statusEl.textContent = val === 0
                 ? 'Saved! No initial fund will be issued.'
                 : `Saved! Each teller will receive ₱ ${Number(data.teller_initial_fund).toLocaleString('en-PH', {maximumFractionDigits:0})} when the next event starts.`;
+        } else {
+            statusEl.className = 'st-err';
+            statusEl.textContent = data.error || 'Unknown error.';
+        }
+    } catch (err) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Network error. Check connection.';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function saveAdminInitialFund() {
+    const val = parseCommaInput('admin-initial-fund-input');
+    const statusEl = document.getElementById('st-admin-initial-fund-status');
+    const btn = document.getElementById('st-admin-initial-fund-btn');
+
+    if (isNaN(val) || val < 0) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Please enter 0 or a positive number.';
+        return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = '';
+    statusEl.textContent = 'Saving…';
+
+    const fd = new FormData();
+    fd.append('action', 'update_admin_initial_fund');
+    fd.append('admin_initial_fund', val.toString());
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+    try {
+        const res = await fetch(SETTINGS_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.className = 'st-ok';
+            statusEl.textContent = val === 0
+                ? 'Saved! No initial admin fund will be issued.'
+                : `Saved! The shared admin fund will open at ₱ ${Number(data.admin_initial_fund).toLocaleString('en-PH', {maximumFractionDigits:0})} when the next event starts.`;
         } else {
             statusEl.className = 'st-err';
             statusEl.textContent = data.error || 'Unknown error.';
