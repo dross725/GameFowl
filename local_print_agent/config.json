@@ -2,9 +2,11 @@
   "host": "127.0.0.1",
   "port": 8765,
   "printer_name": "XP-58C",
-  "print_mode": "windows_driver",
+  "print_mode": "escpos",
   "code_page": "cp437",
-  "font_scale": 1.3
+  "font_scale": 1.3,
+  "paper_width_dots": 384,
+  "text_align": "center",
+  "barcode_module_width": 3,
+  "barcode_height": 120
 }
-
-

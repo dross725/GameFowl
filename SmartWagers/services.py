@@ -23,6 +23,20 @@ from reportlab.lib.units import mm
 
 logger = logging.getLogger('SmartWagers.services')
 
+
+def normalize_wager_transaction_id(raw):
+    """Normalize a scanned/typed wager transaction id.
+
+    Bet IDs are stored zero-padded to 6 digits (e.g. ``000123``). Many barcode
+    scanners drop leading zeros when they emit as keyboard input, so pad digits
+    back to 6. Non-numeric ids (system ``S…`` tickets) are left as-is after trim.
+    """
+    tid = str(raw or "").strip()
+    if tid.isdigit():
+        return tid.zfill(6)
+    return tid
+
+
 def send_pdf_to_printer(pdf_path):
     printer_name = getattr(settings, "RECEIPT_PRINTER_NAME", None)
     print_options = getattr(settings, "RECEIPT_PRINT_OPTIONS", [])
@@ -1073,6 +1087,7 @@ def build_payout_reprint_payload(wager):
 
 def payout_request(transaction_id, requesting_cashier=None):
     """Serialize payouts for the ticket's cashier before validating balance."""
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     active_event = get_active_event()
     wager_qs = Wagers.objects.filter(
         transactionid=transaction_id, registered=True, cancelled=False,
@@ -1348,6 +1363,7 @@ def payout_old_ticket(event, teller_username, transaction_id):
     For 'draw' and 'cancelled' the refund is also processed and ok=True is
     returned so the caller can display the refund details.
     """
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     wager_qs = Wagers.objects.filter(
         transactionid=transaction_id,
         cashier=teller_username,
@@ -1460,6 +1476,7 @@ def payout_old_ticket(event, teller_username, transaction_id):
 
 
 def lookup_wager_for_reprint(transaction_id, cashier=None):
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     active_event = get_active_event()
     qs = Wagers.objects.filter(
         transactionid=transaction_id, registered=True, cancelled=False,
@@ -1487,6 +1504,7 @@ def cancel_bet(transaction_id, requesting_cashier=None):
     ticket's cashier returns wrong_teller. When None (admin), any ticket may
     be cancelled.
     """
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     active_event = get_active_event()
     cancel_result = {"cancel_bet": True}
 

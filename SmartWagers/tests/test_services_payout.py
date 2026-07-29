@@ -161,6 +161,25 @@ class TestPayoutRequestErrors:
         result = services.payout_request('999999')
         assert result.get('error') == 'notfound'
 
+    def test_scanner_stripped_leading_zeros_still_finds_ticket(
+        self, teller_user, default_settings, active_event,
+    ):
+        """Barcode scanners often emit 123 instead of 000123."""
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        _make_fight_result(1, 'MERON', event=active_event)
+        assert w.transactionid.startswith('0')
+
+        unpadded = str(int(w.transactionid))
+        result = services.payout_request(unpadded, requesting_cashier=teller_user.username)
+
+        assert 'error' not in result
+        assert result['transaction_id'] == w.transactionid
+
+    def test_normalize_wager_transaction_id_pads_digits(self):
+        assert services.normalize_wager_transaction_id('123') == '000123'
+        assert services.normalize_wager_transaction_id(' 000456 ') == '000456'
+        assert services.normalize_wager_transaction_id('SABC123') == 'SABC123'
+
     def test_missing_cashier_account_blocks_payout(self, default_settings, active_event):
         w = _make_registered_wager(1, 'MERON', 500, 'deleted-teller')
         _make_fight_result(1, 'MERON', event=active_event)
