@@ -55,8 +55,13 @@ administratorSocket.onmessage = async (event) => {
         console.log("Cancel bet data:", data);
         if ("error" in data){
             console.log("Cancel bet error:", data.error);
-            document.getElementById('payout_error_header').innerText = "Cancel Bet Error";  
-            openmodal('payout_error_modal', data.error);
+            if (data.error === 'wrong_teller') {
+                document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
+                document.getElementById('wrong_teller_modal').style.display = 'flex';
+            } else {
+                document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
+                openmodal('payout_error_modal', data.error);
+            }
         } else if ("transaction_id" in data && "amount" in data) {
             console.log("Cancel bet success:", data);
             document.getElementById('payout_success_header').innerText = "Cancel bet request valid!";

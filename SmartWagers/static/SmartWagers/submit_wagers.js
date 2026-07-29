@@ -156,8 +156,9 @@ function getLocalPrintAgentUrl() {
 }
 
 async function printWagerReceipt(receipt) {
+    // Thermal printers / Windows spoolers can be slow; keep a generous timeout.
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
         const response = await fetch(`${getLocalPrintAgentUrl()}/print-wager`, {
@@ -190,29 +191,12 @@ async function printWagerReceipt(receipt) {
         return {
             ok: false,
             message: error.name === "AbortError"
-                ? "Local print agent did not respond."
+                ? "Local print agent did not respond in time."
                 : "Local print agent is not running or is blocked.",
         };
     } finally {
         clearTimeout(timeoutId);
     }
-}
-
-async function postWagerAction(form, action, transactionId) {
-    const formData = new FormData(form);
-    formData.set("action", action);
-    formData.set("transaction_id", transactionId);
-
-    const response = await fetch(form.action || window.location.href, {
-        method: "POST",
-        body: formData,
-        headers: {
-            "X-Requested-With": "XMLHttpRequest",
-        },
-    });
-    const result = await response.json();
-
-    return { response, result };
 }
 
 async function isBettingOpen(side) {
@@ -333,25 +317,32 @@ async function submitValue() {
             return;
         }
 
-        if (!result.pending || result.print_required === false) {
+        // Duplicate of a bet already registered in the debounce window —
+        // do not treat this as a brand-new placement.
+        if (result.duplicate) {
+            const txnId = (result.receipt && result.receipt.transaction_id)
+                || result.transaction_id
+                || "unknown";
+            alert(
+                "This bet was already registered (Txn: " + txnId + "). "
+                + "No new bet was created. Use Reprint from the report if needed."
+            );
             submissionSucceeded = true;
             window.location.reload();
             return;
         }
 
-        const printResult = await printWagerReceipt(result.receipt);
-        if (!printResult.ok) {
-            await postWagerAction(form, "cancel_pending", result.receipt.transaction_id);
-            alert("Receipt print failed. Bet was not registered: " + printResult.message);
-            resetTotal();
-            return;
-        }
-
-        const confirmation = await postWagerAction(form, "confirm_print", result.receipt.transaction_id);
-        if (!confirmation.response.ok || !confirmation.result.ok) {
-            alert("Receipt printed, but bet could not be registered. Please contact the administrator.");
-            resetTotal();
-            return;
+        // Bet is already registered on the server. Print is best-effort —
+        // tellers can Reprint from the report if the printer fails.
+        if (result.print_required !== false && result.receipt) {
+            const printResult = await printWagerReceipt(result.receipt);
+            if (!printResult.ok) {
+                alert(
+                    "Bet registered (Txn: " + result.receipt.transaction_id + "), "
+                    + "but receipt print failed: " + printResult.message
+                    + " Use Reprint from the report if needed."
+                );
+            }
         }
 
         submissionSucceeded = true;

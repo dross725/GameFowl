@@ -77,6 +77,16 @@ class TestWagersModel:
             # Bypass the custom save() by using a direct queryset update
             Wagers.objects.filter(pk=w2.pk).update(transactionid=w1.transactionid)
 
+    def test_soft_cancelled_pending_id_is_not_reused(self):
+        w1 = Wagers.objects.create(
+            fightnum=1, side='MERON', wager=100, cashier='teller1',
+            registered=False, cancelled=True,
+        )
+        w2 = Wagers.objects.create(
+            fightnum=1, side='WALA', wager=200, cashier='teller2', registered=False,
+        )
+        assert int(w2.transactionid) > int(w1.transactionid)
+
 
 # ---------------------------------------------------------------------------
 # Totals — append-only behaviour

@@ -228,7 +228,9 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     }))
                     return
                 transaction_id = data["cancel_barcode"]
-                cancelbet_data = await self.cancel_bet(transaction_id)
+                # Tellers may only cancel bets made at their own terminal
+                requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
+                cancelbet_data = await self.cancel_bet(transaction_id, requesting_cashier)
                 # Same as above — reply only to the connection that submitted the scan.
                 await self.send(text_data=json.dumps(cancelbet_data))
                 
@@ -320,6 +322,6 @@ class WagersConsumer(AsyncWebsocketConsumer):
         return services.payout_request(transaction_id, requesting_cashier=requesting_cashier)
     
     @database_sync_to_async
-    def cancel_bet(self, transaction_id):
-        return services.cancel_bet(transaction_id)
+    def cancel_bet(self, transaction_id, requesting_cashier=None):
+        return services.cancel_bet(transaction_id, requesting_cashier=requesting_cashier)
  

@@ -55,7 +55,7 @@ def test_add_wager_100_sequential(default_settings):
 
     def run():
         for i in range(100):
-            services.add_wager(100, sides[i % 2], 1, cashier=f'teller{i % 5}')
+            services.add_wager(100, sides[i % 2], 1, cashier=f'teller{i}')
 
     _, elapsed = _elapsed(run)
     print(f"\nadd_wager x100: {elapsed:.3f}s")

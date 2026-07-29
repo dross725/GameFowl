@@ -156,8 +156,8 @@ def test_duplicate_payout_thread_stress(default_settings, teller_user):
 def test_totals_integrity_sequential(default_settings):
     """Sequential add_wager calls must accumulate totals without loss."""
     _open_fight(fightnum=1)
-    for _ in range(10):
-        services.add_wager(100, 'MERON', 1, cashier='teller1')
+    for i in range(10):
+        services.add_wager(100, 'MERON', 1, cashier=f'teller{i}')
     m, _, _, _, pot, _ = services.get_Totals()
     assert m == pytest.approx(1000.0)
     assert pot == pytest.approx(1000.0)
@@ -174,13 +174,18 @@ def test_totals_integrity_thread_stress(default_settings):
     SQLite: OperationalErrors are tolerated; any committed writes must sum
     correctly.
     """
+    import itertools
     _open_fight(fightnum=1)
     n_threads, amount = 10, 100
+    counter = itertools.count()
+    counter_lock = threading.Lock()
 
-    results, sqlite_errors = _run_threads(
-        lambda: services.add_wager(amount, 'MERON', 1, cashier='teller1'),
-        n_threads,
-    )
+    def _place():
+        with counter_lock:
+            i = next(counter)
+        return services.add_wager(amount, 'MERON', 1, cashier=f'teller{i}')
+
+    results, sqlite_errors = _run_threads(_place, n_threads)
 
     committed = len(results)
     m, _, _, _, pot, _ = services.get_Totals()
@@ -353,7 +358,7 @@ def test_deduct_then_add_does_not_deadlock(default_settings):
 def test_concurrent_cancel_bet_logic_sequential(default_settings):
     """Second cancel of the same bet must return 'notfound'."""
     _open_fight(fightnum=1)
-    w = services.add_wager(300, 'MERON', 1, cashier='teller1')
+    w, _ = services.add_wager(300, 'MERON', 1, cashier='teller1')
     tid = w.transactionid
 
     r1 = services.cancel_bet(tid)
@@ -373,7 +378,7 @@ def test_concurrent_cancel_bet_thread_stress(default_settings):
     Production target (PostgreSQL): exactly 1 success, others 'notfound'.
     """
     _open_fight(fightnum=1)
-    w = services.add_wager(300, 'MERON', 1, cashier='teller1')
+    w, _ = services.add_wager(300, 'MERON', 1, cashier='teller1')
     tid = w.transactionid
 
     results, sqlite_errors = _run_threads(lambda: services.cancel_bet(tid), 3)

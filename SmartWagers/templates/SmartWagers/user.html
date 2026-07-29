@@ -12,7 +12,7 @@
         window.TELLER_IS_ONLINE = {{ teller_is_online|yesno:"true,false" }};
     </script>
     <script src="{% static 'SmartWagers/administrator.js' %}?v=cancel-socket-fix-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=teller-offline-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=register-then-print-1"></script>
     <script src="{% static 'SmartWagers/user.js' %}?v=teller-offline-1"></script>
 {% endblock script_files %}
 
@@ -82,7 +82,8 @@
         </section>
     </section>
 
-    <div id='pending-payouts-badge' style='display:none;' onclick='openmodal("payoutmodal")'>
+    {# Unclaimed-bets indicator disabled on the teller view. #}
+    <div id='pending-payouts-badge' style='display:none;' hidden aria-hidden='true'>
         <span id='pending-payouts-count' class='pending-badge-count'>0</span>
         <span class='pending-badge-label'>unclaimed</span>
         <span id='pending-payouts-total' class='pending-badge-total'>₱ 0</span>

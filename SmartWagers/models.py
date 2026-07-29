@@ -27,18 +27,19 @@ class Wagers (models.Model):
         if self.pk is None and self.cashier != 'System':
             # SQLite ignores SELECT FOR UPDATE, so concurrent saves can race.
             # Retry up to 5 times, re-reading the global max each attempt.
+            # Use the true numeric max (not merely the latest pk) so soft-cancelled
+            # pending receipts permanently retire their transaction IDs.
             for _attempt in range(5):
                 with db_transaction.atomic():
                     qs = Wagers.objects.select_for_update().exclude(cashier='System')
                     last_number = 0
-                    for tid in qs.order_by('-id').values_list('transactionid', flat=True):
+                    for tid in qs.order_by('-id').values_list('transactionid', flat=True)[:500]:
                         try:
                             n = int(tid)
-                            if 0 < n < 1_000_000:
-                                last_number = n
-                                break
                         except (ValueError, TypeError):
                             continue
+                        if 0 < n < 1_000_000 and n > last_number:
+                            last_number = n
                     self.transactionid = str(last_number + 1).zfill(6)
                     try:
                         super().save(*args, **kwargs)
