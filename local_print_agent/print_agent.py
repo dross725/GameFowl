@@ -1,11 +1,12 @@
 import json
+import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
-AGENT_VERSION = "1.2-code39-bars"
+AGENT_VERSION = "1.4-mode-aware-health"
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8765,
@@ -14,6 +15,44 @@ DEFAULT_CONFIG = {
     "code_page": "cp437",
     "font_scale": 1.0,
 }
+
+
+def pywin32_status():
+    """Report whether this process can import the pywin32 modules used for printing."""
+    modules = {}
+    for name in ("win32print", "win32ui", "win32con"):
+        try:
+            __import__(name)
+            modules[name] = True
+        except ImportError as exc:
+            modules[name] = False
+            modules[f"{name}_error"] = str(exc)
+
+    ready = all(modules.get(name) for name in ("win32print", "win32ui", "win32con"))
+    escpos_ready = bool(modules.get("win32print"))
+    if ready:
+        fix_hint = None
+    elif escpos_ready and not modules.get("win32ui"):
+        fix_hint = (
+            f'win32ui DLL failed. Run: "{sys.executable}" -m pip install '
+            f'--upgrade --force-reinstall pywin32 && "{sys.executable}" -m pywin32_postinstall -install. '
+            "If it still fails, install the MSVC Redistributable, or set "
+            '"print_mode": "escpos" in config.json (uses win32print only).'
+        )
+    else:
+        fix_hint = (
+            f'Install pywin32 into THIS Python, then restart the agent: '
+            f'"{sys.executable}" -m pip install --upgrade --force-reinstall pywin32 '
+            f'&& "{sys.executable}" -m pywin32_postinstall -install'
+        )
+    return {
+        "ready": ready,
+        "escpos_ready": escpos_ready,
+        "python_executable": sys.executable,
+        "python_version": sys.version.split()[0],
+        "modules": modules,
+        "fix_hint": fix_hint,
+    }
 
 
 def load_config():
@@ -125,11 +164,27 @@ def escpos_receipt(receipt, code_page="cp437"):
     return bytes(output)
 
 
+def _pywin32_missing_error(detail=None):
+    hint = (
+        "pywin32 is missing or broken for the Python running this print agent "
+        f"({sys.executable}). "
+        f'Fix: \"{sys.executable}\" -m pip install --upgrade --force-reinstall pywin32 '
+        f'&& \"{sys.executable}\" -m pywin32_postinstall -install '
+        "then restart the agent. Also install the Microsoft Visual C++ Redistributable "
+        "if win32ui still fails with a DLL load error. "
+        "Thermal ESC/POS printers can avoid win32ui by setting "
+        '"print_mode": "escpos" in config.json.'
+    )
+    if detail:
+        return RuntimeError(f"{detail} {hint}")
+    return RuntimeError(hint)
+
+
 def get_win32print():
     try:
         import win32print
     except ImportError as exc:
-        raise RuntimeError("pywin32 is not installed. Run: py -m pip install pywin32") from exc
+        raise _pywin32_missing_error(str(exc)) from exc
 
     return win32print
 
@@ -138,7 +193,9 @@ def get_win32ui():
     try:
         import win32ui
     except ImportError as exc:
-        raise RuntimeError("pywin32 is not installed. Run: py -m pip install pywin32") from exc
+        raise _pywin32_missing_error(
+            f"win32ui failed to load ({exc})."
+        ) from exc
 
     return win32ui
 
@@ -147,7 +204,7 @@ def get_win32con():
     try:
         import win32con
     except ImportError as exc:
-        raise RuntimeError("pywin32 is not installed. Run: py -m pip install pywin32") from exc
+        raise _pywin32_missing_error(str(exc)) from exc
 
     return win32con
 
@@ -554,10 +611,22 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/health":
+            config = load_config()
+            print_mode = str(config.get("print_mode", "windows_driver")).lower()
+            status = pywin32_status()
+            if print_mode == "escpos":
+                print_ready = bool(status.get("escpos_ready"))
+            else:
+                print_ready = bool(status.get("ready"))
             self.send_json(200, {
                 "ok": True,
                 "message": "SmartWagers print agent is running.",
                 "version": AGENT_VERSION,
+                "config_path": str(CONFIG_PATH),
+                "print_mode": print_mode,
+                "printer_name": config.get("printer_name") or "(Windows default)",
+                "pywin32": status,
+                "print_ready": print_ready,
             })
             return
 
@@ -566,6 +635,13 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
                 self.send_json(200, {"ok": True, "printers": list_printers()})
             except RuntimeError as exc:
                 self.send_json(500, {"ok": False, "error": str(exc)})
+            return
+
+        if self.path in ("/print-payout", "/print-wager", "/print-remit"):
+            self.send_json(405, {
+                "ok": False,
+                "error": f"{self.path} only accepts POST from the SmartWagers page, not a browser address bar.",
+            })
             return
 
         self.send_json(404, {"ok": False, "error": "Unknown endpoint."})

@@ -62,8 +62,13 @@ userSocket.onmessage = async (event) => {
     if ("cancel_bet" in data) {
         console.log("[user.js] cancel_bet message received:", data);
         if ("error" in data) {
-            document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
-            openmodal('payout_error_modal', data.error);
+            if (data.error === 'wrong_teller') {
+                document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
+                document.getElementById('wrong_teller_modal').style.display = 'flex';
+            } else {
+                document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
+                openmodal('payout_error_modal', data.error);
+            }
         } else if ("transaction_id" in data && "amount" in data) {
             document.getElementById('payout_success_header').innerText = "Cancel Bet";
             document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
@@ -489,26 +494,10 @@ async function fetchTellerBalance() {
 // ── Pending payout notification ───────────────────────────
 
 async function fetchPendingPayouts() {
-    try {
-        const response = await fetch('/get_pending_payouts/');
-        const data = await response.json();
-        if (!data.ok) return;
-
-        const badge  = document.getElementById('pending-payouts-badge');
-        const countEl = document.getElementById('pending-payouts-count');
-        const totalEl = document.getElementById('pending-payouts-total');
-        if (!badge) return;
-
-        if (data.count > 0) {
-            countEl.innerText = data.count;
-            totalEl.innerText = '₱ ' + Number(data.total).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-            badge.style.display = 'flex';
-        } else {
-            badge.style.display = 'none';
-        }
-    } catch (error) {
-        console.error('Error fetching pending payouts:', error);
-    }
+    // Unclaimed-bets indicator disabled on the teller view.
+    const badge = document.getElementById('pending-payouts-badge');
+    if (badge) badge.style.display = 'none';
+    return;
 }
 
 // ── Per-fight bet totals ───────────────────────────────────

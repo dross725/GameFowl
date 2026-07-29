@@ -147,6 +147,19 @@ class TestGroupGuards:
         response = client.get('/user')
         assert response.status_code == 200
 
+    def test_legacy_confirm_print_is_disabled(self, teller_user, default_settings):
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'action': 'confirm_print', 'transaction_id': '000001'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 410
+        data = json.loads(response.content)
+        assert data['error'] == 'legacy_action_disabled'
+
 
 # ---------------------------------------------------------------------------
 # JSON API endpoints
@@ -322,6 +335,35 @@ class TestReprintWager:
         assert data['ok'] is True
         assert 'receipt' in data
 
+    def test_teller_cannot_reprint_other_cashiers_ticket(
+        self, teller_user, teller_user2, active_event,
+    ):
+        w = Wagers.objects.create(
+            fightnum=1, side='MERON', wager=300,
+            cashier=teller_user.username, registered=True,
+        )
+        client = Client()
+        client.force_login(teller_user2)
+        response = client.post('/reprint_wager/', {'transaction_id': w.transactionid})
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data['ok'] is False
+        assert data['error'] == 'notfound'
+
+    def test_admin_can_reprint_any_ticket(
+        self, admin_user, teller_user, active_event,
+    ):
+        w = Wagers.objects.create(
+            fightnum=1, side='WALA', wager=200,
+            cashier=teller_user.username, registered=True,
+        )
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/reprint_wager/', {'transaction_id': w.transactionid})
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data['ok'] is True
+
 
 # ---------------------------------------------------------------------------
 # teller_transaction (REMIT)
@@ -434,6 +476,27 @@ class TestTellerTransactionView:
         assert 'balance' in data
         assert 'transaction_id' in data
         assert data['balance'] == 4500
+
+    def test_sequential_remits_second_fails_when_cash_exhausted(
+        self, teller_user, default_settings,
+    ):
+        """Logic test: after remitting all cash, a second remit must fail."""
+        self._seed_cash_on_hand(teller_user, amount=1000)
+        client = Client()
+        client.force_login(teller_user)
+        first = client.post('/teller_transaction/', {
+            'transaction_type': 'REMIT', 'amount': '1000',
+        })
+        assert first.status_code == 200
+        second = client.post('/teller_transaction/', {
+            'transaction_type': 'REMIT', 'amount': '1',
+        })
+        assert second.status_code == 400
+        data = json.loads(second.content)
+        assert data['error'] == 'exceeds_cash_on_hand'
+        assert TellerTransaction.objects.filter(
+            user=teller_user, transaction_type='REMIT',
+        ).count() == 1
 
 
 # ---------------------------------------------------------------------------

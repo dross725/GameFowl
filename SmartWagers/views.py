@@ -300,7 +300,16 @@ def reprint_wager(request):
     if not transaction_id:
         return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
 
-    receipt = services.lookup_wager_for_reprint(transaction_id)
+    # Tellers may only reprint their own tickets; admins may reprint any.
+    cashier_filter = None
+    is_admin = request.user.groups.filter(name='admin').exists()
+    is_teller = request.user.groups.filter(name='teller').exists()
+    if is_teller and not is_admin:
+        cashier_filter = str(request.user)
+
+    receipt = services.lookup_wager_for_reprint(
+        transaction_id, cashier=cashier_filter,
+    )
     if receipt is None:
         return JsonResponse({'ok': False, 'error': 'notfound'})
 
@@ -333,12 +342,14 @@ def notify_event_change():
             }
         )
 
-def wager_ajax_response(saved_wager):
+def wager_ajax_response(saved_wager, duplicate=False):
     meron_total, meron_payout, wala_total, wala_payout, total_bet, fightnum = services.get_Totals()
     notify_bet_updates()
     return JsonResponse({
         'ok': True,
         'pending': False,
+        'duplicate': duplicate,
+        'transaction_id': saved_wager.transactionid,
         'print_required': services.is_wager_receipt_printing_enabled(),
         'receipt': services.build_wager_receipt_payload(saved_wager),
         'M_total_bet': format(int(meron_total), ','),
@@ -358,19 +369,15 @@ def Main_admin(request):
     logger.debug("Main_admin page: user=%s", request.user)
 
     if request.method == 'POST':
-        action = request.POST.get('action', 'reserve')
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'cancel_pending':
-            services.cancel_wager_receipt(request.POST.get('transaction_id', ''))
-            return JsonResponse({'ok': True})
-
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'confirm_print':
-            saved_wager = services.confirm_wager_receipt(request.POST.get('transaction_id', ''), admin=True)
-            if saved_wager is None:
-                return JsonResponse({
-                    'ok': False,
-                    'error': 'wager_not_registered',
-                }, status=409)
-            return wager_ajax_response(saved_wager)
+        action = request.POST.get('action', 'place')
+        # Legacy print-then-confirm is disabled; register-then-print is required.
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action in (
+            'cancel_pending', 'confirm_print',
+        ):
+            return JsonResponse({
+                'ok': False,
+                'error': 'legacy_action_disabled',
+            }, status=410)
 
         try:
             wager = int(request.POST.get('wager_value', 0))
@@ -398,19 +405,23 @@ def Main_admin(request):
             })
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
-            return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
+            return HttpResponseForbidden("AJAX submission is required to place a bet.")
 
-        if not services.is_wager_receipt_printing_enabled():
-            saved_wager = services.add_wager(wager, wager_id, current_fn, cashier=str(request.user))
-            return wager_ajax_response(saved_wager)
-
-        pending_wager = services.reserve_wager_receipt(wager, wager_id, current_fn, cashier=str(request.user))
-        return JsonResponse({
-            'ok': True,
-            'pending': True,
-            'print_required': True,
-            'receipt': services.build_wager_receipt_payload(pending_wager),
-        })
+        # Register first, then let the client print. Failed prints can be reprinted.
+        # require_side_open=False: admins may bet on a per-side-closed market.
+        try:
+            saved_wager, created = services.add_wager(
+                wager, wager_id, current_fn,
+                cashier=str(request.user),
+                require_side_open=False,
+            )
+        except services.BettingClosedError:
+            return JsonResponse({
+                'ok': False,
+                'error': 'betting_closed',
+                'blocked_betting_side': wager_id,
+            }, status=409)
+        return wager_ajax_response(saved_wager, duplicate=not created)
 
     return render( request, 'SmartWagers/administrator.html', {
         'M_total_bet' : format(int(meron_total), ','),
@@ -561,19 +572,15 @@ def Teller(request):
         if not is_online:
             return teller_offline_response()
 
-        action = request.POST.get('action', 'reserve')
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'cancel_pending':
-            services.cancel_wager_receipt(request.POST.get('transaction_id', ''))
-            return JsonResponse({'ok': True})
-
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action == 'confirm_print':
-            saved_wager = services.confirm_wager_receipt(request.POST.get('transaction_id', ''))
-            if saved_wager is None:
-                return JsonResponse({
-                    'ok': False,
-                    'error': 'wager_not_registered',
-                }, status=409)
-            return wager_ajax_response(saved_wager)
+        action = request.POST.get('action', 'place')
+        # Legacy print-then-confirm is disabled; register-then-print is required.
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action in (
+            'cancel_pending', 'confirm_print',
+        ):
+            return JsonResponse({
+                'ok': False,
+                'error': 'legacy_action_disabled',
+            }, status=410)
 
         try:
             wager = int(request.POST.get('wager_value', 0))
@@ -596,19 +603,22 @@ def Teller(request):
             ))
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
-            return HttpResponseForbidden("Receipt printer confirmation is required before registering a bet.")
+            return HttpResponseForbidden("AJAX submission is required to place a bet.")
 
-        if not services.is_wager_receipt_printing_enabled():
-            saved_wager = services.add_wager(wager, wager_id, current_fn, cashier=str(request.user))
-            return wager_ajax_response(saved_wager)
-
-        pending_wager = services.reserve_wager_receipt(wager, wager_id, current_fn, cashier=str(request.user))
-        return JsonResponse({
-            'ok': True,
-            'pending': True,
-            'print_required': True,
-            'receipt': services.build_wager_receipt_payload(pending_wager),
-        })
+        # Register first, then let the client print. Failed prints can be reprinted.
+        try:
+            saved_wager, created = services.add_wager(
+                wager, wager_id, current_fn,
+                cashier=str(request.user),
+                require_side_open=True,
+            )
+        except services.BettingClosedError:
+            return JsonResponse({
+                'ok': False,
+                'error': 'betting_closed',
+                'blocked_betting_side': wager_id,
+            }, status=409)
+        return wager_ajax_response(saved_wager, duplicate=not created)
 
     return render(request, 'SmartWagers/user.html', user_page_context())
 
@@ -827,26 +837,30 @@ def teller_transaction(request):
         return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
     event_scope, apply_end_bound = services.get_event_scope()
-    exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
-        request.user, amount, event=event_scope, apply_end_bound=apply_end_bound,
-    )
-    if exceeds:
-        logger.warning(
-            "REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s",
-            amount, balance, request.user.username,
+    with db_transaction.atomic():
+        # Serialize remits for this teller so concurrent requests cannot both
+        # pass the cash-on-hand check and overdraw.
+        User.objects.select_for_update().get(pk=request.user.pk)
+        exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
+            request.user, amount, event=event_scope, apply_end_bound=apply_end_bound,
         )
-        return JsonResponse({
-            'ok': False,
-            'error': 'exceeds_cash_on_hand',
-            'balance': balance,
-            'grand_total': grand_total,
-        }, status=400)
+        if exceeds:
+            logger.warning(
+                "REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s",
+                amount, balance, request.user.username,
+            )
+            return JsonResponse({
+                'ok': False,
+                'error': 'exceeds_cash_on_hand',
+                'balance': balance,
+                'grand_total': grand_total,
+            }, status=400)
 
-    txn = TellerTransaction.objects.create(
-        user=request.user,
-        transaction_type=transaction_type,
-        amount=amount,
-    )
+        txn = TellerTransaction.objects.create(
+            user=request.user,
+            transaction_type=transaction_type,
+            amount=amount,
+        )
     logger.info(
         "TELLER TXN: txn_id=%s type=%s amount=%.2f teller=%s",
         txn.transaction_id, transaction_type, amount, request.user.username,
@@ -969,22 +983,6 @@ def admin_teller_txn(request):
         return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
 
     scope, apply_end_bound = services.get_event_scope()
-    if transaction_type == TellerTransaction.REMIT:
-        exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
-            teller, amount, event=scope, apply_end_bound=apply_end_bound,
-        )
-        if exceeds:
-            logger.warning(
-                "ADMIN REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s by_admin=%s",
-                amount, balance, teller.username, request.user.username,
-            )
-            return JsonResponse({
-                'ok': False,
-                'error': 'exceeds_cash_on_hand',
-                'balance': balance,
-                'grand_total': grand_total,
-            }, status=400)
-
     if transaction_type == TellerTransaction.COLLECT:
         with db_transaction.atomic():
             Event.objects.filter(is_active=True).update(
@@ -1014,15 +1012,32 @@ def admin_teller_txn(request):
                 affects_admin_fund=True,
             )
     else:
-        txn = TellerTransaction.objects.create(
-            user=teller,
-            transaction_type=transaction_type,
-            amount=amount,
-            affects_admin_fund=True,
-            # An admin-entered REMIT/Advance is a direct physical handoff,
-            # so it is received immediately and increases the shared fund.
-            received=True,
-        )
+        # REMIT — lock teller row so check + create cannot race.
+        with db_transaction.atomic():
+            User.objects.select_for_update().get(pk=teller.pk)
+            exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
+                teller, amount, event=scope, apply_end_bound=apply_end_bound,
+            )
+            if exceeds:
+                logger.warning(
+                    "ADMIN REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s by_admin=%s",
+                    amount, balance, teller.username, request.user.username,
+                )
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'exceeds_cash_on_hand',
+                    'balance': balance,
+                    'grand_total': grand_total,
+                }, status=400)
+            txn = TellerTransaction.objects.create(
+                user=teller,
+                transaction_type=transaction_type,
+                amount=amount,
+                affects_admin_fund=True,
+                # An admin-entered REMIT/Advance is a direct physical handoff,
+                # so it is received immediately and increases the shared fund.
+                received=True,
+            )
     logger.info(
         "ADMIN TXN: txn_id=%s type=%s amount=%.2f teller=%s by_admin=%s",
         txn.transaction_id, transaction_type, amount, teller.username, request.user.username,
