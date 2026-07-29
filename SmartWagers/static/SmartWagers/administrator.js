@@ -1,6 +1,16 @@
 const administratorWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
 const localPrintAgentUrl = (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
 
+/** Normalize a wager transaction id typed or scanned by a teller.
+ *  Stored IDs are zero-padded to 6 digits; accept both "123" and "000123".
+ */
+function normalizeWagerTransactionId(raw) {
+    const tid = String(raw ?? "").trim();
+    if (!tid) return "";
+    if (/^\d+$/.test(tid)) return tid.padStart(6, "0");
+    return tid;
+}
+
 // Only open the admin WebSocket when on the admin page.  On the teller page
 // (/user) this script is also loaded for shared helpers, but creating the
 // socket there immediately fails the auth check and flashes a "Disconnected"
@@ -582,9 +592,11 @@ async function handlePayoutMessage(data) {
 }
 
 async function payout() {
-   const barcode = document.getElementById('payout_barcode').value;
+   const barcode = normalizeWagerTransactionId(
+       document.getElementById('payout_barcode').value
+   );
    closemodal('payoutmodal');
-   if (barcode === 0 || barcode === '' || isNaN(barcode)) {
+   if (barcode === '' || isNaN(barcode)) {
         openmodal('payout_error_modal', 'invalid_barcode');
    } else {
         // Teller pages use userSocket; admin pages use administratorSocket.
@@ -778,8 +790,10 @@ function openadminbetcontrolModal(side, action) {
 
 function cancelbet(){
     console.log("Cancelling bet...");
-    const barcode = document.getElementById('cancelbet_barcode').value;
-    if (barcode === 0 || barcode === '' || isNaN(barcode)) {
+    const barcode = normalizeWagerTransactionId(
+        document.getElementById('cancelbet_barcode').value
+    );
+    if (barcode === '' || isNaN(barcode)) {
         openmodal('payout_error_modal', 'invalid_barcode');
     } else {
         // Teller pages use userSocket; admin pages use administratorSocket.
@@ -798,7 +812,9 @@ function cancelbet(){
 }
 
 async function reprintReceipt() {
-    const transactionId = document.getElementById('reprint_transaction_id').value.trim();
+    const transactionId = normalizeWagerTransactionId(
+        document.getElementById('reprint_transaction_id').value
+    );
     const statusMsg = document.getElementById('reprint_status_message');
     const searchBtn = document.getElementById('reprint_search_button');
 

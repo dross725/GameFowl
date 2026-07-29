@@ -335,6 +335,23 @@ class TestReprintWager:
         assert data['ok'] is True
         assert 'receipt' in data
 
+    def test_unpadded_transaction_id_still_finds_ticket(self, teller_user, active_event):
+        w = Wagers.objects.create(
+            fightnum=1, side='MERON', wager=300,
+            cashier=teller_user.username, registered=True,
+        )
+        assert w.transactionid.startswith('0')
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/reprint_wager/',
+            {'transaction_id': str(int(w.transactionid))},
+        )
+        assert response.status_code == 200
+        data = json.loads(response.content)
+        assert data['ok'] is True
+        assert data['receipt']['transaction_id'] == w.transactionid
+
     def test_teller_cannot_reprint_other_cashiers_ticket(
         self, teller_user, teller_user2, active_event,
     ):
