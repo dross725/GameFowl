@@ -36,10 +36,12 @@ echo .env created at %ENV_FILE%
 echo.
 echo IMPORTANT:
 echo   1. Open .env and verify SERVER_IP is correct: %SERVER_IP%
-echo   2. After installing deps ^(2_install_deps.bat^), generate the master key hash:
+echo   2. Install PostgreSQL and create the database/user using the generated
+echo      POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD values in .env.
+echo   3. After installing deps ^(2_install_deps.bat^), generate the master key hash:
 echo        python manage.py hash_master_lock_key
 echo      then paste the output into MASTER_LOCK_PASSWORD_HASH=
-echo   3. Run deploy\6_init_master_lock.bat to create the disabled state file
+echo   4. Run deploy\6_init_master_lock.bat to create the disabled state file
 echo.
 pause
 endlocal

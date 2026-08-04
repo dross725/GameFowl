@@ -9,6 +9,15 @@ REM ============================================================
 
 cd /d "%~dp0.."
 
+echo Checking PostgreSQL connectivity...
+python manage.py check_database
+if errorlevel 1 (
+    echo ERROR: PostgreSQL is unavailable. Check the service and POSTGRES_* values in .env.
+    pause
+    exit /b 1
+)
+
+echo.
 echo Running database migrations...
 python manage.py migrate
 if errorlevel 1 (
@@ -27,7 +36,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo Database and static files ready.
+echo PostgreSQL database and static files ready.
 echo.
 echo Next: create the Django superuser account.
 echo       python manage.py createsuperuser

@@ -7,11 +7,14 @@ from .models import Event
 from .models import AdminBankTransaction
 from .models import TellerTransaction
 from .models import TellerStatus
+from .models import TellerCloseOut
 from django.contrib.auth.models import User
 from datetime import timedelta
 from django.conf import settings
 from django.utils.timezone import now
+from django.db import connection
 from django.db import transaction as db_transaction
+from functools import lru_cache
 import logging
 import os
 import shutil
@@ -35,6 +38,21 @@ def normalize_wager_transaction_id(raw):
     if tid.isdigit():
         return tid.zfill(6)
     return tid
+
+
+def normalize_teller_transaction_id(raw):
+    """Normalize a scanned/typed teller (remit) transaction id.
+
+    Remit IDs are stored as ``R`` + 6 zero-padded digits (e.g. ``R000123``).
+    Accept ``R123``, ``r000123``, etc. Returns ``None`` when the value is not
+    a teller transaction id.
+    """
+    tid = str(raw or "").strip().upper()
+    if not tid:
+        return None
+    if tid.startswith("R") and tid[1:].isdigit():
+        return "R" + tid[1:].zfill(6)
+    return None
 
 
 def send_pdf_to_printer(pdf_path):
@@ -77,6 +95,7 @@ def get_fightnum():
         fight_num = wagers.fightnum
     return (fight_num)
 
+@lru_cache(maxsize=1)
 def get_comm_val():
     comm = Settings.objects.order_by('-id').values_list('plasada', flat=True).first()
     if comm is None:
@@ -85,6 +104,11 @@ def get_comm_val():
         comm = 0.05
 
     return (comm)
+
+
+def invalidate_comm_cache():
+    get_comm_val.cache_clear()
+
 
 def get_control_status():
     m_control_status = Settings.objects.order_by('-id').values_list('M_control_status', flat=True).first()
@@ -116,11 +140,6 @@ def get_Wagers():
 def compute_payout(m_total, w_total, total_pot):
     comm = get_comm_val()
 
-    logger.debug(
-        "compute_payout: comm=%.4f m_total=%s w_total=%s total_pot=%s",
-        comm, m_total, w_total, total_pot,
-    )
-
     if m_total > 0:
         m_payout = total_pot / m_total
         m_payout = m_payout - (m_payout * comm)
@@ -135,7 +154,6 @@ def compute_payout(m_total, w_total, total_pot):
     else:
         w_payout = 0
 
-    logger.debug("compute_payout result: m_payout=%s w_payout=%s", m_payout, w_payout)
     return (m_payout, w_payout)
 
 def add_total(amount, side):
@@ -175,6 +193,22 @@ class BettingClosedError(Exception):
     def __init__(self, side=None):
         self.side = side
         super().__init__(f"Betting closed for side={side!r}")
+
+
+class NoActiveEventError(Exception):
+    """Raised when an operation requires an active event."""
+
+
+class StationAlreadyClosedError(Exception):
+    """Raised when a teller attempts to close an already-closed station."""
+
+
+class CloseOutAlreadyCountedError(Exception):
+    """Raised when admin tries to count cash for a reconciled close-out."""
+
+
+class CloseOutNotFoundError(Exception):
+    """Raised when a close-out record cannot be found."""
 
 
 def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open=True):
@@ -494,6 +528,133 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     return grand_total - remit_total + collect_total - payout_total
 
 
+def compute_teller_balance_breakdown(user, event=None, apply_end_bound=True):
+    """Return balance components for a teller, optionally scoped to an event."""
+    from django.db.models import Sum
+
+    username = str(user)
+    wager_qs = Wagers.objects.filter(cashier=username, registered=True, cancelled=False)
+    txn_qs = TellerTransaction.objects.filter(user=user)
+
+    if event is not None:
+        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
+        txn_qs = txn_qs.filter(created_at__gte=event.started_at)
+        if apply_end_bound and event.ended_at:
+            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+    grand_total = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
+    remit_total = txn_qs.filter(
+        transaction_type=TellerTransaction.REMIT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    collect_total = txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    payout_total = txn_qs.filter(
+        transaction_type=TellerTransaction.PAYOUT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    balance = grand_total - remit_total + collect_total - payout_total
+
+    return {
+        'balance': round(balance, 2),
+        'grand_total': round(grand_total, 2),
+        'remit_total': round(remit_total, 2),
+        'collect_total': round(collect_total, 2),
+        'payout_total': round(payout_total, 2),
+    }
+
+
+def get_teller_close_out(user, event=None):
+    """Return the close-out for *user* and *event*, or None."""
+    if event is None:
+        event = get_active_event()
+    if event is None:
+        return None
+    return TellerCloseOut.objects.filter(user=user, event=event).first()
+
+
+def teller_station_is_closed(user, event=None):
+    """Return True if the teller has closed their station for the event."""
+    return get_teller_close_out(user, event=event) is not None
+
+
+def close_teller_station(user, event=None):
+    """Close a teller's station for the active event and snapshot balances."""
+    if event is None:
+        event = get_active_event()
+    if event is None or not event.is_active:
+        raise NoActiveEventError()
+
+    if TellerCloseOut.objects.filter(user=user, event=event).exists():
+        raise StationAlreadyClosedError()
+
+    _, _, _, fightnum = get_fight_status()
+    breakdown = compute_teller_balance_breakdown(user, event=event, apply_end_bound=True)
+
+    with db_transaction.atomic():
+        close_out = TellerCloseOut.objects.create(
+            user=user,
+            event=event,
+            fightnum=fightnum,
+            expected_cash_on_hand=breakdown['balance'],
+            grand_total=breakdown['grand_total'],
+            remit_total=breakdown['remit_total'],
+            collect_total=breakdown['collect_total'],
+            payout_total=breakdown['payout_total'],
+        )
+        ts, _ = TellerStatus.objects.get_or_create(user=user, defaults={'is_online': True})
+        ts.is_online = False
+        ts.save(update_fields=['is_online'])
+
+    logger.info(
+        "STATION CLOSED: teller=%s event=%s fight=%s expected=%.2f",
+        user.username, event.pk, fightnum, breakdown['balance'],
+    )
+    return close_out
+
+
+def register_teller_cash_count(close_out_id, actual_amount, admin_user):
+    """Record physically counted cash and create a REMIT for the actual amount."""
+    if actual_amount < 0:
+        raise ValueError('actual_amount must be non-negative')
+
+    with db_transaction.atomic():
+        close_out = TellerCloseOut.objects.select_for_update().select_related(
+            'user', 'event',
+        ).filter(pk=close_out_id).first()
+        if close_out is None:
+            raise CloseOutNotFoundError()
+        if close_out.actual_cash_counted is not None:
+            raise CloseOutAlreadyCountedError()
+
+        variance = round(actual_amount, 2) - round(close_out.expected_cash_on_hand, 2)
+        remit_txn = TellerTransaction.objects.create(
+            user=close_out.user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=round(actual_amount, 2),
+            received=True,
+            affects_admin_fund=True,
+        )
+        close_out.actual_cash_counted = round(actual_amount, 2)
+        close_out.variance = round(variance, 2)
+        close_out.counted_by = admin_user
+        close_out.counted_at = now()
+        close_out.remit_transaction = remit_txn
+        close_out.save(update_fields=[
+            'actual_cash_counted',
+            'variance',
+            'counted_by',
+            'counted_at',
+            'remit_transaction',
+        ])
+
+    logger.info(
+        "STATION RECONCILED: teller=%s close_out=%s actual=%.2f variance=%.2f admin=%s",
+        close_out.user.username, close_out.pk, actual_amount, variance, admin_user.username,
+    )
+    return close_out
+
+
 def _payout_exceeds_cash_on_hand(cashier_username, amount, transaction_id):
     """Return an error dict if *amount* exceeds the cashier's cash on hand, else None.
 
@@ -624,45 +785,57 @@ def start_event(name):
     """
     logger.info("EVENT STARTING: name=%r — settling teller balances", name)
 
-    # Settle all outstanding teller balances against the closing event FIRST,
-    # before we change is_active.  This ensures the transactions fall inside
-    # the old event's time window and are excluded from the new event.
-    _reset_teller_balances()
+    with db_transaction.atomic():
+        # PostgreSQL advisory lock serializes event lifecycle commands even
+        # when no Event or Settings row exists yet. SQLite remains a dev-only
+        # fallback and serializes writes at the database-file level.
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [0x534D415254])
+        else:
+            Settings.objects.select_for_update().order_by('id').first()
 
-    Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
+        # Settle all outstanding teller balances against the closing event
+        # before it is deactivated so the entries stay in the old event scope.
+        _reset_teller_balances()
+        Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
 
-    setting = Settings.objects.order_by('-id').first()
-    admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
-    event = Event.objects.create(
-        name=name,
-        is_active=True,
-        admin_opening_fund=round(admin_opening_fund, 2),
-    )
-    logger.info("EVENT STARTED: id=%s name=%r started_at=%s", event.id, event.name, event.started_at)
-
-    # Issue configured starting funds as borrowed (COLLECT) transactions.
-    # These land inside the new event's time window so cashier balances
-    # correctly reflect the borrowed cash from day one.
-    _issue_initial_teller_funds()
-
-    fight_status = Fight_Status.objects.order_by('id').first()
-    if fight_status:
-        fight_status.fightnum = 0
-        fight_status.overall_status = 'CLOSE'
-        fight_status.meron_status = 'CLOSE'
-        fight_status.wala_status = 'CLOSE'
-        fight_status.save()
-    else:
-        Fight_Status.objects.create(
-            fightnum=0, overall_status='CLOSE',
-            meron_status='CLOSE', wala_status='CLOSE',
+        setting = Settings.objects.order_by('-id').first()
+        admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
+        event = Event.objects.create(
+            name=name,
+            is_active=True,
+            admin_opening_fund=round(admin_opening_fund, 2),
         )
 
-    anchor = Wagers(fightnum=0, side='EVENT_START', wager=0, cashier='System')
-    anchor.save()
+        # Issue configured starting funds inside the same transaction.
+        _issue_initial_teller_funds()
 
-    Totals.objects.create(fightnum=0, mtotal=0, wtotal=0, mpayout=0, wpayout=0, totalpot=0)
+        fight_status = Fight_Status.objects.select_for_update().order_by('id').first()
+        if fight_status:
+            fight_status.fightnum = 0
+            fight_status.overall_status = 'CLOSE'
+            fight_status.meron_status = 'CLOSE'
+            fight_status.wala_status = 'CLOSE'
+            fight_status.save()
+        else:
+            Fight_Status.objects.create(
+                fightnum=0, overall_status='CLOSE',
+                meron_status='CLOSE', wala_status='CLOSE',
+            )
 
+        Wagers.objects.create(
+            fightnum=0, side='EVENT_START', wager=0, cashier='System'
+        )
+        Totals.objects.create(
+            fightnum=0, mtotal=0, wtotal=0,
+            mpayout=0, wpayout=0, totalpot=0,
+        )
+
+    logger.info(
+        "EVENT STARTED: id=%s name=%r started_at=%s",
+        event.id, event.name, event.started_at,
+    )
     return event
 
 
@@ -1489,6 +1662,47 @@ def lookup_wager_for_reprint(transaction_id, cashier=None):
     if wager is None:
         return None
     return build_wager_receipt_payload(wager)
+
+
+def build_remit_receipt_payload(txn):
+    """Build the local-print-agent payload for a REMIT receipt reprint."""
+    event_scope, apply_end_bound = get_event_scope()
+    breakdown = compute_teller_balance_breakdown(
+        txn.user, event=event_scope, apply_end_bound=apply_end_bound,
+    )
+    return {
+        'transaction_type': txn.transaction_type,
+        'transaction_id': txn.transaction_id,
+        'amount': txn.amount,
+        'balance': breakdown['balance'],
+        'grand_total': breakdown['grand_total'],
+        'cashier': str(txn.user),
+        'date': txn.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def lookup_remit_for_reprint(transaction_id, user=None):
+    """Return a remit receipt payload, or None if not found / not a REMIT."""
+    tid = normalize_teller_transaction_id(transaction_id)
+    if tid is None:
+        return None
+
+    qs = TellerTransaction.objects.select_related('user').filter(
+        transaction_id=tid,
+        transaction_type=TellerTransaction.REMIT,
+    )
+    if user is not None:
+        qs = qs.filter(user=user)
+
+    active_event = get_active_event()
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+
+    txn = qs.first()
+    if txn is None:
+        return None
+    return build_remit_receipt_payload(txn)
+
 
 def get_fight_results(*args):
     active_event = get_active_event()

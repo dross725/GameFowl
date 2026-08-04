@@ -10,10 +10,11 @@
     <script>
         window.TELLER_ID = {{ teller_id|default:"null" }};
         window.TELLER_IS_ONLINE = {{ teller_is_online|yesno:"true,false" }};
+        window.TELLER_STATION_CLOSED = {{ teller_station_closed|yesno:"true,false" }};
     </script>
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=txn-id-normalize-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=register-then-print-1"></script>
-    <script src="{% static 'SmartWagers/user.js' %}?v=teller-offline-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=remit-reprint-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=remit-reprint-1"></script>
+    <script src="{% static 'SmartWagers/user.js' %}?v=remit-reprint-1"></script>
 {% endblock script_files %}
 
 {% block content %}
@@ -128,7 +129,7 @@
         </div>        
     </div>
 
-    <div id='teller_offline_modal' class='modal' {% if not teller_is_online %}style='display:flex'{% endif %}>
+    <div id='teller_offline_modal' class='modal' {% if not teller_is_online and not teller_station_closed %}style='display:flex'{% endif %}>
         <div class='modal-content teller-offline-modal-content'>
             <h2>You Are Offline</h2>
             <br>
@@ -141,6 +142,38 @@
                 {% csrf_token %}
                 <button type='submit'>Sign Out</button>
             </form>
+        </div>
+    </div>
+
+    <div id='teller_station_closed_modal' class='modal' {% if teller_station_closed %}style='display:flex'{% endif %}>
+        <div class='modal-content teller-offline-modal-content'>
+            <h2>Station Closed</h2>
+            <br>
+            <p>Your station has been <strong>closed</strong> for this event.</p>
+            <p>Please report to the admin office and surrender your cash on hand.</p>
+            <br>
+            <p class='teller-offline-wait'>Betting is disabled until the administrator reconciles your cash.</p>
+            <br>
+            <a href="{% url 'teller-report' %}" style="text-decoration:none;">
+                <button type='button'>View Close Summary</button>
+            </a>
+            <form method='post' action="{% url 'logout' %}" style="margin-top:8px;">
+                {% csrf_token %}
+                <button type='submit'>Sign Out</button>
+            </form>
+        </div>
+    </div>
+
+    <div id='ws_disconnected_modal' class='modal'>
+        <div class='modal-content teller-offline-modal-content'>
+            <h2>Connection Lost</h2>
+            <br>
+            <p>You have been disconnected from the server.</p>
+            <p>Live betting status updates are unavailable until the connection is restored.</p>
+            <br>
+            <p id='ws_reconnect_status' class='teller-offline-wait'>Reconnecting…</p>
+            <br>
+            <button type='button' id='ws_reconnect_reload_button' onclick='location.reload()'>Reload Page</button>
         </div>
     </div>
 
@@ -210,9 +243,9 @@
 
         <div id='matchclosedmodal' class='modal'>
             <div class='modal-content'>
-                <h2>Match Closed</h2>
+                <h2>Betting Closed</h2>
                 <br>
-                <p>The match has been closed. No further bets can be placed.</p>
+                <p>Betting has been closed by the administrator. Do not accept any more bets.</p>
                 <br>
                 <button onclick='closemodal("matchclosedmodal")'>Close</button>
             </div>
@@ -222,9 +255,9 @@
             <div class='modal-content'>
                 <h2>Reprint Receipt</h2>
                 <br>
-                <p>Enter Transaction ID to reprint bet receipt (e.g. 123 or 000123)</p>
+                <p>Enter bet or remit Transaction ID (e.g. 123, 000123, or R000123)</p>
                 <br>
-                <input type='text' id='reprint_transaction_id' placeholder='123 or 000123' inputmode='numeric' autocomplete='off'>
+                <input type='text' id='reprint_transaction_id' placeholder='123 or R000123' inputmode='text' autocomplete='off'>
                 <br>
                 <p id='reprint_status_message' style='min-height:1.2em;'></p>
                 <br>

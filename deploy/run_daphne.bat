@@ -69,6 +69,24 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [%date% %time%] Waiting for PostgreSQL...>> "%WRAPPER_LOG%"
+set /a DB_TRIES=0
+
+:database_wait
+set /a DB_TRIES+=1
+"%PYTHON_EXE%" manage.py check_database >> "%WRAPPER_LOG%" 2>&1
+if not errorlevel 1 goto database_ready
+if %DB_TRIES% GEQ 20 (
+    echo [%date% %time%] ERROR: PostgreSQL did not become ready after 20 attempts.>> "%WRAPPER_LOG%"
+    echo [%date% %time%] Check the PostgreSQL Windows service and .env credentials.>> "%WRAPPER_LOG%"
+    exit /b 1
+)
+ping -n 2 127.0.0.1 >nul
+goto database_wait
+
+:database_ready
+echo [%date% %time%] PostgreSQL ready.>> "%WRAPPER_LOG%"
+
 echo [%date% %time%] Launching Daphne...>> "%WRAPPER_LOG%"
 echo [%date% %time%] Full command output is also in %DAPHNE_LOG%>> "%WRAPPER_LOG%"
 

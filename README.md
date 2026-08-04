@@ -48,7 +48,7 @@ GameFowl / SmartWagers manages live cockfight betting sessions. Two sides — **
 | Backend | Python / Django 5.1 |
 | Async / WebSockets | Django Channels + Daphne |
 | Channel layer | Redis (`127.0.0.1:6379`) |
-| Database | SQLite (`db.sqlite3`) |
+| Database | PostgreSQL in production; explicit SQLite fallback for development/migration |
 | PDF generation | ReportLab |
 | Barcode generation | python-barcode |
 | Static files | WhiteNoise |
@@ -60,7 +60,7 @@ GameFowl / SmartWagers manages live cockfight betting sessions. Two sides — **
 
 ```
 GameFowl/               # Django project package
-├── settings.py         # Configuration (DEBUG=True, SQLite, Redis channel layer)
+├── settings.py         # Environment-driven PostgreSQL/SQLite and Redis configuration
 ├── urls.py             # Root URL conf (admin/ + SmartWagers/)
 ├── asgi.py             # ASGI entrypoint; routes HTTP and WebSocket
 └── wsgi.py
@@ -328,7 +328,7 @@ When a bet is placed, the SmartWagers page sends receipt JSON to `http://127.0.0
 
 - **Development-only config:** `DEBUG = True`, empty `ALLOWED_HOSTS`, and a hardcoded `SECRET_KEY` — do not deploy as-is.
 - **WebSocket URLs are hardcoded** to `ws://localhost:8000/` in the frontend JS files; update these for any other host or HTTPS deployment.
-- **SQLite** is not suitable for concurrent production load; migrate to PostgreSQL for production use.
+- **Production requires PostgreSQL.** With `DJANGO_DEBUG=False`, startup fails unless `DJANGO_DB_ENGINE=postgresql` and all required `POSTGRES_*` variables are configured.
 - **`Fight_Status` assumes `id=1`** — the app expects a single row to always exist; it will error if the row is missing or there are multiple rows.
 - **Bet receipt PDFs use a fixed filename** (`receipt_with_barcode.pdf`) and will be overwritten on each print; concurrent users on the same server can collide.
 - **Silent local payout printing requires the Windows local print agent** to be running on every cashier PC.

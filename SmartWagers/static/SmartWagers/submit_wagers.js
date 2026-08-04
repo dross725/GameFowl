@@ -48,7 +48,11 @@ function wala_addValue(value) { addValue(value); }
 function check_total(side) {
     if (isSubmitting) return;
     if (typeof isTellerOffline === 'function' && isTellerOffline()) {
-        if (typeof openTellerOfflineModal === 'function') openTellerOfflineModal();
+        if (typeof isTellerStationClosed === 'function' && isTellerStationClosed()) {
+            if (typeof openTellerStationClosedModal === 'function') openTellerStationClosedModal();
+        } else if (typeof openTellerOfflineModal === 'function') {
+            openTellerOfflineModal();
+        }
         return;
     }
 
@@ -155,13 +159,199 @@ function getLocalPrintAgentUrl() {
     return (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
 }
 
-async function printWagerReceipt(receipt) {
+const PENDING_TOAST_KEY = "smartwagersPendingToast";
+const PENDING_PRINT_KEY = "smartwagersPendingPrint";
+
+function ensureAppToastElement() {
+    let toast = document.getElementById("app-toast");
+    if (toast) return toast;
+
+    if (!document.getElementById("app-toast-styles")) {
+        const style = document.createElement("style");
+        style.id = "app-toast-styles";
+        style.textContent = `
+            #app-toast {
+                align-items: center;
+                border-radius: 10px;
+                bottom: 24px;
+                box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+                display: flex;
+                font-size: 13px;
+                font-weight: 600;
+                gap: 10px;
+                left: 50%;
+                max-width: 420px;
+                opacity: 0;
+                padding: 12px 18px;
+                pointer-events: none;
+                position: fixed;
+                text-align: center;
+                transform: translateX(-50%) translateY(12px);
+                transition: opacity 0.25s, transform 0.25s;
+                z-index: 9999;
+            }
+            #app-toast.show {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+            #app-toast.success {
+                background: #1a3c2a;
+                border: 1px solid rgba(46, 204, 113, 0.45);
+                color: #2ecc71;
+            }
+            #app-toast.error {
+                background: #3c1a1a;
+                border: 1px solid rgba(231, 76, 60, 0.45);
+                color: #e74c3c;
+            }
+            #app-toast.info {
+                background: #1a2a3c;
+                border: 1px solid rgba(52, 152, 219, 0.45);
+                color: #5dade2;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    toast = document.createElement("div");
+    toast.id = "app-toast";
+    document.body.appendChild(toast);
+    return toast;
+}
+
+function showAppToast(message, type, durationMs) {
+    const toast = ensureAppToastElement();
+    toast.textContent = message;
+    toast.className = "show " + (type || "info");
+    clearTimeout(toast._hideTimer);
+    toast._hideTimer = setTimeout(() => {
+        toast.className = "";
+    }, durationMs || 5000);
+}
+
+function queueAppToast(message, type) {
+    try {
+        sessionStorage.setItem(PENDING_TOAST_KEY, JSON.stringify({
+            message: message,
+            type: type || "info",
+        }));
+    } catch (error) {
+        console.warn("Unable to queue toast:", error);
+    }
+}
+
+function consumeQueuedAppToast() {
+    let raw = null;
+    try {
+        raw = sessionStorage.getItem(PENDING_TOAST_KEY);
+        if (raw) sessionStorage.removeItem(PENDING_TOAST_KEY);
+    } catch (error) {
+        return;
+    }
+    if (!raw) return;
+
+    try {
+        const payload = JSON.parse(raw);
+        if (payload && payload.message) {
+            showAppToast(payload.message, payload.type || "info");
+        }
+    } catch (error) {
+        console.warn("Unable to show queued toast:", error);
+    }
+}
+
+function queuePendingPrint(receipt) {
+    if (!receipt) return;
+    try {
+        const raw = sessionStorage.getItem(PENDING_PRINT_KEY);
+        const queue = raw ? JSON.parse(raw) : [];
+        const nextQueue = Array.isArray(queue) ? queue : [];
+        nextQueue.push(receipt);
+        sessionStorage.setItem(PENDING_PRINT_KEY, JSON.stringify(nextQueue));
+    } catch (error) {
+        console.warn("Unable to queue receipt print:", error);
+    }
+}
+
+async function consumePendingPrints() {
+    let queue = [];
+    try {
+        const raw = sessionStorage.getItem(PENDING_PRINT_KEY);
+        if (!raw) return;
+        sessionStorage.removeItem(PENDING_PRINT_KEY);
+        const parsed = JSON.parse(raw);
+        queue = Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+        return;
+    }
+
+    for (const receipt of queue) {
+        if (!receipt) continue;
+        // keepalive lets an in-flight print finish if the teller places
+        // another bet and the page reloads again mid-print.
+        const printResult = await printWagerReceipt(receipt, { keepalive: true });
+        if (!printResult.ok) {
+            showAppToast(
+                "Bet registered (Txn: " + (receipt.transaction_id || "unknown")
+                + "), but a printing error occurred. Receipt can be reprinted from the Reports page.",
+                "error"
+            );
+        }
+    }
+}
+
+async function printWagerReceipt(receipt, options) {
     // Thermal printers / Windows spoolers can be slow; keep a generous timeout.
+    const keepalive = Boolean(options && options.keepalive);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
         const response = await fetch(`${getLocalPrintAgentUrl()}/print-wager`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(receipt),
+            signal: controller.signal,
+            keepalive: keepalive,
+        });
+        let result = {};
+        try {
+            result = await response.json();
+        } catch (error) {
+            result = {};
+        }
+
+        if (!response.ok || !result.ok) {
+            return {
+                ok: false,
+                message: result.error || `Local print agent returned HTTP ${response.status}.`,
+            };
+        }
+
+        return {
+            ok: true,
+            message: result.message || "Bet receipt sent to local printer.",
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            message: error.name === "AbortError"
+                ? "Local print agent did not respond in time."
+                : "Local print agent is not running or is blocked.",
+        };
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+async function printRemitReceipt(receipt) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+        const response = await fetch(`${getLocalPrintAgentUrl()}/print-remit`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
@@ -185,7 +375,7 @@ async function printWagerReceipt(receipt) {
 
         return {
             ok: true,
-            message: result.message || "Bet receipt sent to local printer.",
+            message: result.message || "Remit receipt sent to local printer.",
         };
     } catch (error) {
         return {
@@ -332,17 +522,11 @@ async function submitValue() {
             return;
         }
 
-        // Bet is already registered on the server. Print is best-effort —
-        // tellers can Reprint from the report if the printer fails.
+        // Bet is already registered on the server. Queue the receipt and reload
+        // immediately so the teller can take the next bet without waiting on
+        // the printer. Printing runs in the background after reload.
         if (result.print_required !== false && result.receipt) {
-            const printResult = await printWagerReceipt(result.receipt);
-            if (!printResult.ok) {
-                alert(
-                    "Bet registered (Txn: " + result.receipt.transaction_id + "), "
-                    + "but receipt print failed: " + printResult.message
-                    + " Use Reprint from the report if needed."
-                );
-            }
+            queuePendingPrint(result.receipt);
         }
 
         submissionSucceeded = true;
@@ -367,6 +551,10 @@ window.onload = function() {
 };
 
 document.addEventListener('DOMContentLoaded', () => {
+    consumeQueuedAppToast();
+    // Do not await — printing must never block the bet UI.
+    consumePendingPrints();
+
     const textarea = document.getElementById('bet_textinput');
     if (!textarea) return;
 
@@ -459,7 +647,10 @@ document.addEventListener('keydown', (e) => {
     const modals = [
         /* id                      Enter action                           Esc action */
         /* Offline lockout: no dismiss via keyboard */
+        ['teller_station_closed_modal', null,                                  null],
         ['teller_offline_modal',   null,                                  null],
+        /* Connection lost: keep visible until reconnect; Reload is manual only */
+        ['ws_disconnected_modal',  null,                                  null],
         ['confirmationModal',      () => click('submitvalue'),            () => call(closeModal)],
         ['invalidtotalModal',      () => call(closeInvalidTotalModal),    () => call(closeInvalidTotalModal)],
         ['control_confirmationModal', () => click('cm-yes-button'),       () => click('cm-no-button')],

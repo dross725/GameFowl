@@ -162,6 +162,12 @@ class TestComputePayout:
         m_pay, _ = services.compute_payout(500, 500, 1000)
         assert float(m_pay) == pytest.approx(expected, rel=1e-4)
 
+    def test_commission_cache_invalidates_when_settings_change(self, default_settings):
+        assert services.get_comm_val() == pytest.approx(0.05)
+        default_settings.plasada = 0.10
+        default_settings.save(update_fields=['plasada'])
+        assert services.get_comm_val() == pytest.approx(0.10)
+
 
 # ---------------------------------------------------------------------------
 # add_total / deduct_totals

@@ -1,13 +1,16 @@
 const administratorWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
 const localPrintAgentUrl = (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
 
-/** Normalize a wager transaction id typed or scanned by a teller.
- *  Stored IDs are zero-padded to 6 digits; accept both "123" and "000123".
+/** Normalize a wager or remit transaction id typed or scanned by a teller.
+ *  Bet IDs are zero-padded to 6 digits; remit IDs are R + 6 digits.
+ *  Accept both "123"/"000123" and "R123"/"R000123".
  */
 function normalizeWagerTransactionId(raw) {
     const tid = String(raw ?? "").trim();
     if (!tid) return "";
     if (/^\d+$/.test(tid)) return tid.padStart(6, "0");
+    const upper = tid.toUpperCase();
+    if (/^R\d+$/.test(upper)) return "R" + upper.slice(1).padStart(6, "0");
     return tid;
 }
 
@@ -88,8 +91,26 @@ administratorSocket.onmessage = async (event) => {
             }
         }
     }
+
+    // Prefer status fields from the live broadcast; fall back to HTTP sync.
+    if ("overall_status" in data || "meron_status" in data || "fight_status" in data || "side_status" in data) {
+        if ("overall_status" in data && "meron_status" in data && "wala_status" in data) {
+            if (data.fight_status === "CLOSED" || data.overall_status === "CLOSED") {
+                bettingReopened = false;
+            }
+            get_status_for_display(
+                data.fightnum,
+                data.overall_status,
+                data.meron_status,
+                data.wala_status
+            );
+        } else {
+            get_fightstatus();
+        }
+    } else {
+        get_fightstatus();
+    }
     updateStatus("Connected");
-    get_fightstatus();
 }
 
 async function printPayoutReceipt(data) {
@@ -600,7 +621,7 @@ async function payout() {
         openmodal('payout_error_modal', 'invalid_barcode');
    } else {
         // Teller pages use userSocket; admin pages use administratorSocket.
-        const socket = (typeof userSocket !== 'undefined' && userSocket.readyState === WebSocket.OPEN)
+        const socket = (typeof userSocket !== 'undefined' && userSocket && userSocket.readyState === WebSocket.OPEN)
             ? userSocket
             : administratorSocket;
         console.log("[payout] socket selected:", socket === (typeof userSocket !== 'undefined' ? userSocket : null) ? "userSocket" : "administratorSocket", "readyState:", socket.readyState);
@@ -797,7 +818,7 @@ function cancelbet(){
         openmodal('payout_error_modal', 'invalid_barcode');
     } else {
         // Teller pages use userSocket; admin pages use administratorSocket.
-        const socket = (typeof userSocket !== 'undefined' && userSocket.readyState === WebSocket.OPEN)
+        const socket = (typeof userSocket !== 'undefined' && userSocket && userSocket.readyState === WebSocket.OPEN)
             ? userSocket
             : administratorSocket;
         console.log("[cancelbet] socket selected:", socket === (typeof userSocket !== 'undefined' ? userSocket : null) ? "userSocket" : "administratorSocket", "readyState:", socket.readyState);
@@ -853,18 +874,29 @@ async function reprintReceipt() {
             return;
         }
 
-        statusMsg.innerText = 'Transaction found. Sending to printer...';
+        const isRemit = data.receipt_type === 'remit';
+        statusMsg.innerText = isRemit
+            ? 'Remit found. Sending to printer...'
+            : 'Transaction found. Sending to printer...';
 
         let printResult;
         if (data.print_required !== false) {
-            printResult = await printWagerReceipt(data.receipt);
+            if (isRemit) {
+                printResult = await printRemitReceipt(data.receipt);
+            } else {
+                printResult = await printWagerReceipt(data.receipt);
+            }
         } else {
             printResult = { ok: true, message: 'Printing is disabled.' };
         }
 
         closemodal('reprintmodal');
-        document.getElementById('payout_success_header').innerText = 'Reprint Receipt';
-        document.getElementById('payout_message1').innerText = 'Transaction ID: ' + transactionId;
+        document.getElementById('payout_success_header').innerText = isRemit
+            ? 'Reprint Remit Receipt'
+            : 'Reprint Receipt';
+        document.getElementById('payout_message1').innerText = 'Transaction ID: ' + (
+            (data.receipt && data.receipt.transaction_id) || transactionId
+        );
         document.getElementById('payout_message2').innerText = printResult.ok
             ? 'Receipt sent to printer successfully.'
             : 'Print failed: ' + printResult.message;

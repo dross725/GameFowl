@@ -120,6 +120,27 @@ REM -- Pre-flight: Django
 echo.
 echo Verifying Django project...
 cd /d "%PROJECT_DIR%"
+
+echo Checking PostgreSQL Windows service...
+powershell -NoProfile -Command "$s = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $s) { Write-Error 'PostgreSQL service not found'; exit 1 }; if ($s.Status -ne 'Running') { Start-Service $s.Name }; $s.WaitForStatus('Running', [TimeSpan]::FromSeconds(20)); Write-Host ('PostgreSQL service: ' + $s.Name + ' RUNNING')" 
+if errorlevel 1 (
+    echo.
+    echo ERROR: PostgreSQL Windows service is missing or could not be started.
+    echo        Install PostgreSQL, configure .env credentials, then retry.
+    pause
+    exit /b 1
+)
+
+echo Checking PostgreSQL login and query...
+"%PYTHON_PATH%" manage.py check_database
+if errorlevel 1 (
+    echo.
+    echo ERROR: Django could not connect to PostgreSQL.
+    echo        Check POSTGRES_* values in %ENV_FILE%.
+    pause
+    exit /b 1
+)
+
 "%PYTHON_PATH%" manage.py check
 if errorlevel 1 (
     echo.

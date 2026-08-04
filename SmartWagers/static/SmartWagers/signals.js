@@ -11,11 +11,19 @@ socket.onmessage = (event) => {
     }
 
     if ("fight_status" in data) {
-        // Fetch real status from server so display shows proper values
-        get_fightstatus();
-        // Refresh trends sidebar whenever a fight completes or is cancelled
+        // Apply status from the broadcast immediately when present.
+        if ("overall_status" in data || "meron_status" in data) {
+            if (data.fightnum != null) updateFightnum(data.fightnum);
+            if (data.overall_status) update_disp_FightStatus(data.overall_status);
+            if (data.meron_status) update_side_status("MERON", normalizeDisplayStatus(data.meron_status));
+            if (data.wala_status) update_side_status("WALA", normalizeDisplayStatus(data.wala_status));
+        } else {
+            get_fightstatus();
+        }
         if (data.fight_status === "END" || data.fight_status === "CANCEL") {
             update_trends();
+        } else if (data.fight_status === "event_changed") {
+            get_fightstatus();
         }
     } else if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
@@ -25,7 +33,7 @@ socket.onmessage = (event) => {
         if (data.fightnum != null) updateFightnum(data.fightnum);
     } else if ("side" in data && "side_status" in data) {
         const side   = data.side;
-        const status = data.side_status;
+        const status = normalizeDisplayStatus(data.side_status);
         if (side === "BOTH") {
             update_side_status("MERON", status);
             update_side_status("WALA",  status);
@@ -38,6 +46,10 @@ socket.onmessage = (event) => {
 
     updateStatus("Connected");
 };
+
+function normalizeDisplayStatus(status) {
+    return status === "CLOSE" ? "CLOSED" : status;
+}
 
 socket.onopen = () => {
     console.log("WebSocket connected!");
@@ -102,8 +114,8 @@ async function get_fightstatus(){
 
     let fight_num = data.fightnum;
     let fight_status = data.overall_status;
-    let m_status = data.meron_status;
-    let w_status = data.wala_status;
+    let m_status = normalizeDisplayStatus(data.meron_status);
+    let w_status = normalizeDisplayStatus(data.wala_status);
 
     updateFightnum(fight_num);
     update_disp_FightStatus(fight_status);
