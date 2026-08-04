@@ -49,9 +49,12 @@
     display: flex;
     flex-direction: column;
     gap: 18px;
-    padding: 16px 18px 24px;
-    flex: 1;
-    min-height: 0;
+    padding: 16px 18px 32px;
+    /* Grow with content so #wagers_section can scroll to Fight Results
+       and other panels below the fold. Do not flex-shrink into the viewport. */
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   #st-title {
@@ -160,8 +163,12 @@
   .st-err  { color: #e74c3c; }
 
   /* ── Fight results table ── */
+  #st-results-panel {
+    flex: 0 0 auto;
+  }
+
   #st-results-container {
-    max-height: 420px;
+    max-height: min(420px, 50vh);
     overflow-y: auto;
     border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.08);
@@ -462,7 +469,7 @@
   </div>
 
   <!-- ── Fight results panel ── -->
-  <div class="st-panel" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+  <div class="st-panel" id="st-results-panel">
     <div class="st-panel-title">
       Fight Results — Change Winner
       <span style="font-size:11px;font-weight:400;color:rgba(255,255,255,0.30);margin-left:6px;">

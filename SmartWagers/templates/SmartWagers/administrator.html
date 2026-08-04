@@ -233,8 +233,8 @@
 {% endblock css_files %}
 
 {% block script_files %}
-    <script src="{% static 'SmartWagers/administrator.js' %}?v=pre-event-tellers-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=remit-reprint-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=remit-reprint-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
@@ -417,9 +417,9 @@
             <div class='modal-content'>
                 <h2>Payout</h2>
                 <br>
-                <p>Please scan receipt barcode</p>
+                <p>Scan barcode or type Transaction ID (e.g. 123 or 000123)</p>
                 <br>
-                <input name="payout_textarea" id="payout_barcode"></input>
+                <input name="payout_textarea" id="payout_barcode" placeholder="123 or 000123" inputmode="numeric" autocomplete="off"></input>
                 <br>
                 <button id='payout_yes' onclick='payout()'>Search</button>
                 <button id='payout_no' onclick='closemodal("payoutmodal")'>Cancel</button>
@@ -430,9 +430,9 @@
             <div class='modal-content'>
                 <h2>Cancel Bet</h2>
                 <br>
-                <p>Please scan receipt barcode</p>
+                <p>Scan barcode or type Transaction ID (e.g. 123 or 000123)</p>
                 <br>
-                <input name="cancelbet_textarea" id="cancelbet_barcode"></input>
+                <input name="cancelbet_textarea" id="cancelbet_barcode" placeholder="123 or 000123" inputmode="numeric" autocomplete="off"></input>
                 <br>
                 <button id='cancelbet_yes' onclick='cancelbet()'>Search</button>
                 <button id='cancelbet_no' onclick='closemodal("cancelbetmodal")'>Cancel</button>
@@ -489,9 +489,9 @@
             <div class='modal-content'>
                 <h2>Reprint Receipt</h2>
                 <br>
-                <p>Enter Transaction ID to reprint bet receipt</p>
+                <p>Enter bet or remit Transaction ID (e.g. 123, 000123, or R000123)</p>
                 <br>
-                <input type='text' id='reprint_transaction_id' placeholder='Transaction ID' autocomplete='off'>
+                <input type='text' id='reprint_transaction_id' placeholder='123 or R000123' inputmode='text' autocomplete='off'>
                 <br>
                 <p id='reprint_status_message' style='min-height:1.2em;'></p>
                 <br>

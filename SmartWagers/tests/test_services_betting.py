@@ -35,12 +35,12 @@ class TestAddWager:
 
     def test_creates_wager_row(self, default_settings):
         _open_fight()
-        w = services.add_wager(100, 'MERON', 1, cashier='teller1')
+        w, _ = services.add_wager(100, 'MERON', 1, cashier='teller1')
         assert Wagers.objects.filter(pk=w.pk, registered=True).exists()
 
     def test_wager_is_registered_immediately(self, default_settings):
         _open_fight()
-        w = services.add_wager(200, 'WALA', 1, cashier='teller1')
+        w, _ = services.add_wager(200, 'WALA', 1, cashier='teller1')
         assert w.registered is True
 
     def test_meron_updates_mtotal(self, default_settings):
@@ -71,11 +71,46 @@ class TestAddWager:
 
     def test_multiple_wagers_accumulate_correctly(self, default_settings):
         _open_fight()
-        for _ in range(5):
-            services.add_wager(100, 'MERON', 1, cashier='teller1')
+        # Distinct cashiers so the 3s duplicate window does not collapse bets.
+        for i in range(5):
+            services.add_wager(100, 'MERON', 1, cashier=f'teller{i}')
         m, _, _, _, pot, _ = services.get_Totals()
         assert m == 500
         assert pot == 500
+
+    def test_duplicate_window_returns_existing_without_new_row(self, default_settings):
+        _open_fight()
+        w1, created1 = services.add_wager(250, 'MERON', 1, cashier='teller1')
+        w2, created2 = services.add_wager(250, 'MERON', 1, cashier='teller1')
+        assert created1 is True
+        assert created2 is False
+        assert w1.pk == w2.pk
+        assert Wagers.objects.filter(
+            cashier='teller1', side='MERON', wager=250, registered=True, cancelled=False,
+        ).count() == 1
+        m, _, _, _, _, _ = services.get_Totals()
+        assert m == 250
+
+    def test_teller_blocked_when_side_closed(self, default_settings):
+        _open_fight()
+        Fight_Status.objects.all().update(meron_status='CLOSE')
+        with pytest.raises(services.BettingClosedError):
+            services.add_wager(100, 'MERON', 1, cashier='teller1', require_side_open=True)
+
+    def test_admin_allowed_when_side_closed_but_match_open(self, default_settings):
+        _open_fight()
+        Fight_Status.objects.all().update(meron_status='CLOSE')
+        w, created = services.add_wager(
+            100, 'MERON', 1, cashier='admin1', require_side_open=False,
+        )
+        assert created is True
+        assert w.registered is True
+
+    def test_admin_blocked_when_match_closed(self, default_settings):
+        _open_fight()
+        Fight_Status.objects.all().update(overall_status='CLOSED')
+        with pytest.raises(services.BettingClosedError):
+            services.add_wager(100, 'MERON', 1, cashier='admin1', require_side_open=False)
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +161,12 @@ class TestComputePayout:
         expected = (1000 / 500) * (1 - comm) * 100  # = 190.0
         m_pay, _ = services.compute_payout(500, 500, 1000)
         assert float(m_pay) == pytest.approx(expected, rel=1e-4)
+
+    def test_commission_cache_invalidates_when_settings_change(self, default_settings):
+        assert services.get_comm_val() == pytest.approx(0.05)
+        default_settings.plasada = 0.10
+        default_settings.save(update_fields=['plasada'])
+        assert services.get_comm_val() == pytest.approx(0.10)
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +317,8 @@ class TestWagerReceiptFlow:
         m, _, _, _, _, _ = services.get_Totals()
         assert m == 400
 
-    def test_confirm_returns_none_when_betting_closed(self, default_settings):
+    def test_confirm_still_registers_when_betting_closed(self, default_settings):
+        """Once reserved, confirm must succeed even if betting closed mid-print."""
         Fight_Status.objects.create(
             fightnum=1, overall_status='CLOSED', meron_status='CLOSE', wala_status='CLOSE'
         )
@@ -284,27 +326,58 @@ class TestWagerReceiptFlow:
         Wagers.objects.create(fightnum=1, side='START', wager=0, cashier='System', registered=True)
         pending = services.reserve_wager_receipt(300, 'MERON', 1, cashier='teller1')
         result = services.confirm_wager_receipt(pending.transactionid)
-        assert result is None
+        assert result is not None
+        assert result.registered is True
+        assert Wagers.objects.filter(transactionid=pending.transactionid, registered=True).exists()
 
-    def test_cancel_removes_pending_wager(self):
+    def test_cancel_soft_deletes_pending_wager(self):
         _open_fight()
         pending = services.reserve_wager_receipt(200, 'WALA', 1, cashier='teller1')
         tid = pending.transactionid
         cancelled = services.cancel_wager_receipt(tid)
         assert cancelled is True
-        assert not Wagers.objects.filter(transactionid=tid).exists()
+        discarded = Wagers.objects.get(transactionid=tid)
+        assert discarded.registered is False
+        assert discarded.cancelled is True
+
+    def test_cancelled_pending_transaction_id_is_not_reused(self):
+        """A discarded pending receipt must keep its txn ID so payout cannot
+        resolve a printed ticket to a different cashier."""
+        _open_fight()
+        pending_a = services.reserve_wager_receipt(500, 'MERON', 1, cashier='cashier-a')
+        tid_a = pending_a.transactionid
+        services.cancel_wager_receipt(tid_a)
+
+        pending_b = services.reserve_wager_receipt(500, 'MERON', 1, cashier='cashier-b')
+        assert pending_b.transactionid != tid_a
+        assert int(pending_b.transactionid) > int(tid_a)
+
+        # Payout lookup for the printed (discarded) ticket must not find cashier-b
+        assert not Wagers.objects.filter(
+            transactionid=tid_a, registered=True, cancelled=False
+        ).exists()
+        assert Wagers.objects.get(transactionid=pending_b.transactionid).cashier == 'cashier-b'
 
     def test_cancel_nonexistent_returns_false(self):
         result = services.cancel_wager_receipt('999999')
         assert result is False
 
-    def test_confirm_already_confirmed_returns_none(self, default_settings):
+    def test_confirm_rejects_discarded_pending(self, default_settings):
         _open_fight()
         pending = services.reserve_wager_receipt(100, 'MERON', 1, cashier='teller1')
-        services.confirm_wager_receipt(pending.transactionid)
-        # Second confirm on same id — already registered, so no unregistered row
-        result = services.confirm_wager_receipt(pending.transactionid)
-        assert result is None
+        services.cancel_wager_receipt(pending.transactionid)
+        assert services.confirm_wager_receipt(pending.transactionid) is None
+
+    def test_confirm_already_confirmed_is_idempotent(self, default_settings):
+        _open_fight()
+        pending = services.reserve_wager_receipt(100, 'MERON', 1, cashier='teller1')
+        first = services.confirm_wager_receipt(pending.transactionid)
+        second = services.confirm_wager_receipt(pending.transactionid)
+        assert first is not None and first.registered is True
+        assert second is not None and second.pk == first.pk
+        # Totals must not be double-counted on the idempotent re-confirm
+        m, _, _, _, _, _ = services.get_Totals()
+        assert m == 100
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +389,7 @@ class TestCancelBet:
 
     def test_cancel_open_bet_deducts_totals(self, default_settings):
         _open_fight()
-        w = services.add_wager(500, 'MERON', 1, cashier='teller1')
+        w, _ = services.add_wager(500, 'MERON', 1, cashier='teller1')
         services.cancel_bet(w.transactionid)
         m, _, _, _, pot, _ = services.get_Totals()
         assert m == 0
@@ -324,7 +397,7 @@ class TestCancelBet:
 
     def test_cancel_open_bet_marks_wager_cancelled(self, default_settings):
         _open_fight()
-        w = services.add_wager(300, 'MERON', 1, cashier='teller1')
+        w, _ = services.add_wager(300, 'MERON', 1, cashier='teller1')
         tid = w.transactionid
         result = services.cancel_bet(tid)
         wager = Wagers.objects.get(transactionid=tid)
@@ -350,21 +423,21 @@ class TestCancelBet:
 
     def test_successful_cancel_returns_amount(self, default_settings):
         _open_fight()
-        w = services.add_wager(750, 'WALA', 1, cashier='teller1')
+        w, _ = services.add_wager(750, 'WALA', 1, cashier='teller1')
         result = services.cancel_bet(w.transactionid)
         assert result.get('message') == 'betcancelled'
         assert '750' in str(result.get('amount', ''))
 
     def test_cancel_already_cancelled_returns_notfound(self, default_settings):
         _open_fight()
-        w = services.add_wager(200, 'MERON', 1, cashier='teller1')
+        w, _ = services.add_wager(200, 'MERON', 1, cashier='teller1')
         services.cancel_bet(w.transactionid)
         result = services.cancel_bet(w.transactionid)
         assert result.get('error') == 'notfound'
 
     def test_cancel_cashed_out_returns_alreadypaid(self, default_settings):
         _open_fight()
-        w = services.add_wager(400, 'WALA', 1, cashier='teller1')
+        w, _ = services.add_wager(400, 'WALA', 1, cashier='teller1')
         Wagers.objects.filter(pk=w.pk).update(cashed_out=True)
         result = services.cancel_bet(w.transactionid)
         assert result.get('error') == 'alreadypaid'
@@ -373,8 +446,31 @@ class TestCancelBet:
 
     def test_cancel_includes_print_required_flag(self, default_settings):
         _open_fight()
-        w = services.add_wager(100, 'MERON', 1, cashier='teller1')
+        w, _ = services.add_wager(100, 'MERON', 1, cashier='teller1')
         result = services.cancel_bet(w.transactionid)
         assert 'print_required' in result
         assert 'receipt' in result
         assert result['receipt']['receipt_type'] == 'cancel'
+
+    def test_cross_teller_cancel_returns_wrong_teller(self, default_settings):
+        _open_fight()
+        w, _ = services.add_wager(200, 'MERON', 1, cashier='teller1')
+        result = services.cancel_bet(w.transactionid, requesting_cashier='teller2')
+        assert result.get('error') == 'wrong_teller'
+        assert result.get('original_cashier') == 'teller1'
+        wager = Wagers.objects.get(pk=w.pk)
+        assert wager.cancelled is False
+
+    def test_owner_teller_can_cancel(self, default_settings):
+        _open_fight()
+        w, _ = services.add_wager(200, 'WALA', 1, cashier='teller1')
+        result = services.cancel_bet(w.transactionid, requesting_cashier='teller1')
+        assert result.get('message') == 'betcancelled'
+        wager = Wagers.objects.get(pk=w.pk)
+        assert wager.cancelled is True
+
+    def test_admin_cancel_without_cashier_still_succeeds(self, default_settings):
+        _open_fight()
+        w, _ = services.add_wager(300, 'MERON', 1, cashier='teller1')
+        result = services.cancel_bet(w.transactionid, requesting_cashier=None)
+        assert result.get('message') == 'betcancelled'

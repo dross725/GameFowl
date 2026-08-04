@@ -20,11 +20,62 @@ if errorlevel 1 (
 )
 
 echo Installing pywin32 for Windows printer support...
-python -m pip install pywin32
+echo Using Python: 
+python -c "import sys; print(sys.executable)"
+python -m pip install --upgrade --force-reinstall pywin32
 if errorlevel 1 (
     echo ERROR: Failed to install pywin32.
     pause
     exit /b 1
+)
+
+echo Running pywin32 post-install...
+python -m pywin32_postinstall -install
+if errorlevel 1 (
+    echo -m pywin32_postinstall failed; trying Scripts\pywin32_postinstall.py ...
+    for /f "delims=" %%S in ('python -c "import sysconfig; print(sysconfig.get_path('scripts'))"') do (
+        if exist "%%S\pywin32_postinstall.py" (
+            python "%%S\pywin32_postinstall.py" -install
+        ) else (
+            echo WARNING: pywin32_postinstall.py not found under %%S
+            echo          Confirm pywin32 installed for this Python: python -m pip show pywin32
+        )
+    )
+)
+
+REM pythonw is what the silent launcher uses — verify the same install can import win32print
+echo Verifying pywin32 import...
+python -c "import win32print, win32con; print('win32print/win32con: OK')"
+if errorlevel 1 (
+    echo ERROR: pywin32 installed but import failed for python.
+    echo Try: python -m pywin32_postinstall -install
+    pause
+    exit /b 1
+)
+python -c "import win32ui; print('win32ui: OK')"
+if errorlevel 1 (
+    echo.
+    echo WARNING: win32ui DLL failed to load.
+    echo This usually needs:
+    echo   1. Microsoft Visual C++ Redistributable ^(x64^)
+    echo      https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+    echo   2. Or set "print_mode": "escpos" in config.json for thermal printers
+    echo      ^(escpos uses win32print only, not win32ui^)
+    echo.
+    pause
+) else (
+    echo win32ui: OK
+)
+where pythonw >nul 2>&1
+if not errorlevel 1 (
+    pythonw -c "import win32print, win32con"
+    if errorlevel 1 (
+        echo WARNING: pythonw cannot import pywin32. Silent start may fail.
+        echo Install with: pythonw -m pip install pywin32
+        pause
+    ) else (
+        echo pythonw: OK
+    )
 )
 
 REM -- Create config.json if it does not already exist

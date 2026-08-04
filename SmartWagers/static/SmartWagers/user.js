@@ -1,7 +1,94 @@
 const userWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-const userSocket = new WebSocket(`${userWebsocketProtocol}://${window.location.host}/ws/user/`);
+let userSocket = null;
+let _userWsReconnectTimer = null;
+let _userWsReconnectAttempt = 0;
+let _userWsPageUnloading = false;
 
-userSocket.onmessage = async (event) => {
+window.addEventListener('beforeunload', () => {
+    _userWsPageUnloading = true;
+});
+
+function openWsDisconnectedModal() {
+    const modal = document.getElementById('ws_disconnected_modal');
+    if (modal) modal.style.display = 'flex';
+    const statusEl = document.getElementById('ws_reconnect_status');
+    if (statusEl) statusEl.innerText = 'Reconnecting…';
+}
+
+function closeWsDisconnectedModal() {
+    const modal = document.getElementById('ws_disconnected_modal');
+    if (modal) modal.style.display = 'none';
+    const statusEl = document.getElementById('ws_reconnect_status');
+    if (statusEl) statusEl.innerText = 'Reconnecting…';
+}
+
+function setWsReconnectStatus(message) {
+    const statusEl = document.getElementById('ws_reconnect_status');
+    if (statusEl) statusEl.innerText = message;
+}
+
+function scheduleUserSocketReconnect() {
+    if (_userWsPageUnloading) return;
+    if (_userWsReconnectTimer) return;
+
+    const attempt = _userWsReconnectAttempt;
+    const delayMs = Math.min(30000, 1000 * Math.pow(2, Math.min(attempt, 5)));
+    _userWsReconnectAttempt += 1;
+    setWsReconnectStatus(`Reconnecting in ${Math.round(delayMs / 1000)}s… (attempt ${_userWsReconnectAttempt})`);
+
+    _userWsReconnectTimer = setTimeout(() => {
+        _userWsReconnectTimer = null;
+        setWsReconnectStatus('Reconnecting…');
+        connectUserSocket();
+    }, delayMs);
+}
+
+function connectUserSocket() {
+    if (_userWsPageUnloading) return;
+
+    // Avoid stacking sockets if a reconnect overlaps an open connection.
+    if (userSocket &&
+        (userSocket.readyState === WebSocket.OPEN || userSocket.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
+    const socket = new WebSocket(`${userWebsocketProtocol}://${window.location.host}/ws/user/`);
+    userSocket = socket;
+
+    socket.onmessage = handleUserSocketMessage;
+
+    socket.onopen = () => {
+        console.log("WebSocket connected!");
+        _userWsReconnectAttempt = 0;
+        if (_userWsReconnectTimer) {
+            clearTimeout(_userWsReconnectTimer);
+            _userWsReconnectTimer = null;
+        }
+        closeWsDisconnectedModal();
+        try {
+            socket.send(JSON.stringify({ update: true }));
+        } catch (error) {
+            console.error("Initial WebSocket send failed:", error);
+        }
+        console.log("Initial data request sent.");
+        updateStatus("Connected");
+        get_fightstatus();
+    };
+
+    socket.onerror = (error) => {
+        console.error("WebSocket Error:", error);
+    };
+
+    socket.onclose = () => {
+        console.log("WebSocket disconnected!");
+        updateStatus("Disconnected");
+        if (_userWsPageUnloading) return;
+        openWsDisconnectedModal();
+        scheduleUserSocketReconnect();
+    };
+}
+
+async function handleUserSocketMessage(event) {
     const data = JSON.parse(event.data);
     console.log("Data received from server: ", data);
     console.log("This is the user.js file");
@@ -23,32 +110,32 @@ userSocket.onmessage = async (event) => {
         const status = normalizeBettingStatus(data.side_status);
         console.log("Changing status of ", side + " to " + status);
         updateUserBettingStatus(status, side);
+        if ("overall_status" in data) {
+            applyOverallStatusDisplay(data.overall_status);
+        }
+        if (data.fightnum != null) {
+            updateFightnum(data.fightnum);
+        }
         if (status === "CLOSED") {
             bettingReopenedUser = false;
+            setBettingDisabledModalCopy(side);
             openbettingdisabledModal();
         } else if (status === "OPEN") {
             bettingReopenedUser = true;
             update_disp_FightStatus("OPEN");
+            closebettingdisabledModal();
+            closemodalIfOpen('matchclosedmodal');
         }
-    }
-
-    if ("meron_status" in data && "wala_status" in data) {
-        updateUserBettingStatus(data.meron_status, "MERON");
-        updateUserBettingStatus(data.wala_status, "WALA");
-        updateFightnum(data.fightnum);
+    } else if ("meron_status" in data && "wala_status" in data && !("fight_status" in data)) {
+        // Side-status broadcasts already include meron/wala; avoid double-applying
+        // when fight_status payloads also carry those fields.
+        applySideStatusesFromPayload(data.meron_status, data.wala_status, data.fightnum);
     }
 
     if ("fight_status" in data) {
-        get_fightstatus();
-        if (data.fight_status === "END" || data.fight_status === "CANCEL") {
-            update_trends();
-            // A result was just declared — check for newly payable tickets
-            fetchPendingPayouts();
-        }
-    }
-
-    if ("overall_status" in data) {
-        update_disp_FightStatus(data.overall_status);
+        handleFightStatusBroadcast(data);
+    } else if ("overall_status" in data && !("side" in data)) {
+        applyOverallStatusDisplay(data.overall_status);
     }
 
     if ("payout" in data) {
@@ -62,8 +149,13 @@ userSocket.onmessage = async (event) => {
     if ("cancel_bet" in data) {
         console.log("[user.js] cancel_bet message received:", data);
         if ("error" in data) {
-            document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
-            openmodal('payout_error_modal', data.error);
+            if (data.error === 'wrong_teller') {
+                document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
+                document.getElementById('wrong_teller_modal').style.display = 'flex';
+            } else {
+                document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
+                openmodal('payout_error_modal', data.error);
+            }
         } else if ("transaction_id" in data && "amount" in data) {
             document.getElementById('payout_success_header').innerText = "Cancel Bet";
             document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
@@ -88,9 +180,127 @@ userSocket.onmessage = async (event) => {
             setTellerOnlineStatus(Boolean(data.teller_online));
         }
     }
-};
+}
+
+connectUserSocket();
+
+function closemodalIfOpen(modalId) {
+    const modal = document.getElementById(modalId);
+    if (modal && modal.style.display === 'flex') {
+        if (typeof closemodal === 'function') {
+            closemodal(modalId);
+        } else {
+            modal.style.display = 'none';
+        }
+    }
+}
+
+function setBettingDisabledModalCopy(side) {
+    const headertext = document.getElementById("modal-header-text");
+    const modalmessage = document.getElementById("modal-message");
+    const label = side === "BOTH" ? "both sides" : side;
+    if (headertext) {
+        headertext.innerHTML = side === "BOTH"
+            ? "Betting has been closed by the administrator"
+            : ("Betting is currently disabled for <strong>" + side + "</strong>.");
+    }
+    if (modalmessage) {
+        modalmessage.innerHTML = side === "BOTH"
+            ? "DO NOT accept any more bets until the administrator re-opens betting."
+            : ("DO NOT Accept bets for <strong>" + label + "</strong> until the betting is enabled again.");
+    }
+}
+
+function applySideStatusesFromPayload(meronStatus, walaStatus, fightnum) {
+    updateUserBettingStatus(meronStatus, "MERON");
+    updateUserBettingStatus(walaStatus, "WALA");
+    if (fightnum != null) {
+        updateFightnum(fightnum);
+    }
+}
+
+function applyOverallStatusDisplay(overallStatus) {
+    if (overallStatus !== 'CLOSED') {
+        bettingReopenedUser = false;
+    }
+    const effectiveStatus = (overallStatus === 'CLOSED' && bettingReopenedUser) ? 'OPEN' : overallStatus;
+    update_disp_FightStatus(effectiveStatus);
+}
+
+function applyFightStatusFromPayload(data) {
+    const fightStatus = data.overall_status;
+    const meronStatus = data.meron_status;
+    const walaStatus = data.wala_status;
+    const fightNum = data.fightnum;
+
+    if (fightStatus != null && fightStatus !== 'CLOSED') {
+        bettingReopenedUser = false;
+    }
+
+    const effectiveStatus = (fightStatus === 'CLOSED' && bettingReopenedUser) ? 'OPEN' : fightStatus;
+
+    if (effectiveStatus === "OPEN") {
+        if (bettingReopenedUser || normalizeBettingStatus(meronStatus) === "OPEN") {
+            openMeronUser();
+        } else {
+            closeMeronUser();
+        }
+        if (bettingReopenedUser || normalizeBettingStatus(walaStatus) === "OPEN") {
+            openWalaUser();
+        } else {
+            closeWalaUser();
+        }
+    } else if (fightStatus != null) {
+        closeMeronUser();
+        closeWalaUser();
+        const submitButton = document.getElementById("Usersubmit");
+        if (submitButton) submitButton.onclick = () => openmodal('matchclosedmodal', 'null');
+    }
+
+    if (effectiveStatus != null) {
+        update_disp_FightStatus(effectiveStatus);
+    }
+    if (fightNum != null) {
+        updateFightnum(fightNum);
+    }
+}
+
+function handleFightStatusBroadcast(data) {
+    const fightAction = data.fight_status;
+
+    // Apply server state immediately when the broadcast includes it.
+    if ("overall_status" in data || "meron_status" in data) {
+        applyFightStatusFromPayload(data);
+    } else {
+        get_fightstatus();
+    }
+
+    if (fightAction === "CLOSED") {
+        bettingReopenedUser = false;
+        setBettingDisabledModalCopy("BOTH");
+        const matchClosed = document.getElementById('matchclosedmodal');
+        if (matchClosed) {
+            matchClosed.style.display = 'flex';
+        } else {
+            openbettingdisabledModal();
+        }
+    } else if (fightAction === "START") {
+        bettingReopenedUser = false;
+        closebettingdisabledModal();
+        closemodalIfOpen('matchclosedmodal');
+    } else if (fightAction === "END" || fightAction === "CANCEL") {
+        bettingReopenedUser = false;
+        closebettingdisabledModal();
+        closemodalIfOpen('matchclosedmodal');
+        update_trends();
+        fetchPendingPayouts();
+    } else if (fightAction === "event_changed" && !("overall_status" in data)) {
+        get_fightstatus();
+    }
+}
 
 function openTellerOfflineModal() {
+    if (isTellerStationClosed()) return;
     const modal = document.getElementById('teller_offline_modal');
     if (modal) modal.style.display = 'flex';
 }
@@ -100,8 +310,36 @@ function closeTellerOfflineModal() {
     if (modal) modal.style.display = 'none';
 }
 
+function openTellerStationClosedModal() {
+    const modal = document.getElementById('teller_station_closed_modal');
+    if (modal) modal.style.display = 'flex';
+    closeTellerOfflineModal();
+}
+
+function closeTellerStationClosedModal() {
+    const modal = document.getElementById('teller_station_closed_modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function setTellerStationClosed(closed) {
+    window.TELLER_STATION_CLOSED = closed;
+    if (closed) {
+        openTellerStationClosedModal();
+    } else {
+        closeTellerStationClosedModal();
+    }
+}
+
+function isTellerStationClosed() {
+    return window.TELLER_STATION_CLOSED === true;
+}
+
 function setTellerOnlineStatus(isOnline) {
     window.TELLER_IS_ONLINE = isOnline;
+    if (isTellerStationClosed()) {
+        openTellerStationClosedModal();
+        return;
+    }
     if (isOnline) {
         closeTellerOfflineModal();
     } else {
@@ -110,26 +348,8 @@ function setTellerOnlineStatus(isOnline) {
 }
 
 function isTellerOffline() {
-    return window.TELLER_IS_ONLINE === false;
+    return window.TELLER_IS_ONLINE === false || isTellerStationClosed();
 } 
-
-userSocket.onopen = () => {
-    console.log("WebSocket connected!");
-    userSocket.send(JSON.stringify({ update: true }));
-    console.log("Initial data request sent.");
-    updateStatus("Connected");
-    get_fightstatus();
-};
-
-userSocket.onerror = (error) => {
-    console.error("WebSocket Error:", error);
-};
-
-userSocket.onclose = () => {
-    console.log("WebSocket disconnected!");
-    updateStatus("Disconnected");
-};
-// });
 
 function updateStatus(status) {
     document.getElementById("ws_status").innerText = "Status: " + status;
@@ -326,38 +546,12 @@ async function get_fightstatus(){
         return;
     }
 
-    let fight_num = data.fightnum;
-    let fight_status = data.overall_status;
-    let m_status = data.meron_status;
-    let w_status = data.wala_status;
-
-    console.log("Fight status: ", fight_status);
-
-    // Reset the reopen flag whenever the fight moves to any state other than CLOSED
-    if (fight_status !== 'CLOSED') bettingReopenedUser = false;
-
-    // Use the effective status for display — keep showing OPEN if admin re-opened
-    const effectiveStatus = (fight_status === 'CLOSED' && bettingReopenedUser) ? 'OPEN' : fight_status;
-
-    if (effectiveStatus === "OPEN") {
-        if (bettingReopenedUser || normalizeBettingStatus(m_status) === "OPEN") {
-            openMeronUser();
-        } else {
-            closeMeronUser();
-        }
-        if (bettingReopenedUser || normalizeBettingStatus(w_status) === "OPEN") {
-            openWalaUser();
-        } else {
-            closeWalaUser();
-        }
-    } else {
-        closeMeronUser();
-        closeWalaUser();
-        const submitButton = document.getElementById("Usersubmit");
-        if (submitButton) submitButton.onclick = () => openmodal('matchclosedmodal', 'null');
-    }
-    update_disp_FightStatus(effectiveStatus);
-    updateFightnum(fight_num);
+    applyFightStatusFromPayload({
+        overall_status: data.overall_status,
+        meron_status: data.meron_status,
+        wala_status: data.wala_status,
+        fightnum: data.fightnum,
+    });
 };
 
 function applyEventState(event_active) {
@@ -437,7 +631,11 @@ document.addEventListener("DOMContentLoaded", () => {
         bettingDisabledCloseButton.addEventListener("click", closebettingdisabledModal);
     }
     if (isTellerOffline()) {
-        openTellerOfflineModal();
+        if (isTellerStationClosed()) {
+            openTellerStationClosedModal();
+        } else {
+            openTellerOfflineModal();
+        }
     }
     //fetchButtonState();
     get_fightstatus();  // Fetch fight status on page load
@@ -489,26 +687,10 @@ async function fetchTellerBalance() {
 // ── Pending payout notification ───────────────────────────
 
 async function fetchPendingPayouts() {
-    try {
-        const response = await fetch('/get_pending_payouts/');
-        const data = await response.json();
-        if (!data.ok) return;
-
-        const badge  = document.getElementById('pending-payouts-badge');
-        const countEl = document.getElementById('pending-payouts-count');
-        const totalEl = document.getElementById('pending-payouts-total');
-        if (!badge) return;
-
-        if (data.count > 0) {
-            countEl.innerText = data.count;
-            totalEl.innerText = '₱ ' + Number(data.total).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-            badge.style.display = 'flex';
-        } else {
-            badge.style.display = 'none';
-        }
-    } catch (error) {
-        console.error('Error fetching pending payouts:', error);
-    }
+    // Unclaimed-bets indicator disabled on the teller view.
+    const badge = document.getElementById('pending-payouts-badge');
+    if (badge) badge.style.display = 'none';
+    return;
 }
 
 // ── Per-fight bet totals ───────────────────────────────────
@@ -556,35 +738,6 @@ async function openBalanceModal() {
     if (statusMsg) statusMsg.innerText = '';
     document.getElementById('balancemodal').style.display = 'flex';
     setTimeout(() => { if (amountInput) amountInput.focus(); }, 100);
-}
-
-async function printRemitReceipt(payload) {
-    const localPrintAgentUrl = (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-    try {
-        const response = await fetch(`${localPrintAgentUrl}/print-remit`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-        });
-        let result = {};
-        try { result = await response.json(); } catch (_) {}
-        if (!response.ok || !result.ok) {
-            return { ok: false, message: result.error || `Print agent returned HTTP ${response.status}.` };
-        }
-        return { ok: true, message: result.message || 'Receipt sent to printer.' };
-    } catch (error) {
-        return {
-            ok: false,
-            message: error.name === 'AbortError'
-                ? 'Local print agent did not respond.'
-                : 'Local print agent is not running or is blocked.',
-        };
-    } finally {
-        clearTimeout(timeoutId);
-    }
 }
 
 async function submitTellerTransaction(type) {

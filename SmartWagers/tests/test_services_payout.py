@@ -84,8 +84,43 @@ class TestPayoutRequestSuccess:
         _make_fight_result(1, 'MERON', event=active_event,
                            mtotal=500, wtotal=300, mpayout=95.0, wpayout=158.0)
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
-        expected = 100 * round(95.0 / 100, 2)  # = 95.0
+        expected = round(100 * round(95.0 / 100, 4), 2)  # = 95.0
         assert float(result['Total_Payout']) == pytest.approx(expected, rel=1e-3)
+
+    def test_live_and_old_ticket_payout_agree(self, teller_user, default_settings):
+        from datetime import timedelta
+        from django.utils.timezone import now as tz_now
+
+        active = Event.objects.create(name='Live', is_active=True)
+        w_live = _make_registered_wager(1, 'MERON', 100, teller_user.username)
+        _make_fight_result(1, 'MERON', event=active, mpayout=95.37, wpayout=158.0)
+        live = services.payout_request(
+            w_live.transactionid, requesting_cashier=teller_user.username,
+        )
+
+        past = Event.objects.create(name='Past', is_active=False)
+        past.started_at = tz_now() - timedelta(hours=2)
+        past.ended_at = tz_now() + timedelta(hours=1)
+        past.save()
+        w_old = _make_registered_wager(2, 'MERON', 100, teller_user.username)
+        _make_fight_result(2, 'MERON', event=past, mpayout=95.37, wpayout=158.0)
+        old = services.payout_old_ticket(past, teller_user.username, w_old.transactionid)
+
+        assert live.get('error') is None
+        assert old['ok'] is True
+        assert float(live['Total_Payout']) == pytest.approx(old['payout_amount'], rel=1e-6)
+        assert float(live['multiplier']) == pytest.approx(old['multiplier'], rel=1e-6)
+
+    def test_missing_cashier_user_does_not_cash_out(self, default_settings, active_event):
+        w = _make_registered_wager(1, 'MERON', 500, 'ghost_cashier')
+        _make_fight_result(1, 'MERON', event=active_event)
+        result = services.payout_request(w.transactionid, requesting_cashier='ghost_cashier')
+        assert result.get('error') == 'cashier_not_found'
+        w.refresh_from_db()
+        assert w.cashed_out is False
+        assert not TellerTransaction.objects.filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        ).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +160,25 @@ class TestPayoutRequestErrors:
     def test_nonexistent_transaction_returns_notfound(self, teller_user, active_event):
         result = services.payout_request('999999')
         assert result.get('error') == 'notfound'
+
+    def test_scanner_stripped_leading_zeros_still_finds_ticket(
+        self, teller_user, default_settings, active_event,
+    ):
+        """Barcode scanners often emit 123 instead of 000123."""
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        _make_fight_result(1, 'MERON', event=active_event)
+        assert w.transactionid.startswith('0')
+
+        unpadded = str(int(w.transactionid))
+        result = services.payout_request(unpadded, requesting_cashier=teller_user.username)
+
+        assert 'error' not in result
+        assert result['transaction_id'] == w.transactionid
+
+    def test_normalize_wager_transaction_id_pads_digits(self):
+        assert services.normalize_wager_transaction_id('123') == '000123'
+        assert services.normalize_wager_transaction_id(' 000456 ') == '000456'
+        assert services.normalize_wager_transaction_id('SABC123') == 'SABC123'
 
     def test_missing_cashier_account_blocks_payout(self, default_settings, active_event):
         w = _make_registered_wager(1, 'MERON', 500, 'deleted-teller')
@@ -342,6 +396,19 @@ class TestPayoutOldTicket:
         w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
         result = services.payout_old_ticket(event, teller_user.username, w.transactionid)
         assert result['error'] == 'no_result_yet'
+
+    def test_missing_cashier_user_does_not_cash_out(self, default_settings):
+        event = self._ended_event()
+        w = _make_registered_wager(1, 'MERON', 500, 'ghost_cashier')
+        _make_fight_result(1, 'MERON', event=event, mpayout=95.0)
+        result = services.payout_old_ticket(event, 'ghost_cashier', w.transactionid)
+        assert result['ok'] is False
+        assert result['error'] == 'cashier_not_found'
+        w.refresh_from_db()
+        assert w.cashed_out is False
+        assert not TellerTransaction.objects.filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        ).exists()
 
 
 # ---------------------------------------------------------------------------

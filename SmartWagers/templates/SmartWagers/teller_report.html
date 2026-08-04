@@ -27,9 +27,11 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 14px 16px 20px;
-    min-height: 0;
-    flex: 1;
+    padding: 14px 16px 28px;
+    /* Grow with content so the page can scroll on short screens. */
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* ── Report header ─────────────────────────────────────── */
@@ -53,6 +55,166 @@
     color: rgba(255, 255, 255, 0.55);
     font-weight: 500;
   }
+
+  #report-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .btn-close-station {
+    background: linear-gradient(135deg, #c0392b, #e74c3c);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(231, 76, 60, 0.35);
+  }
+
+  .btn-close-station:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .btn-close-summary {
+    background: #2c3e50;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .station-closed-badge {
+    background: rgba(231, 76, 60, 0.15);
+    color: #e74c3c;
+    border: 1px solid rgba(231, 76, 60, 0.35);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+
+  .close-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  .close-modal-overlay.open {
+    display: flex;
+  }
+
+  .close-modal-box {
+    background: #1b1e27;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 22px 24px;
+    width: min(480px, 100%);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+  }
+
+  .close-modal-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: white;
+    margin-bottom: 6px;
+  }
+
+  .close-modal-sub {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.50);
+    margin-bottom: 16px;
+  }
+
+  .close-summary-grid {
+    display: grid;
+    gap: 8px;
+    margin: 14px 0;
+  }
+
+  .close-summary-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .close-summary-row strong {
+    color: white;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .close-summary-row.highlight strong {
+    color: #f1c40f;
+    font-size: 15px;
+  }
+
+  .close-modal-warning {
+    background: rgba(231, 76, 60, 0.10);
+    border: 1px solid rgba(231, 76, 60, 0.25);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.70);
+    margin-bottom: 16px;
+  }
+
+  .close-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  .close-modal-actions button {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .close-modal-cancel {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.75);
+  }
+
+  .close-modal-confirm {
+    background: #e74c3c;
+    color: white;
+  }
+
+  .close-modal-print {
+    background: #27ae60;
+    color: white;
+  }
+
+  #close-station-status {
+    min-height: 1.2em;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+
+  #close-station-status.error { color: #e74c3c; }
+  #close-station-status.success { color: #2ecc71; }
 
   /* ── Summary cards ─────────────────────────────────────── */
   #report-summary {
@@ -94,7 +256,8 @@
 
   /* ── Table container ───────────────────────────────────── */
   #report-table-container {
-    flex: 1;
+    flex: 0 0 auto;
+    max-height: min(70vh, 900px);
     overflow-y: auto;
     border-radius: 10px;
     border: 1px solid rgba(255, 255, 255, 0.09);
@@ -378,7 +541,35 @@
 {% endblock css_files %}
 
 {% block script_files %}
-<script src="{% static 'SmartWagers/submit_wagers.js' %}?v=no-accumulate-1"></script>
+<script>
+  window.TELLER_REPORT = {
+    closeStationUrl: "{% url 'teller-close-station' %}",
+    stationClosed: {{ station_closed|yesno:"true,false" }},
+    activeEvent: {% if active_event %}"{{ active_event.name|escapejs }}"{% else %}null{% endif %},
+    currentFightnum: {{ current_fightnum|default:0 }},
+    expectedBalance: {{ expected_balance|default:0 }},
+    breakdown: {% if balance_breakdown %}{
+      grand_total: {{ balance_breakdown.grand_total }},
+      remit_total: {{ balance_breakdown.remit_total }},
+      collect_total: {{ balance_breakdown.collect_total }},
+      payout_total: {{ balance_breakdown.payout_total }},
+    }{% else %}null{% endif %},
+    closeOut: {% if close_out %}{
+      id: {{ close_out.pk }},
+      event_name: "{{ close_out.event.name|escapejs }}",
+      fightnum: {{ close_out.fightnum }},
+      closed_at: "{{ close_out.closed_at|date:'Y-m-d H:i:s' }}",
+      expected_cash_on_hand: {{ close_out.expected_cash_on_hand }},
+      grand_total: {{ close_out.grand_total }},
+      remit_total: {{ close_out.remit_total }},
+      collect_total: {{ close_out.collect_total }},
+      payout_total: {{ close_out.payout_total }},
+    }{% else %}null{% endif %},
+    tellerName: "{{ teller_name|escapejs }}",
+  };
+</script>
+<script src="{% static 'SmartWagers/submit_wagers.js' %}?v=print-after-reload-1"></script>
+<script src="{% static 'SmartWagers/teller_report.js' %}?v=1"></script>
 <script>
 async function reprintFromReport(btn, transactionId) {
     btn.disabled = true;
@@ -401,12 +592,12 @@ async function reprintFromReport(btn, transactionId) {
         const data = await response.json();
 
         if (!data.ok) {
-            showReprintToast(
-                data.error === 'notfound'
-                    ? 'Transaction not found.'
-                    : 'Reprint failed. Please try again.',
-                'error'
-            );
+            const msg = data.error === 'notfound'
+                ? 'Transaction not found.'
+                : data.error === 'station_closed'
+                    ? 'Station is closed. Reprint is disabled.'
+                    : 'Reprint failed. Please try again.';
+            showReprintToast(msg, 'error');
             return;
         }
 
@@ -448,6 +639,15 @@ function showReprintToast(message, type) {
     <div>
       <div id="report-title">Transaction Report</div>
       <div id="report-teller">{{ teller_name }}</div>
+    </div>
+    <div id="report-actions">
+      {% if station_closed %}
+        <span class="station-closed-badge">Station Closed</span>
+        <button type="button" class="btn-close-summary" onclick="openCloseSummaryModal()">View Close Summary</button>
+      {% else %}
+        <button type="button" class="btn-close-station" {% if not active_event %}disabled title="Available when an event is active"{% endif %}
+                onclick="openCloseStationModal()">Close Station</button>
+      {% endif %}
     </div>
   </div>
 
@@ -527,5 +727,33 @@ function showReprintToast(message, type) {
   </div>
   {% endif %}
 
+</div>
+
+<div id="close-station-modal" class="close-modal-overlay" onclick="closeCloseStationModal(event)">
+  <div class="close-modal-box" onclick="event.stopPropagation()">
+    <div class="close-modal-title">Close Station</div>
+    <div class="close-modal-sub">End your shift and prepare cash for surrender to admin.</div>
+    <div class="close-modal-warning">
+      This will disable betting on your station. Report to the admin office with your cash on hand.
+    </div>
+    <div id="close-station-preview" class="close-summary-grid"></div>
+    <div id="close-station-status"></div>
+    <div class="close-modal-actions">
+      <button type="button" class="close-modal-cancel" onclick="closeCloseStationModal()">Cancel</button>
+      <button type="button" class="close-modal-confirm" id="close-station-confirm-btn" onclick="confirmCloseStation()">Confirm Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="close-summary-modal" class="close-modal-overlay" onclick="closeCloseSummaryModal(event)">
+  <div class="close-modal-box" onclick="event.stopPropagation()">
+    <div class="close-modal-title">Station Close Summary</div>
+    <div class="close-modal-sub">Surrender this amount to the administrator for counting.</div>
+    <div id="close-summary-content" class="close-summary-grid"></div>
+    <div class="close-modal-actions">
+      <button type="button" class="close-modal-cancel" onclick="closeCloseSummaryModal()">Close</button>
+      <button type="button" class="close-modal-print" onclick="printCloseSummary()">Print Summary</button>
+    </div>
+  </div>
 </div>
 {% endblock content %}

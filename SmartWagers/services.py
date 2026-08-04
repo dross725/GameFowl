@@ -7,11 +7,14 @@ from .models import Event
 from .models import AdminBankTransaction
 from .models import TellerTransaction
 from .models import TellerStatus
+from .models import TellerCloseOut
 from django.contrib.auth.models import User
 from datetime import timedelta
 from django.conf import settings
 from django.utils.timezone import now
+from django.db import connection
 from django.db import transaction as db_transaction
+from functools import lru_cache
 import logging
 import os
 import shutil
@@ -22,6 +25,35 @@ from reportlab.graphics.barcode import code128
 from reportlab.lib.units import mm
 
 logger = logging.getLogger('SmartWagers.services')
+
+
+def normalize_wager_transaction_id(raw):
+    """Normalize a scanned/typed wager transaction id.
+
+    Bet IDs are stored zero-padded to 6 digits (e.g. ``000123``). Many barcode
+    scanners drop leading zeros when they emit as keyboard input, so pad digits
+    back to 6. Non-numeric ids (system ``S…`` tickets) are left as-is after trim.
+    """
+    tid = str(raw or "").strip()
+    if tid.isdigit():
+        return tid.zfill(6)
+    return tid
+
+
+def normalize_teller_transaction_id(raw):
+    """Normalize a scanned/typed teller (remit) transaction id.
+
+    Remit IDs are stored as ``R`` + 6 zero-padded digits (e.g. ``R000123``).
+    Accept ``R123``, ``r000123``, etc. Returns ``None`` when the value is not
+    a teller transaction id.
+    """
+    tid = str(raw or "").strip().upper()
+    if not tid:
+        return None
+    if tid.startswith("R") and tid[1:].isdigit():
+        return "R" + tid[1:].zfill(6)
+    return None
+
 
 def send_pdf_to_printer(pdf_path):
     printer_name = getattr(settings, "RECEIPT_PRINTER_NAME", None)
@@ -63,6 +95,7 @@ def get_fightnum():
         fight_num = wagers.fightnum
     return (fight_num)
 
+@lru_cache(maxsize=1)
 def get_comm_val():
     comm = Settings.objects.order_by('-id').values_list('plasada', flat=True).first()
     if comm is None:
@@ -71,6 +104,11 @@ def get_comm_val():
         comm = 0.05
 
     return (comm)
+
+
+def invalidate_comm_cache():
+    get_comm_val.cache_clear()
+
 
 def get_control_status():
     m_control_status = Settings.objects.order_by('-id').values_list('M_control_status', flat=True).first()
@@ -102,11 +140,6 @@ def get_Wagers():
 def compute_payout(m_total, w_total, total_pot):
     comm = get_comm_val()
 
-    logger.debug(
-        "compute_payout: comm=%.4f m_total=%s w_total=%s total_pot=%s",
-        comm, m_total, w_total, total_pot,
-    )
-
     if m_total > 0:
         m_payout = total_pot / m_total
         m_payout = m_payout - (m_payout * comm)
@@ -121,7 +154,6 @@ def compute_payout(m_total, w_total, total_pot):
     else:
         w_payout = 0
 
-    logger.debug("compute_payout result: m_payout=%s w_payout=%s", m_payout, w_payout)
     return (m_payout, w_payout)
 
 def add_total(amount, side):
@@ -154,8 +186,56 @@ def add_total(amount, side):
 
 DUPLICATE_WAGER_WINDOW_SECONDS = 3
 
-def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
+
+class BettingClosedError(Exception):
+    """Raised when a bet is rejected because betting is no longer open."""
+
+    def __init__(self, side=None):
+        self.side = side
+        super().__init__(f"Betting closed for side={side!r}")
+
+
+class NoActiveEventError(Exception):
+    """Raised when an operation requires an active event."""
+
+
+class StationAlreadyClosedError(Exception):
+    """Raised when a teller attempts to close an already-closed station."""
+
+
+class CloseOutAlreadyCountedError(Exception):
+    """Raised when admin tries to count cash for a reconciled close-out."""
+
+
+class CloseOutNotFoundError(Exception):
+    """Raised when a close-out record cannot be found."""
+
+
+def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open=True):
+    """Register a wager and update pot totals.
+
+    Returns ``(wager, created)`` where *created* is False when the 3-second
+    duplicate window reused an existing registered wager.
+
+    *require_side_open*:
+      True  (tellers) — overall match OPEN and the specific side OPEN.
+      False (admins)  — overall match OPEN only; per-side CLOSE does not block.
+      This is intentional: admins may still bet on a closed side until the
+      Close Betting button sets overall status to CLOSED.
+    """
     with db_transaction.atomic():
+        if require_side_open:
+            if not is_betting_open(side):
+                raise BettingClosedError(side)
+        elif not is_match_open():
+            raise BettingClosedError(side)
+
+        # Prefer live fight number so a mid-flight fight start cannot attach
+        # the bet to a stale fightnum from the request start.
+        live_fn = get_fightnum()
+        if live_fn:
+            fightnum = live_fn
+
         duplicate_cutoff = now() - timedelta(seconds=DUPLICATE_WAGER_WINDOW_SECONDS)
         existing = (
             Wagers.objects
@@ -169,7 +249,7 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
                 "DUPLICATE BET BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
                 existing.transactionid, fightnum, side, amount, cashier,
             )
-            return existing
+            return existing, False
 
         addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=True)
         addwager.save()
@@ -178,7 +258,7 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz"):
         "BET PLACED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
         addwager.transactionid, fightnum, side, amount, cashier,
     )
-    return addwager
+    return addwager, True
 
 def is_wager_receipt_printing_enabled():
     return getattr(settings, "WAGER_RECEIPT_PRINTING_ENABLED", True)
@@ -203,13 +283,15 @@ def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
             )
             return registered_existing
 
-        # Lock any matching pending row so concurrent requests are serialized and
-        # only one proceeds to create a new reservation.
+        # Lock any matching active pending row so concurrent requests are
+        # serialized and only one proceeds to create a new reservation.
+        # Soft-cancelled (discarded) pendings must not be reused — they keep
+        # their transaction IDs so a printed ticket cannot map to another cashier.
         existing = (
             Wagers.objects
             .select_for_update()
             .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
-                    registered=False, created_at__gte=duplicate_cutoff)
+                    registered=False, cancelled=False, created_at__gte=duplicate_cutoff)
             .order_by('-created_at')
             .first()
         )
@@ -229,28 +311,44 @@ def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
         return pending_wager
 
 def confirm_wager_receipt(transaction_id, admin=False):
+    """Confirm a pending (printed) wager reservation.
+
+    Betting openness is enforced at reserve time. Once a receipt has been
+    reserved/printed, confirm must register it even if betting closed in the
+    meantime — otherwise tellers end up with physical tickets missing from
+    reports. Re-confirming an already-registered txn is idempotent.
+    """
     active_event = get_active_event()
     with db_transaction.atomic():
-        qs = Wagers.objects.select_for_update().filter(transactionid=transaction_id, registered=False)
+        qs = Wagers.objects.select_for_update().filter(transactionid=transaction_id)
         if active_event:
             qs = qs.filter(created_at__gte=active_event.started_at)
-        pending_wager = qs.first()
-        if pending_wager is None:
-            logger.warning("CONFIRM BET: txn=%s not found or already registered", transaction_id)
+        wager = qs.first()
+        if wager is None:
+            logger.warning("CONFIRM BET: txn=%s not found", transaction_id)
             return None
 
-        betting_ok = is_match_open() if admin else is_betting_open(pending_wager.side)
-        if not betting_ok:
-            pending_wager.delete()
+        if wager.cancelled:
             logger.warning(
-                "CONFIRM BET REJECTED (betting closed): txn=%s side=%s cashier=%s",
-                transaction_id, pending_wager.side, pending_wager.cashier,
+                "CONFIRM BET REJECTED (discarded pending): txn=%s cashier=%s",
+                transaction_id, wager.cashier,
             )
             return None
 
-        pending_wager.registered = True
-        pending_wager.save(update_fields=['registered'])
-        add_total(pending_wager.wager, pending_wager.side)
+        if wager.registered:
+            logger.info(
+                "CONFIRM BET IDEMPOTENT: txn=%s already registered cashier=%s",
+                transaction_id, wager.cashier,
+            )
+            return wager
+
+        # admin flag retained for call-site compatibility; openness is not
+        # re-checked here (see docstring).
+        _ = admin
+        wager.registered = True
+        wager.save(update_fields=['registered'])
+        add_total(wager.wager, wager.side)
+        pending_wager = wager
 
     logger.info(
         "BET CONFIRMED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
@@ -260,8 +358,14 @@ def confirm_wager_receipt(transaction_id, admin=False):
     return pending_wager
 
 def cancel_wager_receipt(transaction_id):
+    """Discard a pending (unregistered) receipt reservation.
+
+    Soft-delete only: the row is kept with cancelled=True so its transaction
+    ID can never be reassigned to another cashier. Hard-deleting caused printed
+    tickets to resolve to a different cashier at payout.
+    """
     active_event = get_active_event()
-    qs = Wagers.objects.filter(transactionid=transaction_id, registered=False)
+    qs = Wagers.objects.filter(transactionid=transaction_id, registered=False, cancelled=False)
     if active_event:
         qs = qs.filter(created_at__gte=active_event.started_at)
     pending_wager = qs.first()
@@ -270,7 +374,8 @@ def cancel_wager_receipt(transaction_id):
             "BET RECEIPT CANCELLED (before confirm): txn=%s side=%s amount=%.2f cashier=%s",
             transaction_id, pending_wager.side, pending_wager.wager, pending_wager.cashier,
         )
-        pending_wager.delete()
+        pending_wager.cancelled = True
+        pending_wager.save(update_fields=['cancelled'])
     else:
         logger.debug("CANCEL RECEIPT: txn=%s not found (already confirmed or expired)", transaction_id)
 
@@ -423,6 +528,133 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     return grand_total - remit_total + collect_total - payout_total
 
 
+def compute_teller_balance_breakdown(user, event=None, apply_end_bound=True):
+    """Return balance components for a teller, optionally scoped to an event."""
+    from django.db.models import Sum
+
+    username = str(user)
+    wager_qs = Wagers.objects.filter(cashier=username, registered=True, cancelled=False)
+    txn_qs = TellerTransaction.objects.filter(user=user)
+
+    if event is not None:
+        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
+        txn_qs = txn_qs.filter(created_at__gte=event.started_at)
+        if apply_end_bound and event.ended_at:
+            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+    grand_total = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
+    remit_total = txn_qs.filter(
+        transaction_type=TellerTransaction.REMIT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    collect_total = txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    payout_total = txn_qs.filter(
+        transaction_type=TellerTransaction.PAYOUT,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    balance = grand_total - remit_total + collect_total - payout_total
+
+    return {
+        'balance': round(balance, 2),
+        'grand_total': round(grand_total, 2),
+        'remit_total': round(remit_total, 2),
+        'collect_total': round(collect_total, 2),
+        'payout_total': round(payout_total, 2),
+    }
+
+
+def get_teller_close_out(user, event=None):
+    """Return the close-out for *user* and *event*, or None."""
+    if event is None:
+        event = get_active_event()
+    if event is None:
+        return None
+    return TellerCloseOut.objects.filter(user=user, event=event).first()
+
+
+def teller_station_is_closed(user, event=None):
+    """Return True if the teller has closed their station for the event."""
+    return get_teller_close_out(user, event=event) is not None
+
+
+def close_teller_station(user, event=None):
+    """Close a teller's station for the active event and snapshot balances."""
+    if event is None:
+        event = get_active_event()
+    if event is None or not event.is_active:
+        raise NoActiveEventError()
+
+    if TellerCloseOut.objects.filter(user=user, event=event).exists():
+        raise StationAlreadyClosedError()
+
+    _, _, _, fightnum = get_fight_status()
+    breakdown = compute_teller_balance_breakdown(user, event=event, apply_end_bound=True)
+
+    with db_transaction.atomic():
+        close_out = TellerCloseOut.objects.create(
+            user=user,
+            event=event,
+            fightnum=fightnum,
+            expected_cash_on_hand=breakdown['balance'],
+            grand_total=breakdown['grand_total'],
+            remit_total=breakdown['remit_total'],
+            collect_total=breakdown['collect_total'],
+            payout_total=breakdown['payout_total'],
+        )
+        ts, _ = TellerStatus.objects.get_or_create(user=user, defaults={'is_online': True})
+        ts.is_online = False
+        ts.save(update_fields=['is_online'])
+
+    logger.info(
+        "STATION CLOSED: teller=%s event=%s fight=%s expected=%.2f",
+        user.username, event.pk, fightnum, breakdown['balance'],
+    )
+    return close_out
+
+
+def register_teller_cash_count(close_out_id, actual_amount, admin_user):
+    """Record physically counted cash and create a REMIT for the actual amount."""
+    if actual_amount < 0:
+        raise ValueError('actual_amount must be non-negative')
+
+    with db_transaction.atomic():
+        close_out = TellerCloseOut.objects.select_for_update().select_related(
+            'user', 'event',
+        ).filter(pk=close_out_id).first()
+        if close_out is None:
+            raise CloseOutNotFoundError()
+        if close_out.actual_cash_counted is not None:
+            raise CloseOutAlreadyCountedError()
+
+        variance = round(actual_amount, 2) - round(close_out.expected_cash_on_hand, 2)
+        remit_txn = TellerTransaction.objects.create(
+            user=close_out.user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=round(actual_amount, 2),
+            received=True,
+            affects_admin_fund=True,
+        )
+        close_out.actual_cash_counted = round(actual_amount, 2)
+        close_out.variance = round(variance, 2)
+        close_out.counted_by = admin_user
+        close_out.counted_at = now()
+        close_out.remit_transaction = remit_txn
+        close_out.save(update_fields=[
+            'actual_cash_counted',
+            'variance',
+            'counted_by',
+            'counted_at',
+            'remit_transaction',
+        ])
+
+    logger.info(
+        "STATION RECONCILED: teller=%s close_out=%s actual=%.2f variance=%.2f admin=%s",
+        close_out.user.username, close_out.pk, actual_amount, variance, admin_user.username,
+    )
+    return close_out
+
+
 def _payout_exceeds_cash_on_hand(cashier_username, amount, transaction_id):
     """Return an error dict if *amount* exceeds the cashier's cash on hand, else None.
 
@@ -553,45 +785,57 @@ def start_event(name):
     """
     logger.info("EVENT STARTING: name=%r — settling teller balances", name)
 
-    # Settle all outstanding teller balances against the closing event FIRST,
-    # before we change is_active.  This ensures the transactions fall inside
-    # the old event's time window and are excluded from the new event.
-    _reset_teller_balances()
+    with db_transaction.atomic():
+        # PostgreSQL advisory lock serializes event lifecycle commands even
+        # when no Event or Settings row exists yet. SQLite remains a dev-only
+        # fallback and serializes writes at the database-file level.
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(%s)", [0x534D415254])
+        else:
+            Settings.objects.select_for_update().order_by('id').first()
 
-    Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
+        # Settle all outstanding teller balances against the closing event
+        # before it is deactivated so the entries stay in the old event scope.
+        _reset_teller_balances()
+        Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
 
-    setting = Settings.objects.order_by('-id').first()
-    admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
-    event = Event.objects.create(
-        name=name,
-        is_active=True,
-        admin_opening_fund=round(admin_opening_fund, 2),
-    )
-    logger.info("EVENT STARTED: id=%s name=%r started_at=%s", event.id, event.name, event.started_at)
-
-    # Issue configured starting funds as borrowed (COLLECT) transactions.
-    # These land inside the new event's time window so cashier balances
-    # correctly reflect the borrowed cash from day one.
-    _issue_initial_teller_funds()
-
-    fight_status = Fight_Status.objects.order_by('id').first()
-    if fight_status:
-        fight_status.fightnum = 0
-        fight_status.overall_status = 'CLOSE'
-        fight_status.meron_status = 'CLOSE'
-        fight_status.wala_status = 'CLOSE'
-        fight_status.save()
-    else:
-        Fight_Status.objects.create(
-            fightnum=0, overall_status='CLOSE',
-            meron_status='CLOSE', wala_status='CLOSE',
+        setting = Settings.objects.order_by('-id').first()
+        admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
+        event = Event.objects.create(
+            name=name,
+            is_active=True,
+            admin_opening_fund=round(admin_opening_fund, 2),
         )
 
-    anchor = Wagers(fightnum=0, side='EVENT_START', wager=0, cashier='System')
-    anchor.save()
+        # Issue configured starting funds inside the same transaction.
+        _issue_initial_teller_funds()
 
-    Totals.objects.create(fightnum=0, mtotal=0, wtotal=0, mpayout=0, wpayout=0, totalpot=0)
+        fight_status = Fight_Status.objects.select_for_update().order_by('id').first()
+        if fight_status:
+            fight_status.fightnum = 0
+            fight_status.overall_status = 'CLOSE'
+            fight_status.meron_status = 'CLOSE'
+            fight_status.wala_status = 'CLOSE'
+            fight_status.save()
+        else:
+            Fight_Status.objects.create(
+                fightnum=0, overall_status='CLOSE',
+                meron_status='CLOSE', wala_status='CLOSE',
+            )
 
+        Wagers.objects.create(
+            fightnum=0, side='EVENT_START', wager=0, cashier='System'
+        )
+        Totals.objects.create(
+            fightnum=0, mtotal=0, wtotal=0,
+            mpayout=0, wpayout=0, totalpot=0,
+        )
+
+    logger.info(
+        "EVENT STARTED: id=%s name=%r started_at=%s",
+        event.id, event.name, event.started_at,
+    )
     return event
 
 
@@ -622,7 +866,11 @@ def build_wager_receipt_payload(wager):
     }
 
 def is_betting_open(side):
-    """Teller-level check: overall match must be OPEN *and* the specific side must be OPEN."""
+    """Teller-level check: overall match must be OPEN *and* the specific side must be OPEN.
+
+    Intentionally stricter than is_match_open(). Tellers are blocked when a
+    single side is closed; admins may still bet until overall Close Betting.
+    """
     fight_status = Fight_Status.objects.order_by('id').first()
     if fight_status is None:
         return False
@@ -639,7 +887,12 @@ def is_betting_open(side):
 
 
 def is_match_open():
-    """Admin-level check: overall match must be OPEN (ignores per-side status)."""
+    """Admin-level check: overall match must be OPEN (ignores per-side status).
+
+    Business rule: when only MERON or WALA is closed, admins may still place
+    bets on that side. Admins are blocked only when Close Betting sets overall
+    status away from OPEN.
+    """
     fight_status = Fight_Status.objects.order_by('id').first()
     if fight_status is None:
         return False
@@ -987,8 +1240,8 @@ def build_payout_reprint_payload(wager):
     else:
         return None
 
-    multiplier = round(payout_rate / 100, 2)
-    total_payout = wager.wager * multiplier
+    multiplier = round(payout_rate / 100, 4)
+    total_payout = round(wager.wager * multiplier, 2)
     receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
     return {
         'receipt_type': receipt_kind,
@@ -997,7 +1250,7 @@ def build_payout_reprint_payload(wager):
         'side': side,
         'amount': format(wager.wager, '.2f'),
         'odds': odds,
-        'multiplier': format(multiplier, '.2f'),
+        'multiplier': format(multiplier, '.4f'),
         'Total_Payout': format(total_payout, '.2f'),
         'cashier': wager.cashier,
         'date': receipt_date,
@@ -1007,6 +1260,7 @@ def build_payout_reprint_payload(wager):
 
 def payout_request(transaction_id, requesting_cashier=None):
     """Serialize payouts for the ticket's cashier before validating balance."""
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     active_event = get_active_event()
     wager_qs = Wagers.objects.filter(
         transactionid=transaction_id, registered=True, cancelled=False,
@@ -1082,6 +1336,21 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
             payout_result['original_cashier'] = payout_data.cashier
             return payout_result
 
+        # Resolve cashier before any cash-out so a missing User never leaves
+        # cashed_out=True without a TellerTransaction ledger row.
+        try:
+            cashier_user = User.objects.select_for_update().get(
+                username=payout_data.cashier,
+            )
+        except User.DoesNotExist:
+            logger.error(
+                "PAYOUT REJECTED (cashier_not_found): txn=%s cashier=%s",
+                transaction_id, payout_data.cashier,
+            )
+            payout_result['error'] = 'cashier_not_found'
+            payout_result['cashier'] = payout_data.cashier
+            return payout_result
+
         payout_data_fn = payout_data.fightnum
         wager_datetime = payout_data.created_at
         event = Event.objects.filter(
@@ -1115,18 +1384,11 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
 
             payout_data.cashed_out = True
             payout_data.save(update_fields=['cashed_out'])
-            try:
-                cashier_user = User.objects.get(username=payout_data.cashier)
-                TellerTransaction.objects.create(
-                    user=cashier_user,
-                    transaction_type=TellerTransaction.PAYOUT,
-                    amount=payout_data.wager,
-                )
-            except User.DoesNotExist:
-                logger.error(
-                    "PAYOUT CANCELLED: cashier user %r not found in auth.User — teller balance not updated for txn=%s",
-                    payout_data.cashier, transaction_id,
-                )
+            TellerTransaction.objects.create(
+                user=cashier_user,
+                transaction_type=TellerTransaction.PAYOUT,
+                amount=payout_data.wager,
+            )
             receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
             payout_result.update({
                 'print_required': is_wager_receipt_printing_enabled(),
@@ -1161,18 +1423,11 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
 
             payout_data.cashed_out = True
             payout_data.save(update_fields=['cashed_out'])
-            try:
-                cashier_user = User.objects.get(username=payout_data.cashier)
-                TellerTransaction.objects.create(
-                    user=cashier_user,
-                    transaction_type=TellerTransaction.PAYOUT,
-                    amount=payout_data.wager,
-                )
-            except User.DoesNotExist:
-                logger.error(
-                    "PAYOUT DRAW: cashier user %r not found in auth.User — teller balance not updated for txn=%s",
-                    payout_data.cashier, transaction_id,
-                )
+            TellerTransaction.objects.create(
+                user=cashier_user,
+                transaction_type=TellerTransaction.PAYOUT,
+                amount=payout_data.wager,
+            )
             receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
             payout_result.update({
                 'print_required': is_wager_receipt_printing_enabled(),
@@ -1215,8 +1470,8 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
         else:
             payout_multiplier = 100
 
-        payout_multiplier = round(payout_multiplier / 100, 2)
-        total_payout = wager * payout_multiplier
+        payout_multiplier = round(payout_multiplier / 100, 4)
+        total_payout = round(wager * payout_multiplier, 2)
 
         reject = _payout_exceeds_cash_on_hand(
             payout_data.cashier, total_payout, transaction_id,
@@ -1229,16 +1484,11 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
         # so neither can succeed without the other.
         payout_data.cashed_out = True
         payout_data.save(update_fields=['cashed_out'])
-
-        try:
-            cashier_user = User.objects.get(username=payout_data.cashier)
-            TellerTransaction.objects.create(
-                user=cashier_user,
-                transaction_type=TellerTransaction.PAYOUT,
-                amount=total_payout,
-            )
-        except User.DoesNotExist:
-            logger.warning("PAYOUT: cashier user %r not found in auth.User", payout_data.cashier)
+        TellerTransaction.objects.create(
+            user=cashier_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=total_payout,
+        )
 
     logger.info(
         "PAYOUT SUCCESS: txn=%s fight=%s side=%s wager=%.2f multiplier=%.4f payout=%.2f cashier=%s",
@@ -1256,7 +1506,7 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
         'cashier': payout_data.cashier,
         'receipt_date': receipt_date,
         'Total_Payout': format(total_payout, '.2f'),
-        'multiplier': format(payout_multiplier, '.2f'),
+        'multiplier': format(payout_multiplier, '.4f'),
         'receipt': {
             'receipt_type': 'payout',
             'transaction_id': transaction_id,
@@ -1264,7 +1514,7 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
             'side': payout_fightresult_side,
             'amount': format(wager, '.2f'),
             'odds': payout_fightresults.odds,
-            'multiplier': format(payout_multiplier, '.2f'),
+            'multiplier': format(payout_multiplier, '.4f'),
             'Total_Payout': format(total_payout, '.2f'),
             'cashier': payout_data.cashier,
             'date': receipt_date,
@@ -1286,6 +1536,7 @@ def payout_old_ticket(event, teller_username, transaction_id):
     For 'draw' and 'cancelled' the refund is also processed and ok=True is
     returned so the caller can display the refund details.
     """
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     wager_qs = Wagers.objects.filter(
         transactionid=transaction_id,
         cashier=teller_username,
@@ -1313,18 +1564,23 @@ def payout_old_ticket(event, teller_username, transaction_id):
         if fight_result is None:
             return {'ok': False, 'error': 'no_result_yet'}
 
+        try:
+            cashier_user = User.objects.select_for_update().get(username=teller_username)
+        except User.DoesNotExist:
+            logger.error(
+                "PAYOUT OLD TICKET REJECTED (cashier_not_found): txn=%s cashier=%s",
+                transaction_id, teller_username,
+            )
+            return {'ok': False, 'error': 'cashier_not_found', 'cashier': teller_username}
+
         winner_side = fight_result.side.upper()
 
         def _record_payout(amount):
-            try:
-                cashier_user = User.objects.get(username=teller_username)
-                TellerTransaction.objects.create(
-                    user=cashier_user,
-                    transaction_type=TellerTransaction.PAYOUT,
-                    amount=amount,
-                )
-            except User.DoesNotExist:
-                pass
+            TellerTransaction.objects.create(
+                user=cashier_user,
+                transaction_type=TellerTransaction.PAYOUT,
+                amount=amount,
+            )
 
         if winner_side == 'CANCELLED':
             wager.cashed_out = True
@@ -1373,7 +1629,7 @@ def payout_old_ticket(event, teller_username, transaction_id):
             payout_multiplier = 100.0
 
         payout_multiplier = round(payout_multiplier / 100, 4)
-        total_payout = wager.wager * payout_multiplier
+        total_payout = round(wager.wager * payout_multiplier, 2)
 
         wager.cashed_out = True
         wager.save(update_fields=['cashed_out'])
@@ -1386,23 +1642,67 @@ def payout_old_ticket(event, teller_username, transaction_id):
             'fight': wager.fightnum,
             'side': winner_side,
             'wager': wager.wager,
-            'payout_amount': round(total_payout, 2),
+            'payout_amount': total_payout,
             'multiplier': round(payout_multiplier, 4),
             'odds': fight_result.odds,
         }
 
 
-def lookup_wager_for_reprint(transaction_id):
+def lookup_wager_for_reprint(transaction_id, cashier=None):
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     active_event = get_active_event()
     qs = Wagers.objects.filter(
         transactionid=transaction_id, registered=True, cancelled=False,
     )
+    if cashier is not None:
+        qs = qs.filter(cashier=cashier)
     if active_event:
         qs = qs.filter(created_at__gte=active_event.started_at)
     wager = qs.first()
     if wager is None:
         return None
     return build_wager_receipt_payload(wager)
+
+
+def build_remit_receipt_payload(txn):
+    """Build the local-print-agent payload for a REMIT receipt reprint."""
+    event_scope, apply_end_bound = get_event_scope()
+    breakdown = compute_teller_balance_breakdown(
+        txn.user, event=event_scope, apply_end_bound=apply_end_bound,
+    )
+    return {
+        'transaction_type': txn.transaction_type,
+        'transaction_id': txn.transaction_id,
+        'amount': txn.amount,
+        'balance': breakdown['balance'],
+        'grand_total': breakdown['grand_total'],
+        'cashier': str(txn.user),
+        'date': txn.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+
+
+def lookup_remit_for_reprint(transaction_id, user=None):
+    """Return a remit receipt payload, or None if not found / not a REMIT."""
+    tid = normalize_teller_transaction_id(transaction_id)
+    if tid is None:
+        return None
+
+    qs = TellerTransaction.objects.select_related('user').filter(
+        transaction_id=tid,
+        transaction_type=TellerTransaction.REMIT,
+    )
+    if user is not None:
+        qs = qs.filter(user=user)
+
+    active_event = get_active_event()
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+
+    txn = qs.first()
+    if txn is None:
+        return None
+    return build_remit_receipt_payload(txn)
+
 
 def get_fight_results(*args):
     active_event = get_active_event()
@@ -1411,7 +1711,14 @@ def get_fight_results(*args):
         qs = qs.filter(event=active_event)
     return qs.values(*args)
 
-def cancel_bet(transaction_id):
+def cancel_bet(transaction_id, requesting_cashier=None):
+    """Cancel a registered bet. Tellers may only cancel their own tickets.
+
+    When *requesting_cashier* is set (teller terminal), a mismatch with the
+    ticket's cashier returns wrong_teller. When None (admin), any ticket may
+    be cancelled.
+    """
+    transaction_id = normalize_wager_transaction_id(transaction_id)
     active_event = get_active_event()
     cancel_result = {"cancel_bet": True}
 
@@ -1451,6 +1758,15 @@ def cancel_bet(transaction_id):
         if cancel_data.cashier == 'System':
             logger.warning("CANCEL BET REJECTED (system wager): txn=%s", transaction_id)
             cancel_result['error'] = 'notfound'
+            return cancel_result
+
+        if requesting_cashier and cancel_data.cashier != requesting_cashier:
+            logger.warning(
+                "CANCEL BET WRONG TELLER: txn=%s belongs to %s, requested by %s",
+                transaction_id, cancel_data.cashier, requesting_cashier,
+            )
+            cancel_result['error'] = 'wrong_teller'
+            cancel_result['original_cashier'] = cancel_data.cashier
             return cancel_result
 
         fn = cancel_data.fightnum

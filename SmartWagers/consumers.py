@@ -56,6 +56,21 @@ class WagersConsumer(AsyncWebsocketConsumer):
         ts, _ = TellerStatus.objects.get_or_create(user=user, defaults={"is_online": True})
         return ts.is_online
 
+    @database_sync_to_async
+    def _teller_station_is_closed(self):
+        from . import services
+        user = self.scope.get("user")
+        if user is None or not user.is_authenticated:
+            return False
+        return services.teller_station_is_closed(user)
+
+    async def _teller_action_blocked(self):
+        if await self._teller_station_is_closed():
+            return "station_closed"
+        if not await self._teller_is_online():
+            return "teller_offline"
+        return None
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -182,10 +197,17 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     winner = data["Winner"]
                     await self.endmatch(winner)
 
+                # Include full status so clients can update immediately without
+                # waiting on a separate HTTP refetch (avoids stale OPEN UI).
+                overall_status, meron_status, wala_status, fightnum = await self.get_fight_status()
                 for group_name in ["index", "user", "administrator"]:
                     await self.channel_layer.group_send(group_name, {
                         'type': 'send_data',
-                        'fight_status': fight_status
+                        'fight_status': fight_status,
+                        'overall_status': overall_status,
+                        'meron_status': meron_status,
+                        'wala_status': wala_status,
+                        'fightnum': fightnum,
                     })
 
             elif "side_status" in data:
@@ -206,12 +228,14 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     })
 
             elif "barcode" in data:
-                if self.page == "user" and not await self._teller_is_online():
-                    await self.send(text_data=json.dumps({
-                        "payout": True,
-                        "error": "teller_offline",
-                    }))
-                    return
+                if self.page == "user":
+                    blocked = await self._teller_action_blocked()
+                    if blocked:
+                        await self.send(text_data=json.dumps({
+                            "payout": True,
+                            "error": blocked,
+                        }))
+                        return
                 transaction_id = data["barcode"]
                 # Tellers may only pay out bets made at their own terminal
                 requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
@@ -221,14 +245,18 @@ class WagersConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({'payout': True, **payout_data}))
 
             elif "cancel_barcode" in data:
-                if self.page == "user" and not await self._teller_is_online():
-                    await self.send(text_data=json.dumps({
-                        "cancel_bet": True,
-                        "error": "teller_offline",
-                    }))
-                    return
+                if self.page == "user":
+                    blocked = await self._teller_action_blocked()
+                    if blocked:
+                        await self.send(text_data=json.dumps({
+                            "cancel_bet": True,
+                            "error": blocked,
+                        }))
+                        return
                 transaction_id = data["cancel_barcode"]
-                cancelbet_data = await self.cancel_bet(transaction_id)
+                # Tellers may only cancel bets made at their own terminal
+                requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
+                cancelbet_data = await self.cancel_bet(transaction_id, requesting_cashier)
                 # Same as above — reply only to the connection that submitted the scan.
                 await self.send(text_data=json.dumps(cancelbet_data))
                 
@@ -263,17 +291,23 @@ class WagersConsumer(AsyncWebsocketConsumer):
             response["wala_status"] = event["wala_status"]
             response["fightnum"] = event["fightnum"]
 
+        elif "fight_status" in event:
+            response["fight_status"] = event["fight_status"]
+            for key in ("overall_status", "meron_status", "wala_status", "fightnum"):
+                if key in event:
+                    response[key] = event[key]
+
         elif 'payout' in event:
             logger.debug("WS send_data PAYOUT: %s", event)
-            response.update(event)
+            response.update({k: v for k, v in event.items() if k != "type"})
 
         elif 'cancel_bet' in event:
             logger.debug("WS send_data CANCEL_BET: %s", event)
-            response.update(event)
+            response.update({k: v for k, v in event.items() if k != "type"})
 
         else:
             logger.debug("WS send_data OTHER: %s", event)
-            response.update(event)
+            response.update({k: v for k, v in event.items() if k != "type"})
         
         await self.send(text_data=json.dumps(response))
 
@@ -320,6 +354,6 @@ class WagersConsumer(AsyncWebsocketConsumer):
         return services.payout_request(transaction_id, requesting_cashier=requesting_cashier)
     
     @database_sync_to_async
-    def cancel_bet(self, transaction_id):
-        return services.cancel_bet(transaction_id)
+    def cancel_bet(self, transaction_id, requesting_cashier=None):
+        return services.cancel_bet(transaction_id, requesting_cashier=requesting_cashier)
  

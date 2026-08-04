@@ -248,6 +248,51 @@ async def test_cancel_barcode_nonexistent_returns_notfound(teller_user, settings
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_fight_status_closed_broadcast_includes_full_status(
+        admin_user, teller_user, settings, default_settings):
+    """Close Betting must broadcast CLOSED plus overall/side statuses to tellers."""
+    from asgiref.sync import sync_to_async
+
+    settings.CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    }
+    await sync_to_async(Fight_Status.objects.all().delete)()
+    await sync_to_async(Fight_Status.objects.create)(
+        fightnum=1, overall_status='OPEN', meron_status='OPEN', wala_status='OPEN'
+    )
+    await sync_to_async(Totals.objects.create)(
+        fightnum=1, mtotal=0, wtotal=0, mpayout=0, wpayout=0, totalpot=0
+    )
+
+    admin = WebsocketCommunicator(application, '/ws/administrator/')
+    admin.scope['user'] = admin_user
+    teller = WebsocketCommunicator(application, '/ws/user/')
+    teller.scope['user'] = teller_user
+
+    assert (await admin.connect())[0]
+    assert (await teller.connect())[0]
+
+    await admin.send_json_to({'fight_status': 'CLOSED'})
+
+    closed_msg = None
+    for _ in range(5):
+        msg = await teller.receive_json_from(timeout=3)
+        if msg.get('fight_status') == 'CLOSED':
+            closed_msg = msg
+            break
+
+    assert closed_msg is not None
+    assert closed_msg['overall_status'] == 'CLOSED'
+    assert closed_msg['meron_status'] in ('CLOSE', 'CLOSED')
+    assert closed_msg['wala_status'] in ('CLOSE', 'CLOSED')
+    assert 'fightnum' in closed_msg
+
+    await admin.disconnect()
+    await teller.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_pot_broadcast_received_after_fight_start(
         admin_user, settings, default_settings):
     """After a fight_status=START message the consumer broadcasts pot values."""

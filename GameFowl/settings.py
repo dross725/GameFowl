@@ -70,6 +70,8 @@ ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()] or [
     '127.0.0.1',
     '192.168.1.6',
     '192.168.0.63',
+    '10.0.0.10',
+    '192.168.0.150',
 ]
 
 
@@ -106,6 +108,8 @@ CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_origins.split(',') if o.strip()
     'http://127.0.0.1',
     'http://192.168.1.6',
     'http://192.168.0.63',
+    'http://10.0.0.10',
+    'http://192.168.0.150',
 ]
 
 ROOT_URLCONF = 'GameFowl.urls'
@@ -136,12 +140,61 @@ ASGI_APPLICATION = 'GameFowl.asgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+_database_engine = os.environ.get(
+    'DJANGO_DB_ENGINE',
+    'sqlite' if DEBUG else 'postgresql',
+).strip().lower()
+
+if not DEBUG and _database_engine != 'postgresql':
+    from django.core.exceptions import ImproperlyConfigured as _ImproperlyConfigured
+    raise _ImproperlyConfigured(
+        'Production requires PostgreSQL. Set DJANGO_DB_ENGINE=postgresql and '
+        'configure POSTGRES_DB, POSTGRES_USER, and POSTGRES_PASSWORD.'
+    )
+
+if _database_engine == 'postgresql':
+    _required_postgres_settings = {
+        'POSTGRES_DB': os.environ.get('POSTGRES_DB', '').strip(),
+        'POSTGRES_USER': os.environ.get('POSTGRES_USER', '').strip(),
+        'POSTGRES_PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
     }
-}
+    _missing_postgres_settings = [
+        name for name, value in _required_postgres_settings.items() if not value
+    ]
+    if _missing_postgres_settings:
+        from django.core.exceptions import ImproperlyConfigured as _ImproperlyConfigured
+        raise _ImproperlyConfigured(
+            'Missing PostgreSQL settings: ' + ', '.join(_missing_postgres_settings)
+        )
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': _required_postgres_settings['POSTGRES_DB'],
+            'USER': _required_postgres_settings['POSTGRES_USER'],
+            'PASSWORD': _required_postgres_settings['POSTGRES_PASSWORD'],
+            'HOST': os.environ.get('POSTGRES_HOST', '127.0.0.1').strip(),
+            'PORT': os.environ.get('POSTGRES_PORT', '5432').strip(),
+            'CONN_MAX_AGE': int(os.environ.get('POSTGRES_CONN_MAX_AGE', '60')),
+            'CONN_HEALTH_CHECKS': True,
+            'OPTIONS': {
+                'connect_timeout': int(os.environ.get('POSTGRES_CONNECT_TIMEOUT', '5')),
+            },
+        }
+    }
+elif _database_engine == 'sqlite':
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': os.environ.get('SQLITE_PATH', str(BASE_DIR / 'db.sqlite3')),
+        }
+    }
+else:
+    from django.core.exceptions import ImproperlyConfigured as _ImproperlyConfigured
+    raise _ImproperlyConfigured(
+        f'Unsupported DJANGO_DB_ENGINE={_database_engine!r}. '
+        'Use "postgresql" or "sqlite".'
+    )
 
 
 # Password validation

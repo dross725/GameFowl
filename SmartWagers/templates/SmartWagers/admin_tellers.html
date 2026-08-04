@@ -25,9 +25,11 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 14px 16px 24px;
-    min-height: 0;
-    flex: 1;
+    padding: 14px 16px 32px;
+    /* Grow with content so #wagers_section can scroll on short screens. */
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* ── Page header ───────────────────────────────────────── */
@@ -419,6 +421,62 @@
     color: rgba(255,255,255,0.28);
   }
 
+  .closeout-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    margin-left: 6px;
+  }
+
+  .closeout-badge.pending {
+    background: rgba(243, 156, 18, 0.18);
+    color: #f39c12;
+    border: 1px solid rgba(243, 156, 18, 0.35);
+  }
+
+  .closeout-badge.reconciled-over {
+    background: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.35);
+  }
+
+  .closeout-badge.reconciled-short {
+    background: rgba(231, 76, 60, 0.15);
+    color: #e74c3c;
+    border: 1px solid rgba(231, 76, 60, 0.35);
+  }
+
+  .closeout-badge.reconciled-balanced {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.70);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+  }
+
+  .count-cash-btn {
+    background: linear-gradient(135deg, #d68910, #f39c12);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .teller-closeout-strip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+  }
+
   .history-empty {
     padding: 20px 14px;
     color: rgba(255,255,255,0.28);
@@ -712,8 +770,12 @@
     color: rgba(255,255,255,0.55);
   }
 
-  @media (max-width: 600px) {
+  @media (max-width: 1100px) {
     #pre-event-funding { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 600px) {
+    #pre-event-funding { grid-template-columns: 1fr; }
     .teller-stats { gap: 10px; }
     .teller-stat { min-width: 70px; }
     .teller-stat-value { font-size: 14px; }
@@ -784,8 +846,36 @@
             <div class="teller-name">
               {{ td.display_name }}
               {% if not td.is_online %}<span class="offline-badge">Offline</span>{% endif %}
+              {% if td.close_out %}
+                {% if td.close_out.actual_cash_counted is None %}
+                  <span class="closeout-badge pending">Awaiting Cash Count</span>
+                {% elif td.close_out.variance > 0 %}
+                  <span class="closeout-badge reconciled-over">Over ₱ {{ td.close_out.variance|floatformat:2|intcomma }}</span>
+                {% elif td.close_out.variance < 0 %}
+                  <span class="closeout-badge reconciled-short">Short ₱ {{ td.close_out.variance|floatformat:2|cut:"-" }}</span>
+                {% else %}
+                  <span class="closeout-badge reconciled-balanced">Balanced</span>
+                {% endif %}
+              {% endif %}
             </div>
             <div class="teller-username">@{{ td.user.username }}</div>
+            {% if td.close_out %}
+            <div class="teller-closeout-strip">
+              Closed fight #{{ td.close_out.fightnum }} · Expected {{ td.close_out.expected_cash_on_hand|floatformat:2|intcomma }}
+              {% if td.close_out.actual_cash_counted is None %}
+                <button type="button" class="count-cash-btn"
+                        data-close-out-id="{{ td.close_out.pk }}"
+                        data-teller-name="{{ td.display_name|escapejs }}"
+                        data-expected="{{ td.close_out.expected_cash_on_hand }}"
+                        data-fightnum="{{ td.close_out.fightnum }}"
+                        onclick="openCountCashModalFromButton(event, this)">
+                  Count Cash
+                </button>
+              {% else %}
+                · Counted ₱ {{ td.close_out.actual_cash_counted|floatformat:2|intcomma }}
+              {% endif %}
+            </div>
+            {% endif %}
           </div>
 
           <div class="teller-stats">
@@ -914,9 +1004,44 @@
   </div>
 </div>
 
+<!-- ── Count Cash Modal ──────────────────────────────────────────── -->
+<div class="modal-overlay" id="count-cash-modal-overlay" onclick="closeCountCashModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div>
+      <div class="modal-title">Count Cash</div>
+      <div class="modal-teller-name" id="count-cash-teller-name"></div>
+    </div>
+
+    <input type="hidden" id="count-cash-close-out-id" value="">
+
+    <div class="modal-field">
+      <label>Closed Fight #</label>
+      <div id="count-cash-fightnum" style="color:white;font-weight:700;"></div>
+    </div>
+
+    <div class="modal-field">
+      <label>Expected Cash On Hand (₱)</label>
+      <div id="count-cash-expected" style="color:#f1c40f;font-weight:800;font-size:18px;"></div>
+    </div>
+
+    <div class="modal-field">
+      <label>Actual Counted Amount (₱)</label>
+      <input type="text" inputmode="decimal" id="count-cash-amount" placeholder="0.00" autocomplete="off">
+    </div>
+
+    <div class="modal-status" id="count-cash-status"></div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel-modal" onclick="closeCountCashModal()">Cancel</button>
+      <button class="btn-confirm-collect is-remit" id="btn-count-cash-confirm" onclick="submitCountCash()">Register Count</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const TELLER_TXN_URL      = "{% url 'admin-teller-txn' %}";
 const TELLER_ONLINE_URL   = "{% url 'admin-teller-online-toggle' %}";
+const COUNT_CASH_URL      = "{% url 'admin-teller-closeout-count' %}";
 const PRINT_AGENT_URL     = "http://127.0.0.1:8765/print-remit";
 const CSRF_TOKEN          = "{{ csrf_token }}";
 const TELLER_MAX_BALANCE  = {{ teller_max_balance|floatformat:2 }};
@@ -932,6 +1057,8 @@ const TELLER_BALANCES = {
     balance:      {{ td.balance|floatformat:2 }},
     is_online:    {{ td.is_online|yesno:"true,false" }},
     has_activity: {{ td.has_activity|yesno:"true,false" }},
+    close_out_id: {% if td.close_out %}{{ td.close_out.pk }}{% else %}null{% endif %},
+    close_out_pending: {% if td.close_out and td.close_out.actual_cash_counted is None %}true{% else %}false{% endif %},
   },
   {% endfor %}
 };
@@ -979,7 +1106,7 @@ function openTxnModal(event, tellerId, tellerName, txnType) {
   confirmBtn.classList.toggle('is-remit', isRemit);
 
   setStatus('', '');
-  attachAmountFormatter();
+  attachModalAmountFormatters();
   document.getElementById('collect-modal-overlay').classList.add('active');
   setTimeout(() => document.getElementById('collect-amount').focus(), 80);
 }
@@ -1165,6 +1292,13 @@ function fmtNum(n) {
   return Number(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
 }
 
+function fmtMoney(n) {
+  return Number(n).toLocaleString('en-PH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function stripCommas(str) {
   return String(str).replace(/,/g, '');
 }
@@ -1177,22 +1311,131 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-function attachAmountFormatter() {
-  const input = document.getElementById('collect-amount');
+function attachAmountFormatter(inputId, allowDecimals = false) {
+  const input = document.getElementById(inputId);
   if (!input || input._fmtAttached) return;
   input._fmtAttached = true;
   input.addEventListener('input', () => {
-    const digits = stripCommas(input.value).replace(/\D/g, '');
-    const num    = digits === '' ? 0 : parseInt(digits, 10);
-    input.value  = digits === '' ? '' : Number(num).toLocaleString('en-US');
+    let raw = stripCommas(input.value).replace(/[^\d.]/g, '');
+    if (allowDecimals) {
+      const dotCount = (raw.match(/\./g) || []).length;
+      if (dotCount > 1) {
+        const firstDot = raw.indexOf('.');
+        raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+      }
+      const hasTrailingDot = raw.endsWith('.');
+      const [intPart = '', decPart = ''] = raw.split('.');
+      const formattedInt = intPart === '' ? '' : Number(intPart).toLocaleString('en-US');
+      if (decPart !== '' || hasTrailingDot) {
+        input.value = `${formattedInt}.${decPart.slice(0, 2)}`;
+      } else {
+        input.value = formattedInt;
+      }
+      return;
+    }
+
+    const digits = raw.replace(/\D/g, '');
+    input.value = digits === '' ? '' : Number(digits).toLocaleString('en-US');
   });
+}
+
+function attachModalAmountFormatters() {
+  attachAmountFormatter('collect-amount', false);
+  attachAmountFormatter('count-cash-amount', true);
 }
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     document.getElementById('collect-modal-overlay').classList.remove('active');
+    document.getElementById('count-cash-modal-overlay').classList.remove('active');
   }
 });
+
+function openCountCashModalFromButton(event, button) {
+  event.stopPropagation();
+  // #region agent log
+  fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1',location:'admin_tellers.html:openCountCashModalFromButton',message:'opening count cash modal',data:{closeOutId:button.dataset.closeOutId,tellerName:button.dataset.tellerName,expected:button.dataset.expected,fightnum:button.dataset.fightnum},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+  openCountCashModal(
+    event,
+    button.dataset.closeOutId,
+    button.dataset.tellerName,
+    button.dataset.expected,
+    button.dataset.fightnum,
+  );
+}
+
+function openCountCashModal(event, closeOutId, tellerName, expectedAmount, fightnum) {
+  event.stopPropagation();
+  document.getElementById('count-cash-close-out-id').value = closeOutId;
+  document.getElementById('count-cash-teller-name').textContent = tellerName;
+  document.getElementById('count-cash-fightnum').textContent = fightnum;
+  document.getElementById('count-cash-expected').textContent = `₱ ${fmtMoney(expectedAmount)}`;
+  document.getElementById('count-cash-amount').value = '';
+  document.getElementById('count-cash-status').textContent = '';
+  document.getElementById('btn-count-cash-confirm').disabled = false;
+  attachModalAmountFormatters();
+  document.getElementById('count-cash-modal-overlay').classList.add('active');
+  setTimeout(() => document.getElementById('count-cash-amount').focus(), 80);
+}
+
+function closeCountCashModal(event) {
+  if (event && event.target !== event.currentTarget) return;
+  document.getElementById('count-cash-modal-overlay').classList.remove('active');
+}
+
+async function submitCountCash() {
+  const closeOutId = document.getElementById('count-cash-close-out-id').value;
+  const amountRaw = stripCommas(document.getElementById('count-cash-amount').value.trim());
+  const statusEl = document.getElementById('count-cash-status');
+  const btn = document.getElementById('btn-count-cash-confirm');
+
+  const amount = parseFloat(amountRaw);
+  if (!closeOutId || isNaN(amount) || amount < 0) {
+    statusEl.textContent = 'Enter a valid counted amount.';
+    statusEl.style.color = '#e74c3c';
+    return;
+  }
+
+  btn.disabled = true;
+  statusEl.textContent = 'Registering…';
+  statusEl.style.color = '';
+
+  const fd = new FormData();
+  fd.append('close_out_id', closeOutId);
+  fd.append('actual_amount', amountRaw);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  // #region agent log
+  fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1-H2',location:'admin_tellers.html:submitCountCash',message:'submitting cash count',data:{closeOutId,amountRaw,amount,csrfPresent:!!CSRF_TOKEN,countCashUrl:COUNT_CASH_URL},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
+  try {
+    const res = await fetch(COUNT_CASH_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    // #region agent log
+    fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1-H4',location:'admin_tellers.html:submitCountCash:response',message:'cash count response',data:{status:res.status,ok:data.ok,error:data.error},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (!data.ok) {
+      const messages = {
+        close_out_not_found: 'Close-out record not found.',
+        already_counted: 'Cash has already been counted for this teller.',
+        invalid_amount: 'Invalid amount.',
+        transaction_id_exhausted: 'Cannot create remit — transaction ID limit reached. Contact support.',
+        invalid_params: 'Invalid cash count submission. Check amount and try again.',
+      };
+      statusEl.textContent = messages[data.error] || 'Failed to register count.';
+      statusEl.style.color = '#e74c3c';
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch {
+    statusEl.textContent = 'Network error. Please try again.';
+    statusEl.style.color = '#e74c3c';
+    btn.disabled = false;
+  }
+}
 
 /* ── Online / offline toggle ───────────────────────── */
 async function handleOnlineToggle(checkbox) {
@@ -1215,6 +1458,9 @@ async function handleOnlineToggle(checkbox) {
       // Revert on failure
       checkbox.checked = !isOnline;
       applyOfflineCardState(tid, !isOnline);
+      if (data.error === 'awaiting_cash_count') {
+        alert(data.message || 'Cannot bring teller online until cash has been counted.');
+      }
     } else {
       if (TELLER_BALANCES[tid] !== undefined) {
         TELLER_BALANCES[tid].is_online = isOnline;
@@ -1370,6 +1616,7 @@ async function markTellerOnlineFromBanner(tid) {
 }
 
 /* run on page load */
+attachModalAmountFormatters();
 refreshWarningBanner();
 </script>
 {% endblock content %}

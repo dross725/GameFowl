@@ -4,9 +4,10 @@ REM  SmartWagers - Server startup
 REM  Ensures dependency services are up, then opens Chrome once.
 REM
 REM  Checks / starts:
-REM    1. Memurai  (Redis)     - service + PING
-REM    2. Daphne               - Windows service + HTTP :8080
-REM    3. Local print agent    - http://127.0.0.1:8765/health
+REM    1. PostgreSQL           - Windows service + SELECT 1
+REM    2. Memurai  (Redis)     - service + PING
+REM    3. Daphne               - Windows service + HTTP :8080
+REM    4. Local print agent    - http://127.0.0.1:8765/health
 REM
 REM  Uses goto-based flow (no CALL inside parenthesized IF blocks).
 REM  Set SMARTWAGERS_SILENT=1 (via start_server_silent.vbs) to skip pause.
@@ -20,6 +21,8 @@ set MEMURAI_SERVICE=Memurai
 set PROJECT_DIR=C:\SmartWagers\GameFowl
 set LOG_DIR=C:\SmartWagers\logs
 set PRINT_AGENT_DIR=C:\SmartWagers\local_print_agent
+set PYTHON_EXE=python
+if exist "%PROJECT_DIR%\deploy\python_path.txt" set /p PYTHON_EXE=<"%PROJECT_DIR%\deploy\python_path.txt"
 if not exist "%PRINT_AGENT_DIR%\print_agent.py" if exist "%PROJECT_DIR%\local_print_agent\print_agent.py" (
     set "PRINT_AGENT_DIR=%PROJECT_DIR%\local_print_agent"
 )
@@ -27,6 +30,7 @@ set APP_URL=http://localhost:8080/login
 set APP_HEALTH=http://127.0.0.1:8080/health/
 set PRINT_HEALTH=http://127.0.0.1:8765/health
 set DAPHNE_READY=0
+set POSTGRES_READY=0
 set MEMURAI_READY=0
 set PRINT_READY=0
 
@@ -37,9 +41,32 @@ echo ========================================
 echo.
 
 REM ============================================================
-REM  1. Memurai (required for WebSockets / Channels)
+REM  1. PostgreSQL (required for application data)
 REM ============================================================
-echo [1/3] Memurai...
+echo [1/4] PostgreSQL...
+powershell -NoProfile -Command "$s = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $s) { exit 1 }; if ($s.Status -ne 'Running') { Start-Service $s.Name }; $s.WaitForStatus('Running', [TimeSpan]::FromSeconds(20)); exit 0" >nul 2>&1
+if errorlevel 1 goto postgres_fail
+
+cd /d "%PROJECT_DIR%"
+"%PYTHON_EXE%" manage.py check_database >nul 2>&1
+if errorlevel 1 goto postgres_fail
+
+set POSTGRES_READY=1
+echo        OK - PostgreSQL responding.
+goto postgres_done
+
+:postgres_fail
+echo        ERROR: PostgreSQL is not installed, not running, or rejected the .env credentials.
+echo        Check services.msc and POSTGRES_* in %PROJECT_DIR%\.env.
+if /i not "%SMARTWAGERS_SILENT%"=="1" pause
+exit /b 1
+
+:postgres_done
+
+REM ============================================================
+REM  2. Memurai (required for WebSockets / Channels)
+REM ============================================================
+echo [2/4] Memurai...
 memurai-cli ping >nul 2>&1
 if not errorlevel 1 goto memurai_ready
 
@@ -66,9 +93,9 @@ set MEMURAI_READY=1
 echo        OK - Memurai responding.
 
 REM ============================================================
-REM  2. Daphne (SmartWagers web + WebSocket server)
+REM  3. Daphne (SmartWagers web + WebSocket server)
 REM ============================================================
-echo [2/3] Daphne ^(%SERVICE%^)...
+echo [3/4] Daphne ^(%SERVICE%^)...
 
 REM Already serving HTTP?
 powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri '%APP_HEALTH%' -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
@@ -139,9 +166,9 @@ set DAPHNE_READY=1
 echo        OK - Daphne listening on :8080.
 
 REM ============================================================
-REM  3. Local print agent (optional on server PC, recommended)
+REM  4. Local print agent (optional on server PC, recommended)
 REM ============================================================
-echo [3/3] Local print agent...
+echo [4/4] Local print agent...
 powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri '%PRINT_HEALTH%' -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
 if not errorlevel 1 goto print_ok
 
@@ -191,6 +218,7 @@ REM ============================================================
 echo.
 echo ----------------------------------------
 echo  Ready check
+echo    PostgreSQL:  %POSTGRES_READY%
 echo    Memurai:      %MEMURAI_READY%
 echo    Daphne :8080: %DAPHNE_READY%
 echo    Print agent:  %PRINT_READY%
