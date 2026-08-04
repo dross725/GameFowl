@@ -9,7 +9,7 @@ enforcement, and Event is_active exclusivity.
 
 import pytest
 from django.contrib.auth.models import User
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 
 from SmartWagers.models import (
     AdminBankTransaction,
@@ -271,11 +271,9 @@ class TestEventModel:
         ev = Event.objects.create(name='Old Event', is_active=False)
         assert 'Ended' in str(ev)
 
-    def test_multiple_active_events_allowed_at_db_level(self):
-        """The DB has no unique constraint on is_active; exclusivity is enforced
-        in the service layer (start_event closes any existing active events).
-        This test documents that behaviour so a future DB constraint migration
-        is a conscious decision."""
+    def test_database_rejects_multiple_active_events(self):
         Event.objects.create(name='Event A', is_active=True)
-        Event.objects.create(name='Event B', is_active=True)
-        assert Event.objects.filter(is_active=True).count() == 2
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                Event.objects.create(name='Event B', is_active=True)
+        assert Event.objects.filter(is_active=True).count() == 1

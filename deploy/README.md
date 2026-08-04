@@ -14,7 +14,11 @@ Follow these steps **in order** on the Windows server machine.
 3. **Install Memurai** (native Redis for Windows) from [memurai.com](https://www.memurai.com)
    - The installer registers itself as a Windows service automatically (starts on boot).
    - Verify: open Command Prompt → `memurai-cli ping` → should return `PONG`
-4. **Download NSSM** from [nssm.cc/download](https://nssm.cc/download)
+4. **Install PostgreSQL** on the same Windows server
+   - Use a currently supported PostgreSQL release and include Command Line Tools.
+   - Keep the service startup type set to **Automatic** and listen on localhost only.
+   - Add `C:\Program Files\PostgreSQL\<version>\bin` to the system `PATH`.
+5. **Download NSSM** from [nssm.cc/download](https://nssm.cc/download)
    - Extract `nssm.exe` to `C:\SmartWagers\nssm\`
 
 ---
@@ -30,6 +34,19 @@ This creates `C:\SmartWagers\GameFowl\.env` with:
 - `ALLOWED_HOSTS` locked to localhost + your server IP
 - `CSRF_TRUSTED_ORIGINS` set to `http://<SERVER-IP>:8080`
 - Master lock signing key placeholders (`MASTER_LOCK_*`)
+- A generated PostgreSQL database name, application user, and password
+
+Create the PostgreSQL role and database from an elevated Command Prompt. Use
+the exact generated values from `.env`:
+
+```cmd
+psql -U postgres -d postgres
+CREATE ROLE smartwagers_app WITH LOGIN PASSWORD '<POSTGRES_PASSWORD from .env>';
+CREATE DATABASE smartwagers OWNER smartwagers_app ENCODING 'UTF8';
+\q
+```
+
+PostgreSQL remains bound to localhost; port 5432 must not be opened to teller PCs.
 
 Then:
 1. Run `python manage.py hash_master_lock_key` and paste the hash into `MASTER_LOCK_PASSWORD_HASH=`
@@ -44,8 +61,8 @@ Then:
 
 Double-click `deploy\2_install_deps.bat` (or run from Command Prompt).
 
-This runs `pip install -r requirements.txt` and installs Django, Daphne, Channels,
-Redis, ReportLab, WhiteNoise, and their dependencies.
+This runs `pip install -r requirements.txt` and installs Django, Psycopg,
+Daphne, Channels, Redis, ReportLab, WhiteNoise, and their dependencies.
 
 ---
 
@@ -54,7 +71,8 @@ Redis, ReportLab, WhiteNoise, and their dependencies.
 Double-click `deploy\3_init_database.bat`.
 
 This runs:
-- `python manage.py migrate` — creates `db.sqlite3` (or updates existing)
+- `python manage.py check_database` — verifies the PostgreSQL login
+- `python manage.py migrate` — creates or updates the PostgreSQL schema
 - `python manage.py collectstatic` — copies static assets to `staticfiles/`
 
 ### Create the superuser (first deployment only)
@@ -81,6 +99,9 @@ This registers a Windows service called **SmartWagers-Daphne** that:
 - Logs to `C:\SmartWagers\logs\daphne_stdout.log`
 
 Verify: open `http://localhost:8080/login` — you should see the login page.
+
+The service launcher waits for PostgreSQL before starting Daphne. The daily
+server launcher also starts the local PostgreSQL Windows service if needed.
 
 ### Service management
 
@@ -159,6 +180,79 @@ Test from a LAN client browser at `http://<SERVER-IP>:8080/login`:
 - [ ] Bet can be placed and receipt is generated
 - [ ] Payout barcode scan works and print agent prints the receipt
 - [ ] Restart the server — both Memurai and SmartWagers-Daphne services start automatically
+- [ ] `python manage.py check_database` reports `vendor=postgresql`
+- [ ] `python manage.py verify_database --strict` succeeds
+
+---
+
+## Migrating an Existing SQLite Installation
+
+### Users only (recommended for a clean restart)
+
+If you only need existing login accounts and roles (`admin` / `teller` /
+`display`), and you do **not** need old wagers, payouts, or events:
+
+1. Confirm PostgreSQL login works: `python manage.py check_database`
+2. Keep Daphne stopped
+3. Copy the **old** `db.sqlite3` that still contains users onto the server
+   (or keep its full path handy — a fresh GameFowl install usually has none)
+4. Run `deploy\10_migrate_users_to_postgres.bat` and paste that old SQLite path
+5. Start Daphne, log in with an existing account, create Settings, then start a
+   new event
+
+This path ignores Fight_Status and all SmartWagers financial tables.
+
+### Full data migration
+
+Use a planned maintenance window. Do not allow any teller or admin writes while
+the data is copied. Print and sign the full
+[`POSTGRESQL_CUTOVER.md`](POSTGRESQL_CUTOVER.md) runbook.
+
+1. Install PostgreSQL, create the empty database/user, update `.env`, and run
+   `deploy\2_install_deps.bat`.
+2. Preserve an additional offline copy of `db.sqlite3`, `.env`, and
+   `C:\SmartWagers\data\master_lock.state`.
+3. Run `deploy\9_migrate_sqlite_to_postgres.bat` as Administrator.
+4. The migration stops Daphne, upgrades a frozen SQLite copy, exports users,
+   groups, and SmartWagers data, migrates PostgreSQL, imports records, resets
+   sequences, compares SHA-256 manifests and financial invariants, then creates
+   a PostgreSQL dump.
+5. Leave Daphne stopped if any verification fails. Inspect the timestamped
+   directory under `C:\SmartWagers\backups`.
+6. After success, start Daphne and complete every item in the verification
+   checklist before reopening betting.
+
+The source SQLite file is never modified by the transfer script. PostgreSQL
+must be empty except for schema/migration data. The script refuses to import
+over existing SmartWagers records.
+
+### Backup and restore
+
+Create a PostgreSQL custom-format backup:
+
+```cmd
+deploy\7_backup_postgres.bat
+```
+
+Restore only during an outage; this replaces current PostgreSQL contents:
+
+```cmd
+deploy\8_restore_postgres.bat C:\SmartWagers\backups\smartwagers-YYYYMMDD-HHMMSS.dump
+```
+
+The restore script requires typing the configured database name. Always retain
+an off-machine copy of event-day backups.
+
+### Rollback
+
+Rollback is only clean while PostgreSQL has not accepted new production writes:
+
+1. Stop `SmartWagers-Daphne`.
+2. Restore the frozen pre-cutover `.env` and `db.sqlite3`.
+3. Set `DJANGO_DEBUG=True` only for a temporary local recovery run; normal
+   production startup intentionally refuses SQLite.
+4. Do not merge independent PostgreSQL and SQLite writes. If production writes
+   occurred after cutover, restore PostgreSQL from backup instead.
 
 ---
 
@@ -168,6 +262,9 @@ Test from a LAN client browser at `http://<SERVER-IP>:8080/login`:
 |---------|-------|
 | Login page shows 400 Bad Request | `CSRF_TRUSTED_ORIGINS` in `.env` must match the URL in the browser exactly (include `:8080`) |
 | WebSocket disconnects immediately | Memurai not running — `memurai-cli ping` |
+| Daphne reports database readiness failure | Start the PostgreSQL Windows service; verify `POSTGRES_*` values and run `python manage.py check_database` |
+| `pg_dump` or `pg_restore` not found | Add the PostgreSQL `bin` directory to the system `PATH`, then reopen Command Prompt |
+| Migration reports integrity problems | Leave Daphne stopped; resolve the reported duplicate status/event/result or totals mismatch in the source before retrying |
 | "DisallowedHost" error | Server IP missing from `DJANGO_ALLOWED_HOSTS` in `.env` |
 | Static files not loading (CSS/JS missing) | Re-run `3_init_database.bat` to re-collect static files |
 | Service shows as stopped after reboot | Open `service_control.bat status`; check error logs in `C:\SmartWagers\logs\` |
@@ -205,7 +302,9 @@ Offline monthly activation. Disabled by default after `6_init_master_lock.bat`.
 |------|------|
 | Project root | `C:\SmartWagers\GameFowl\` |
 | Production config | `C:\SmartWagers\GameFowl\.env` |
-| Database | `C:\SmartWagers\GameFowl\db.sqlite3` |
+| PostgreSQL data | Managed by the PostgreSQL Windows service |
+| PostgreSQL backups | `C:\SmartWagers\backups\` |
+| Legacy SQLite source | `C:\SmartWagers\GameFowl\db.sqlite3` (migration/rollback only) |
 | Master lock state | `C:\SmartWagers\data\master_lock.state` |
 | Static files | `C:\SmartWagers\GameFowl\staticfiles\` |
 | Service logs | `C:\SmartWagers\logs\` |

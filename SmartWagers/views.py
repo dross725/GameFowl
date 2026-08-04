@@ -12,7 +12,7 @@ from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
 from .models import (
     AdminBankTransaction, Event, Fight_Results, SessionLog, Settings,
-    TellerStatus, TellerTransaction, Wagers,
+    TellerCloseOut, TellerStatus, TellerTransaction, Wagers,
 )
 from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
@@ -161,6 +161,20 @@ def teller_offline_response():
     return JsonResponse({'ok': False, 'error': 'teller_offline'}, status=403)
 
 
+def teller_station_closed_response():
+    """JSON response when a teller with a closed station attempts a restricted action."""
+    return JsonResponse({'ok': False, 'error': 'station_closed'}, status=403)
+
+
+def teller_action_blocked_response(user):
+    """Return the appropriate 403 when a teller action is blocked."""
+    if services.teller_station_is_closed(user):
+        return teller_station_closed_response()
+    if not teller_is_online(user):
+        return teller_offline_response()
+    return None
+
+
 def notify_teller_online_status(teller_id, is_online):
     """Broadcast a teller's online/offline change to all teller WebSocket clients."""
     channel_layer = get_channel_layer()
@@ -293,8 +307,10 @@ def reprint_wager(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
-    if request.user.groups.filter(name='teller').exists() and not teller_is_online(request.user):
-        return teller_offline_response()
+    if request.user.groups.filter(name='teller').exists():
+        blocked = teller_action_blocked_response(request.user)
+        if blocked is not None:
+            return blocked
 
     transaction_id = request.POST.get('transaction_id', '').strip()
     if not transaction_id:
@@ -302,43 +318,74 @@ def reprint_wager(request):
 
     # Tellers may only reprint their own tickets; admins may reprint any.
     cashier_filter = None
+    remit_user_filter = None
     is_admin = request.user.groups.filter(name='admin').exists()
     is_teller = request.user.groups.filter(name='teller').exists()
     if is_teller and not is_admin:
         cashier_filter = str(request.user)
+        remit_user_filter = request.user
+
+    print_required = services.is_wager_receipt_printing_enabled()
 
     receipt = services.lookup_wager_for_reprint(
         transaction_id, cashier=cashier_filter,
     )
-    if receipt is None:
-        return JsonResponse({'ok': False, 'error': 'notfound'})
+    if receipt is not None:
+        return JsonResponse({
+            'ok': True,
+            'receipt_type': 'wager',
+            'print_required': print_required,
+            'receipt': receipt,
+        })
 
-    return JsonResponse({'ok': True, 'print_required': services.is_wager_receipt_printing_enabled(), 'receipt': receipt})
+    remit_receipt = services.lookup_remit_for_reprint(
+        transaction_id, user=remit_user_filter,
+    )
+    if remit_receipt is not None:
+        return JsonResponse({
+            'ok': True,
+            'receipt_type': 'remit',
+            'print_required': print_required,
+            'receipt': remit_receipt,
+        })
+
+    return JsonResponse({'ok': False, 'error': 'notfound'})
 
 def notify_bet_updates():
+    """Broadcast current pot values to all live UI groups after a wager changes."""
     channel_layer = get_channel_layer()
     if channel_layer is None:
         logger.error("notify_bet_updates: channel layer is None — WebSocket broadcast skipped")
-    else:
-        async_to_sync(channel_layer.group_send)(
-            "bet_updates", 
-            {
-                'type': 'send_data', 
-                'action': 'update'
-            }
-        )
+        return
+
+    mtotal, mpayout, wtotal, wpayout, _total_bet, fightnum = services.get_Totals()
+    payload = {
+        'type': 'send_data',
+        'mtotal': format(int(mtotal), ','),
+        'mpayout': mpayout,
+        'wtotal': format(int(wtotal), ','),
+        'wpayout': wpayout,
+        'fightnum': fightnum,
+    }
+    for group in ["index", "user", "administrator"]:
+        async_to_sync(channel_layer.group_send)(group, payload)
 
 def notify_event_change():
     """Broadcast an event-state change to all connected clients so they re-poll get_fight_status_view."""
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return
+    overall_status, meron_status, wala_status, fightnum = services.get_fight_status()
     for group in ["administrator", "user", "index"]:
         async_to_sync(channel_layer.group_send)(
             group,
             {
                 'type': 'send_data',
                 'fight_status': 'event_changed',
+                'overall_status': overall_status,
+                'meron_status': meron_status,
+                'wala_status': wala_status,
+                'fightnum': fightnum,
             }
         )
 
@@ -555,6 +602,7 @@ def Teller(request):
     #comm = services.get_comm_val()
     current_fn = services.get_fightnum()
     is_online = teller_is_online(request.user)
+    station_closed = services.teller_station_is_closed(request.user)
 
     def user_page_context(**extra):
         ctx = {
@@ -563,14 +611,16 @@ def Teller(request):
             'W_total_bet': format(int(wala_total), ','),
             'W_payout': wala_payout,
             'teller_is_online': is_online,
+            'teller_station_closed': station_closed,
             'teller_id': request.user.pk,
         }
         ctx.update(extra)
         return ctx
 
     if request.method == 'POST':
-        if not is_online:
-            return teller_offline_response()
+        blocked = teller_action_blocked_response(request.user)
+        if blocked is not None:
+            return blocked
 
         action = request.POST.get('action', 'place')
         # Legacy print-then-confirm is disabled; register-then-print is required.
@@ -651,6 +701,11 @@ def teller_report(request):
     )
     allowed_reprint = set(recent_completed) | {current_fightnum}
 
+    close_out = services.get_teller_close_out(request.user, event=active_event)
+    balance_breakdown = services.compute_teller_balance_breakdown(
+        request.user, event=active_event, apply_end_bound=True,
+    ) if active_event else None
+
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
         'total_amount': total_amount,
@@ -659,6 +714,44 @@ def teller_report(request):
         'active_event': active_event,
         'completed_fights': completed_fights,
         'allowed_reprint': allowed_reprint,
+        'station_closed': close_out is not None,
+        'close_out': close_out,
+        'expected_balance': balance_breakdown['balance'] if balance_breakdown else 0.0,
+        'balance_breakdown': balance_breakdown,
+        'current_fightnum': current_fightnum,
+    })
+
+
+@group_required('teller')
+def teller_close_station(request):
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    if services.teller_station_is_closed(request.user):
+        return JsonResponse({'ok': False, 'error': 'already_closed'}, status=409)
+
+    try:
+        close_out = services.close_teller_station(request.user)
+    except services.NoActiveEventError:
+        return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=409)
+    except services.StationAlreadyClosedError:
+        return JsonResponse({'ok': False, 'error': 'already_closed'}, status=409)
+
+    notify_teller_online_status(request.user.pk, False)
+
+    return JsonResponse({
+        'ok': True,
+        'close_out': {
+            'id': close_out.pk,
+            'event_name': close_out.event.name,
+            'fightnum': close_out.fightnum,
+            'closed_at': close_out.closed_at.isoformat(),
+            'expected_cash_on_hand': close_out.expected_cash_on_hand,
+            'grand_total': close_out.grand_total,
+            'remit_total': close_out.remit_total,
+            'collect_total': close_out.collect_total,
+            'payout_total': close_out.payout_total,
+        },
     })
 
 
@@ -821,8 +914,9 @@ def teller_transaction(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
-    if not teller_is_online(request.user):
-        return teller_offline_response()
+    blocked = teller_action_blocked_response(request.user)
+    if blocked is not None:
+        return blocked
 
     transaction_type = request.POST.get('transaction_type', '').strip().upper()
     if transaction_type != TellerTransaction.REMIT:
@@ -918,6 +1012,8 @@ def admin_tellers(request):
                 wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
         has_activity = not is_online and wager_qs.exists()
 
+        close_out = services.get_teller_close_out(teller, event=event_scope)
+
         teller_data.append({
             'user': teller,
             'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
@@ -926,6 +1022,7 @@ def admin_tellers(request):
             'transactions': transactions,
             'is_online': is_online,
             'has_activity': has_activity,
+            'close_out': close_out,
         })
 
     teller_data.sort(key=lambda td: (-td['balance'], td['user'].username.lower()))
@@ -1244,6 +1341,12 @@ def admin_event_report(request):
     grand_total_all = 0.0
     total_unclaimed_all = 0.0
     total_bets_count_all = 0
+    total_variance_all = 0.0
+
+    close_outs = {
+        co.user_id: co
+        for co in TellerCloseOut.objects.filter(event=event).select_related('user')
+    }
 
     for teller in tellers:
         balance, grand_total = _compute_teller_balance(teller, event=event)
@@ -1286,6 +1389,7 @@ def admin_event_report(request):
         payout_total  = txn_stats['payout_total']  or 0.0
 
         unclaimed_info = unclaimed_by_cashier.get(username, {'count': 0, 'total': 0.0})
+        close_out = close_outs.get(teller.pk)
 
         teller_data.append({
             'user': teller,
@@ -1302,10 +1406,13 @@ def admin_event_report(request):
             'unclaimed_count': unclaimed_info['count'],
             'unclaimed_total': unclaimed_info['total'],
             'balance':        balance,
+            'close_out':      close_out,
         })
         grand_total_all       += grand_total
         total_unclaimed_all   += unclaimed_info['total']
         total_bets_count_all  += bet_count
+        if close_out is not None and close_out.variance is not None:
+            total_variance_all += close_out.variance
 
     return render(request, 'SmartWagers/event_report.html', {
         'event': event,
@@ -1314,6 +1421,7 @@ def admin_event_report(request):
         'grand_total_all': grand_total_all,
         'total_unclaimed_all': total_unclaimed_all,
         'total_bets_count_all': total_bets_count_all,
+        'total_variance_all': total_variance_all,
         'unclaimed_detail_list': unclaimed_detail_list,
         'fight_commissions': fight_commissions,
         'total_pot_all': total_pot_all,
@@ -1492,6 +1600,14 @@ def toggle_teller_online(request):
     except (Group.DoesNotExist, User.DoesNotExist):
         return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
 
+    close_out = services.get_teller_close_out(teller, event=services.get_active_event())
+    if is_online and close_out is not None and close_out.actual_cash_counted is None:
+        return JsonResponse({
+            'ok': False,
+            'error': 'awaiting_cash_count',
+            'message': 'Cannot bring teller online until cash has been counted.',
+        }, status=409)
+
     ts, _ = TellerStatus.objects.get_or_create(user=teller)
     was_online = ts.is_online
     ts.is_online = is_online
@@ -1521,6 +1637,145 @@ def toggle_teller_online(request):
         'teller_id': teller_id,
         'is_online': is_online,
         'fund_issued': fund_issued,
+    })
+
+
+def _parse_currency_amount(raw, default=None):
+    """Parse a currency string that may include comma grouping."""
+    if raw is None or str(raw).strip() == '':
+        if default is not None:
+            return default
+        raise ValueError('missing amount')
+    cleaned = str(raw).strip().replace(',', '')
+    return float(cleaned)
+
+
+@group_required('admin')
+def admin_register_teller_cash_count(request):
+    """Admin endpoint: register physically counted cash for a teller close-out."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    # #region agent log
+    import json as _json, time as _time
+    _raw_close_out_id = request.POST.get('close_out_id')
+    _raw_actual_amount = request.POST.get('actual_amount')
+    try:
+        with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
+            _dbg.write(_json.dumps({
+                'sessionId': '752381', 'hypothesisId': 'H1-H3',
+                'location': 'views.py:admin_register_teller_cash_count:entry',
+                'message': 'cash count POST received',
+                'data': {
+                    'close_out_id_raw': _raw_close_out_id,
+                    'actual_amount_raw': _raw_actual_amount,
+                    'post_keys': list(request.POST.keys()),
+                },
+                'timestamp': int(_time.time() * 1000),
+            }) + '\n')
+    except Exception:
+        pass
+    # #endregion
+
+    try:
+        close_out_id = int(str(request.POST.get('close_out_id', '')).strip())
+        actual_amount = _parse_currency_amount(request.POST.get('actual_amount'))
+    except (ValueError, TypeError) as exc:
+        # #region agent log
+        try:
+            with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
+                _dbg.write(_json.dumps({
+                    'sessionId': '752381', 'hypothesisId': 'H1-H3',
+                    'location': 'views.py:admin_register_teller_cash_count:invalid_params',
+                    'message': 'parse failed',
+                    'data': {
+                        'error_type': type(exc).__name__,
+                        'error': str(exc),
+                        'close_out_id_raw': _raw_close_out_id,
+                        'actual_amount_raw': _raw_actual_amount,
+                    },
+                    'timestamp': int(_time.time() * 1000),
+                }) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        return JsonResponse({'ok': False, 'error': 'invalid_params'}, status=400)
+
+    if actual_amount < 0:
+        # #region agent log
+        try:
+            with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
+                _dbg.write(_json.dumps({
+                    'sessionId': '752381', 'hypothesisId': 'H2',
+                    'location': 'views.py:admin_register_teller_cash_count:negative_amount',
+                    'message': 'negative amount rejected',
+                    'data': {'actual_amount': actual_amount},
+                    'timestamp': int(_time.time() * 1000),
+                }) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    try:
+        close_out = services.register_teller_cash_count(
+            close_out_id, actual_amount, request.user,
+        )
+    except services.CloseOutNotFoundError:
+        return JsonResponse({'ok': False, 'error': 'close_out_not_found'}, status=404)
+    except services.CloseOutAlreadyCountedError:
+        return JsonResponse({'ok': False, 'error': 'already_counted'}, status=409)
+    except ValueError as exc:
+        # #region agent log
+        try:
+            with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
+                import json as _json, time as _time
+                _dbg.write(_json.dumps({
+                    'sessionId': '752381', 'hypothesisId': 'H4',
+                    'location': 'views.py:admin_register_teller_cash_count:service_value_error',
+                    'message': 'register_teller_cash_count ValueError',
+                    'data': {
+                        'close_out_id': close_out_id,
+                        'actual_amount': actual_amount,
+                        'error': str(exc),
+                    },
+                    'timestamp': int(_time.time() * 1000),
+                }) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        if 'sequence is exhausted' in str(exc):
+            return JsonResponse({'ok': False, 'error': 'transaction_id_exhausted'}, status=503)
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    # #region agent log
+    try:
+        with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
+            import json as _json, time as _time
+            _dbg.write(_json.dumps({
+                'sessionId': '752381', 'hypothesisId': 'success',
+                'location': 'views.py:admin_register_teller_cash_count:success',
+                'message': 'cash count registered',
+                'data': {
+                    'close_out_id': close_out.pk,
+                    'variance': close_out.variance,
+                },
+                'timestamp': int(_time.time() * 1000),
+            }) + '\n')
+    except Exception:
+        pass
+    # #endregion
+
+    return JsonResponse({
+        'ok': True,
+        'close_out_id': close_out.pk,
+        'actual_cash_counted': close_out.actual_cash_counted,
+        'expected_cash_on_hand': close_out.expected_cash_on_hand,
+        'variance': close_out.variance,
+        'remit_transaction_id': (
+            close_out.remit_transaction.transaction_id
+            if close_out.remit_transaction else None
+        ),
     })
 
 

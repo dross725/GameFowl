@@ -5,6 +5,7 @@
 Django==5.1
 daphne==4.2.0
 asgiref==3.8.1
+psycopg[binary]==3.3.4
 
 # WebSocket / real-time
 channels==4.2.2

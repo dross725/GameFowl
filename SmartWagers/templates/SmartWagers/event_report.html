@@ -51,9 +51,12 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    padding: 16px 18px 28px;
-    flex: 1;
-    min-height: 0;
+    padding: 16px 18px 32px;
+    /* Grow with content so #wagers_section can scroll on short screens
+       (10" Chromebooks). Do not lock height to the viewport. */
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* ── Top bar ── */
@@ -249,6 +252,12 @@
   .c-balance-pos { color: #2ecc71 !important; font-weight: 700; font-variant-numeric: tabular-nums; }
   .c-balance-zer { color: rgba(255,255,255,0.30) !important; }
   .c-balance-neg { color: #e74c3c !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .c-var-over { color: #2ecc71 !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .c-var-short { color: #e74c3c !important; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .c-var-zero { color: rgba(255,255,255,0.30) !important; }
+  .c-station-open { color: rgba(255,255,255,0.35) !important; font-size: 11px; }
+  .c-station-closed { color: #f39c12 !important; font-size: 11px; font-weight: 700; }
+  .c-station-reconciled { color: #2ecc71 !important; font-size: 11px; font-weight: 700; }
 
   /* ── Commission table ── */
   #er-comm-table {
@@ -624,6 +633,7 @@
             <th class="th-group-header" colspan="3">Transactions</th>
             <th class="th-group-header" colspan="2">Unclaimed Wins</th>
             <th class="th-group-header">Balance</th>
+            <th class="th-group-header" colspan="5">Station Close-Out</th>
           </tr>
           <tr>
             <th>Name</th>
@@ -636,6 +646,11 @@
             <th class="num">Count</th>
             <th class="num">Amount</th>
             <th class="num">On-Hand</th>
+            <th class="num">Status</th>
+            <th class="num">Fight #</th>
+            <th class="num">Expected</th>
+            <th class="num">Actual</th>
+            <th class="num">Variance</th>
           </tr>
         </thead>
         <tbody>
@@ -684,6 +699,39 @@
             <td class="num {% if t.balance > 0 %}c-balance-pos{% elif t.balance == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
               ₱ {{ t.balance|floatformat:2|intcomma }}
             </td>
+            <td class="num">
+              {% if t.close_out %}
+                {% if t.close_out.actual_cash_counted is None %}
+                  <span class="c-station-closed">Closed</span>
+                {% else %}
+                  <span class="c-station-reconciled">Reconciled</span>
+                {% endif %}
+              {% else %}
+                <span class="c-station-open">Open</span>
+              {% endif %}
+            </td>
+            <td class="num">
+              {% if t.close_out %}{{ t.close_out.fightnum }}{% else %}—{% endif %}
+            </td>
+            <td class="num">
+              {% if t.close_out %}₱ {{ t.close_out.expected_cash_on_hand|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num">
+              {% if t.close_out and t.close_out.actual_cash_counted is not None %}
+                ₱ {{ t.close_out.actual_cash_counted|floatformat:2|intcomma }}
+              {% else %}—{% endif %}
+            </td>
+            <td class="num">
+              {% if t.close_out and t.close_out.variance is not None %}
+                {% if t.close_out.variance > 0 %}
+                  <span class="c-var-over">+₱ {{ t.close_out.variance|floatformat:2|intcomma }}</span>
+                {% elif t.close_out.variance < 0 %}
+                  <span class="c-var-short">-₱ {{ t.close_out.variance|floatformat:2|cut:"-" }}</span>
+                {% else %}
+                  <span class="c-var-zero">Balanced</span>
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -701,6 +749,15 @@
               {% if total_unclaimed_all > 0 %}₱ {{ total_unclaimed_all|floatformat:2|intcomma }}{% else %}—{% endif %}
             </td>
             <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td class="num {% if total_variance_all > 0 %}c-var-over{% elif total_variance_all < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
+              {% if total_variance_all != 0 %}
+                {% if total_variance_all > 0 %}+{% endif %}₱ {{ total_variance_all|floatformat:2|intcomma }}
+              {% else %}—{% endif %}
+            </td>
           </tr>
         </tfoot>
       </table>

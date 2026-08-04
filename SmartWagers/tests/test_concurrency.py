@@ -25,7 +25,7 @@ ARCHITECTURE NOTE — SQLite vs PostgreSQL concurrency:
 
 import threading
 import pytest
-from django.db import OperationalError
+from django.db import OperationalError, connection, connections
 from SmartWagers.models import (
     Event, Fight_Results, Fight_Status, TellerTransaction, Totals, Wagers,
 )
@@ -65,6 +65,8 @@ def _run_threads(target, n_threads, *args):
         except Exception as exc:  # noqa: BLE001
             with lock:
                 exceptions.append(exc)
+        finally:
+            connections.close_all()
 
     threads = [threading.Thread(target=_wrap, args=args) for _ in range(n_threads)]
     for t in threads:
@@ -140,11 +142,12 @@ def test_duplicate_payout_thread_stress(default_settings, teller_user):
     if successes:
         assert wager.cashed_out is True
 
-    if sqlite_errors:
+    if sqlite_errors and connection.vendor == 'sqlite':
         pytest.xfail(
             f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
             "this test must pass without errors on PostgreSQL"
         )
+    assert not sqlite_errors, f"PostgreSQL payout errors: {sqlite_errors!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -193,11 +196,12 @@ def test_totals_integrity_thread_stress(default_settings):
         f"mtotal mismatch: expected {committed * amount}, got {m}"
     )
 
-    if sqlite_errors:
+    if sqlite_errors and connection.vendor == 'sqlite':
         pytest.xfail(
             f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
             "run on PostgreSQL to validate true concurrency safety"
         )
+    assert not sqlite_errors, f"PostgreSQL totals errors: {sqlite_errors!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -234,11 +238,12 @@ def test_transaction_id_no_collision_thread_stress(default_settings):
     ids = [w.transactionid for w in results]
     assert len(ids) == len(set(ids)), "Duplicate transaction IDs detected!"
 
-    if sqlite_errors:
+    if sqlite_errors and connection.vendor == 'sqlite':
         pytest.xfail(
             f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
             "run on PostgreSQL to validate full concurrency safety"
         )
+    assert not sqlite_errors, f"PostgreSQL wager ID errors: {sqlite_errors!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -276,11 +281,12 @@ def test_teller_transaction_id_no_collision_thread_stress(teller_user, default_s
     ids = [t.transaction_id for t in results]
     assert len(ids) == len(set(ids)), "Duplicate TellerTransaction IDs detected!"
 
-    if sqlite_errors:
+    if sqlite_errors and connection.vendor == 'sqlite':
         pytest.xfail(
             f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
             "run on PostgreSQL for full concurrency validation"
         )
+    assert not sqlite_errors, f"PostgreSQL teller transaction ID errors: {sqlite_errors!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -317,11 +323,13 @@ def test_double_start_event_thread_stress(default_settings):
             f"Expected 1 active event, found {active_count} — "
             "add a DB unique constraint for production safety"
         )
-    else:
+    elif connection.vendor == 'sqlite':
         pytest.xfail(
             f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
             "run on PostgreSQL to validate"
         )
+    else:
+        pytest.fail(f"PostgreSQL event start errors: {sqlite_errors!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -386,8 +394,9 @@ def test_concurrent_cancel_bet_thread_stress(default_settings):
     successes = [r for r in results if r.get('message') == 'betcancelled']
     assert len(successes) <= 1, "More than 1 successful cancel for the same bet!"
 
-    if sqlite_errors:
+    if sqlite_errors and connection.vendor == 'sqlite':
         pytest.xfail(
             f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
             "run on PostgreSQL for full concurrency validation"
         )
+    assert not sqlite_errors, f"PostgreSQL cancel errors: {sqlite_errors!r}"

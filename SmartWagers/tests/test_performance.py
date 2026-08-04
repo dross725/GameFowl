@@ -100,10 +100,8 @@ def test_compute_payout_10000_calls(default_settings):
 
     _, elapsed = _elapsed(run)
     print(f"\ncompute_payout x10000: {elapsed:.3f}s")
-    # NOTE: compute_payout() calls get_comm_val() on every invocation which
-    # issues a DB query. 10,000 SQLite hits realistically takes ~2-3s.
-    # A future optimisation would cache the commission in memory.
-    assert elapsed < 5.0, f"compute_payout x10000 took {elapsed:.2f}s — exceeds 5s threshold"
+    # Commission is cached and invalidated whenever Settings changes.
+    assert elapsed < 0.5, f"compute_payout x10000 took {elapsed:.2f}s — exceeds 0.5s threshold"
 
 
 # ---------------------------------------------------------------------------

@@ -115,12 +115,11 @@ class TestGetActiveEvent:
     def test_returns_none_when_no_active_event(self):
         assert services.get_active_event() is None
 
-    def test_returns_most_recent_active_when_multiple(self):
-        """Service returns the most recently started active event."""
-        Event.objects.create(name='Old Active', is_active=True)
-        newer = Event.objects.create(name='Newer Active', is_active=True)
+    def test_returns_active_event_when_newer_event_is_inactive(self):
+        active = Event.objects.create(name='Active', is_active=True)
+        Event.objects.create(name='Newer Inactive', is_active=False)
         result = services.get_active_event()
-        assert result.pk == newer.pk
+        assert result.pk == active.pk
 
 
 # ---------------------------------------------------------------------------

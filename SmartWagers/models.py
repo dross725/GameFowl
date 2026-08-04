@@ -1,4 +1,4 @@
-from django.db import models, transaction as db_transaction, IntegrityError
+from django.db import models, transaction as db_transaction
 from datetime import datetime
 from django.utils.timezone import now
 from django.contrib.auth.models import User
@@ -6,10 +6,58 @@ import uuid
 
 
 # Create your models here.
+class TransactionSequence(models.Model):
+    WAGER = 'WAGER'
+    TELLER = 'TELLER'
+    key = models.CharField(max_length=20, primary_key=True)
+    value = models.BigIntegerField(default=0)
+
+    @classmethod
+    def _resync_teller_sequence(cls, sequence):
+        """Reset an inflated TELLER counter using current 6-digit transaction IDs.
+
+        Legacy rows may use year-prefixed IDs (e.g. R2026000047) from an older
+        format. Those must not block new R000001-style IDs.
+        """
+        teller_max = 0
+        for transaction_id in TellerTransaction.objects.values_list(
+            'transaction_id', flat=True,
+        ).iterator():
+            if not transaction_id or not transaction_id.startswith('R'):
+                continue
+            suffix = transaction_id[1:]
+            if not suffix.isdigit():
+                continue
+            number = int(suffix)
+            if number <= 999999:
+                teller_max = max(teller_max, number)
+        if teller_max < sequence.value:
+            sequence.value = teller_max
+            sequence.save(update_fields=['value'])
+
+    @classmethod
+    def next_value(cls, key):
+        with db_transaction.atomic():
+            sequence, _ = cls.objects.select_for_update().get_or_create(
+                key=key,
+                defaults={'value': 0},
+            )
+            if key == cls.TELLER and sequence.value >= 999999:
+                cls._resync_teller_sequence(sequence)
+            if sequence.value >= 999999:
+                raise ValueError(f"{key} transaction ID sequence is exhausted.")
+            sequence.value += 1
+            sequence.save(update_fields=['value'])
+            return sequence.value
+
+    def __str__(self):
+        return f"{self.key}: {self.value}"
+
+
 class Wagers (models.Model):
     transactionid = models.CharField(max_length=10, unique=True, editable=False, default='000000')
     fightnum = models.IntegerField(default=0)
-    side = models.CharField(max_length=10)
+    side = models.CharField(max_length=20)
     wager = models.FloatField()
     cashier  = models.CharField(max_length=100, editable=True, default="Juan DelaCruz")
     created_at = models.DateTimeField(default=now)
@@ -25,28 +73,8 @@ class Wagers (models.Model):
             super().save(*args, **kwargs)
             return
         if self.pk is None and self.cashier != 'System':
-            # SQLite ignores SELECT FOR UPDATE, so concurrent saves can race.
-            # Retry up to 5 times, re-reading the global max each attempt.
-            # Use the true numeric max (not merely the latest pk) so soft-cancelled
-            # pending receipts permanently retire their transaction IDs.
-            for _attempt in range(5):
-                with db_transaction.atomic():
-                    qs = Wagers.objects.select_for_update().exclude(cashier='System')
-                    last_number = 0
-                    for tid in qs.order_by('-id').values_list('transactionid', flat=True)[:500]:
-                        try:
-                            n = int(tid)
-                        except (ValueError, TypeError):
-                            continue
-                        if 0 < n < 1_000_000 and n > last_number:
-                            last_number = n
-                    self.transactionid = str(last_number + 1).zfill(6)
-                    try:
-                        super().save(*args, **kwargs)
-                        return
-                    except IntegrityError:
-                        continue
-            raise IntegrityError("Could not assign a unique transactionid after 5 attempts.")
+            number = TransactionSequence.next_value(TransactionSequence.WAGER)
+            self.transactionid = str(number).zfill(6)
         super().save(*args, **kwargs)
 
     def formatted_time(self):
@@ -83,7 +111,7 @@ class Settings (models.Model):
 
 class Fight_Results(models.Model):
     fightnum = models.IntegerField(default=0, blank=False, null=False)
-    side = models.CharField(max_length=5)
+    side = models.CharField(max_length=20)
     mtotal = models.FloatField(default=0, blank=False, null=False)
     wtotal = models.FloatField(default=0, blank=False, null=False)
     mpayout = models.FloatField(default=0, blank=False, null=False)
@@ -154,27 +182,8 @@ class TellerTransaction(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk is None:
-            # SQLite ignores SELECT FOR UPDATE, so concurrent saves can race.
-            # Retry up to 5 times, re-reading the global max each attempt.
-            for _attempt in range(5):
-                with db_transaction.atomic():
-                    qs = TellerTransaction.objects.select_for_update()
-                    last_number = 0
-                    for tid in qs.order_by('-id').values_list('transaction_id', flat=True):
-                        try:
-                            n = int(tid[1:])  # strip leading 'R'
-                            if 0 < n < 1_000_000:
-                                last_number = n
-                                break
-                        except (ValueError, TypeError, IndexError):
-                            continue
-                    self.transaction_id = f"R{str(last_number + 1).zfill(6)}"
-                    try:
-                        super().save(*args, **kwargs)
-                        return
-                    except IntegrityError:
-                        continue
-            raise IntegrityError("Could not assign a unique transaction_id after 5 attempts.")
+            number = TransactionSequence.next_value(TransactionSequence.TELLER)
+            self.transaction_id = f"R{str(number).zfill(6)}"
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -190,6 +199,50 @@ class TellerStatus(models.Model):
         return f"{self.user} — {status}"
 
 
+class TellerCloseOut(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='close_outs')
+    event = models.ForeignKey('Event', on_delete=models.CASCADE, related_name='teller_close_outs')
+    closed_at = models.DateTimeField(default=now)
+    fightnum = models.IntegerField()
+    expected_cash_on_hand = models.FloatField()
+    grand_total = models.FloatField(default=0)
+    remit_total = models.FloatField(default=0)
+    collect_total = models.FloatField(default=0)
+    payout_total = models.FloatField(default=0)
+    actual_cash_counted = models.FloatField(null=True, blank=True)
+    variance = models.FloatField(null=True, blank=True)
+    counted_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='counted_close_outs',
+    )
+    counted_at = models.DateTimeField(null=True, blank=True)
+    remit_transaction = models.OneToOneField(
+        TellerTransaction,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='close_out',
+    )
+
+    class Meta:
+        ordering = ['-closed_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'event'],
+                name='one_close_out_per_teller_per_event',
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.user} | {self.event} | fight {self.fightnum} | "
+            f"expected={self.expected_cash_on_hand}"
+        )
+
+
 class Event(models.Model):
     name = models.CharField(max_length=200)
     started_at = models.DateTimeField(default=now)
@@ -199,6 +252,13 @@ class Event(models.Model):
 
     class Meta:
         ordering = ['-started_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['is_active'],
+                condition=models.Q(is_active=True),
+                name='one_active_event',
+            ),
+        ]
 
     def __str__(self):
         status = 'Active' if self.is_active else 'Ended'
