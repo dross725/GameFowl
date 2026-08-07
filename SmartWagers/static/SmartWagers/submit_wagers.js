@@ -1,6 +1,7 @@
 let bet_total = 0;
 let wager_value = 0;
 let wager_id = '';
+let clientRequestId = '';
 let isSubmitting = false;
 
 function formatNumber(n) {
@@ -20,6 +21,24 @@ function getSelectedSide() {
 function focusBetInput() {
     const textarea = document.getElementById('bet_textinput');
     if (textarea) textarea.focus();
+}
+
+function generateClientRequestId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+    }
+
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (char) => {
+        const rand = Math.floor(Math.random() * 16);
+        const value = char === 'x' ? rand : ((rand & 0x3) | 0x8);
+        return value.toString(16);
+    });
+}
+
+function setClientRequestId(value) {
+    clientRequestId = value || '';
+    const hidden = document.getElementById('client_request_id');
+    if (hidden) hidden.value = clientRequestId;
 }
 
 function addValue(value) {
@@ -78,11 +97,13 @@ function resetTotal() {
     resetBet();
     document.getElementById('wager_value').value = '';
     document.getElementById('wager_id').value = '';
+    setClientRequestId('');
 }
 
 function openConfirmationModal(total, side) {
     wager_value = total;
     wager_id = side;
+    setClientRequestId(generateClientRequestId());
     const summaryValue = document.getElementById('summaryValue');
     const confirmside = document.getElementById('confirmside');
     confirmside.innerText = wager_id;
@@ -484,6 +505,8 @@ async function submitValue() {
         const wager_side = document.getElementById('wager_id');
         wager_side.value = wager_id;
 
+        setClientRequestId(clientRequestId);
+
         /* Reset textarea immediately — values already captured in the hidden fields above */
         resetBet();
 
@@ -548,6 +571,7 @@ async function submitValue() {
 window.onload = function() {
     document.getElementById('wager_value').value = '';
     document.getElementById('wager_id').value = '';
+    setClientRequestId('');
 };
 
 document.addEventListener('DOMContentLoaded', () => {
