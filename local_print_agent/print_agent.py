@@ -577,7 +577,7 @@ def escpos_remit_receipt(
     show_barcode = is_teller_remit_receipt(receipt) and bool(transaction_id)
     align = escpos_align_byte(text_align)
 
-    label = "REMIT RECEIPT" if transaction_type == "REMIT" else "COLLECT RECEIPT"
+    label = "ADVANCE RECEIPT" if transaction_type == "REMIT" else "BORROW RECEIPT"
     action_line = f"*** {transaction_type} ***"
 
     output = bytearray()
@@ -586,13 +586,11 @@ def escpos_remit_receipt(
     output += text_line(date, code_page)
     output += b"\x1bE\x01"
     output += text_line(label, code_page)
-    output += text_line(action_line, code_page)
     output += b"\x1bE\x00"
     output += b"\x1ba\x00"   # Detail lines always left for columns
     output += text_line(f"Teller   : {cashier}", code_page)
     output += text_line(f"Amount   : {amount}", code_page)
     output += text_line(f"Balance  : {balance}", code_page)
-    output += text_line(f"Grand Tot: {grand_total}", code_page)
     if transaction_id:
         output += text_line(f"Txn ID   : {transaction_id}", code_page)
 

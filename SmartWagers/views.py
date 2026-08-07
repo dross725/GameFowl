@@ -137,7 +137,7 @@ def master_lock_page(request):
 
 @require_GET
 def master_lock_status(request):
-    """Lightweight poll endpoint for open pages (allowlisted under /master-lock/)."""
+    """Return current master lock status (JSON)."""
     status = masterlock.get_status(touch_heartbeat=False)
     response = JsonResponse({
         'ok': True,
@@ -416,16 +416,6 @@ def Main_admin(request):
     logger.debug("Main_admin page: user=%s", request.user)
 
     if request.method == 'POST':
-        action = request.POST.get('action', 'place')
-        # Legacy print-then-confirm is disabled; register-then-print is required.
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action in (
-            'cancel_pending', 'confirm_print',
-        ):
-            return JsonResponse({
-                'ok': False,
-                'error': 'legacy_action_disabled',
-            }, status=410)
-
         try:
             wager = int(request.POST.get('wager_value', 0))
         except (ValueError, TypeError):
@@ -461,6 +451,7 @@ def Main_admin(request):
                 wager, wager_id, current_fn,
                 cashier=str(request.user),
                 require_side_open=False,
+                client_request_id=request.POST.get('client_request_id'),
             )
         except services.BettingClosedError:
             return JsonResponse({
@@ -622,16 +613,6 @@ def Teller(request):
         if blocked is not None:
             return blocked
 
-        action = request.POST.get('action', 'place')
-        # Legacy print-then-confirm is disabled; register-then-print is required.
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest' and action in (
-            'cancel_pending', 'confirm_print',
-        ):
-            return JsonResponse({
-                'ok': False,
-                'error': 'legacy_action_disabled',
-            }, status=410)
-
         try:
             wager = int(request.POST.get('wager_value', 0))
         except (ValueError, TypeError):
@@ -661,6 +642,7 @@ def Teller(request):
                 wager, wager_id, current_fn,
                 cashier=str(request.user),
                 require_side_open=True,
+                client_request_id=request.POST.get('client_request_id'),
             )
         except services.BettingClosedError:
             return JsonResponse({
@@ -1210,6 +1192,16 @@ def start_event_view(request):
     event_name = request.POST.get('event_name', '').strip()
     if not event_name:
         return JsonResponse({'ok': False, 'error': 'event_name_required'}, status=400)
+
+    if masterlock.is_app_locked(touch_heartbeat=True):
+        logger.info(
+            "EVENT START blocked (master lock): admin=%s",
+            request.user.username,
+        )
+        return JsonResponse(
+            {'ok': False, 'error': 'app_locked', 'locked': True},
+            status=403,
+        )
 
     event = services.start_event(event_name)
     notify_event_change()

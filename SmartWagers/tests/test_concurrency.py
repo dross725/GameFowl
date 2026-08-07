@@ -400,3 +400,35 @@ def test_concurrent_cancel_bet_thread_stress(default_settings):
             "run on PostgreSQL for full concurrency validation"
         )
     assert not sqlite_errors, f"PostgreSQL cancel errors: {sqlite_errors!r}"
+
+
+# ---------------------------------------------------------------------------
+# 8. Idempotent bet placement — THREAD STRESS TEST
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db(transaction=True)
+def test_idempotent_bet_thread_stress(default_settings):
+    """Five concurrent retries with the same client_request_id must create one bet."""
+    _open_fight(fightnum=1)
+    request_id = '33333333-3333-4333-8333-333333333333'
+
+    results, sqlite_errors = _run_threads(
+        lambda: services.add_wager(
+            300, 'MERON', 1, cashier='teller1', client_request_id=request_id,
+        ),
+        5,
+    )
+
+    created_count = sum(1 for _, created in results if created)
+    assert created_count <= 1, "Never more than 1 created wager for the same client_request_id"
+    assert Wagers.objects.filter(client_request_id=request_id).count() == 1
+
+    m, _, _, _, _, _ = services.get_Totals()
+    assert m == pytest.approx(300.0)
+
+    if sqlite_errors and connection.vendor == 'sqlite':
+        pytest.xfail(
+            f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
+            "run on PostgreSQL for full concurrency validation"
+        )
+    assert not sqlite_errors, f"PostgreSQL idempotent bet errors: {sqlite_errors!r}"

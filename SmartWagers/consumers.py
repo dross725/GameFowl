@@ -1,11 +1,9 @@
 import json
 import logging
-import asyncio
 import re
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from . import services
-from . import masterlock
 from .models import Settings, Wagers, Totals
 
 logger = logging.getLogger('SmartWagers.consumers')
@@ -110,34 +108,8 @@ class WagersConsumer(AsyncWebsocketConsumer):
         logger.info("WS CONNECTED: user=%s endpoint=/%s/", user.username, self.page)
         await self.channel_layer.group_add(self.page, self.channel_name)
         await self.accept()
-        self._lock_watch_task = asyncio.create_task(self._watch_master_lock())
-
-    async def _watch_master_lock(self):
-        """Close idle sockets shortly after the master lock expires."""
-        try:
-            while True:
-                await asyncio.sleep(15)
-                locked = await database_sync_to_async(masterlock.is_app_locked)(touch_heartbeat=False)
-                if locked:
-                    logger.warning(
-                        "WS CLOSED (master lock): user endpoint=/%s/",
-                        self.page,
-                    )
-                    await self.close(code=masterlock.WS_CLOSE_LOCKED)
-                    return
-        except asyncio.CancelledError:
-            raise
 
     async def disconnect(self, code):
-        task = getattr(self, '_lock_watch_task', None)
-        if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            self._lock_watch_task = None
-
         if self.channel_layer is None:
             logger.error("WS DISCONNECT: channel layer unavailable")
             return
@@ -149,11 +121,6 @@ class WagersConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_discard(self.page, self.channel_name)
 
     async def receive(self, text_data=None, bytes_data=None):
-        locked = await database_sync_to_async(masterlock.is_app_locked)(touch_heartbeat=False)
-        if locked:
-            await self.close(code=masterlock.WS_CLOSE_LOCKED)
-            return
-
         if text_data:
             data = json.loads(text_data)
 
