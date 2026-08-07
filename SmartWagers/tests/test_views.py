@@ -147,19 +147,6 @@ class TestGroupGuards:
         response = client.get('/user')
         assert response.status_code == 200
 
-    def test_legacy_confirm_print_is_disabled(self, teller_user, default_settings):
-        _open_fight()
-        client = Client()
-        client.force_login(teller_user)
-        response = client.post(
-            '/user',
-            {'action': 'confirm_print', 'transaction_id': '000001'},
-            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
-        )
-        assert response.status_code == 410
-        data = json.loads(response.content)
-        assert data['error'] == 'legacy_action_disabled'
-
 
 # ---------------------------------------------------------------------------
 # JSON API endpoints

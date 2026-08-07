@@ -13,9 +13,11 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils.timezone import now
 from django.db import connection
+from django.db import IntegrityError
 from django.db import transaction as db_transaction
 from functools import lru_cache
 import logging
+import re
 import os
 import shutil
 import subprocess
@@ -25,6 +27,27 @@ from reportlab.graphics.barcode import code128
 from reportlab.lib.units import mm
 
 logger = logging.getLogger('SmartWagers.services')
+
+_CLIENT_REQUEST_ID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+
+def normalize_client_request_id(raw):
+    """Return a normalized UUID string, or None when missing/invalid."""
+    value = str(raw or '').strip()
+    if not value or not _CLIENT_REQUEST_ID_RE.match(value):
+        return None
+    return value.lower()
+
+
+def _lookup_idempotent_wager(client_request_id):
+    return (
+        Wagers.objects
+        .filter(client_request_id=client_request_id, registered=True, cancelled=False)
+        .first()
+    )
 
 
 def normalize_wager_transaction_id(raw):
@@ -211,11 +234,17 @@ class CloseOutNotFoundError(Exception):
     """Raised when a close-out record cannot be found."""
 
 
-def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open=True):
+def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open=True,
+              client_request_id=None):
     """Register a wager and update pot totals.
 
-    Returns ``(wager, created)`` where *created* is False when the 3-second
-    duplicate window reused an existing registered wager.
+    Returns ``(wager, created)`` where *created* is False when an idempotent
+    retry or the 3-second duplicate window reused an existing registered wager.
+
+    *client_request_id*:
+      UUID generated when the confirm modal opens. Retries of the same
+      submission (double-click, Enter repeat, slow network) return the
+      original wager without creating a duplicate or updating totals again.
 
     *require_side_open*:
       True  (tellers) — overall match OPEN and the specific side OPEN.
@@ -223,7 +252,27 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
       This is intentional: admins may still bet on a closed side until the
       Close Betting button sets overall status to CLOSED.
     """
+    client_request_id = normalize_client_request_id(client_request_id)
+
     with db_transaction.atomic():
+        if client_request_id:
+            existing = (
+                Wagers.objects
+                .select_for_update()
+                .filter(
+                    client_request_id=client_request_id,
+                    registered=True,
+                    cancelled=False,
+                )
+                .first()
+            )
+            if existing:
+                logger.warning(
+                    "IDEMPOTENT BET RETRY: txn=%s client_request_id=%s cashier=%s",
+                    existing.transactionid, client_request_id, cashier,
+                )
+                return existing, False
+
         if require_side_open:
             if not is_betting_open(side):
                 raise BettingClosedError(side)
@@ -236,23 +285,45 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
         if live_fn:
             fightnum = live_fn
 
-        duplicate_cutoff = now() - timedelta(seconds=DUPLICATE_WAGER_WINDOW_SECONDS)
-        existing = (
-            Wagers.objects
-            .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
-                    registered=True, cancelled=False, created_at__gte=duplicate_cutoff)
-            .order_by('-created_at')
-            .first()
-        )
-        if existing:
-            logger.warning(
-                "DUPLICATE BET BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-                existing.transactionid, fightnum, side, amount, cashier,
+        if not client_request_id:
+            duplicate_cutoff = now() - timedelta(seconds=DUPLICATE_WAGER_WINDOW_SECONDS)
+            existing = (
+                Wagers.objects
+                .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
+                        registered=True, cancelled=False, created_at__gte=duplicate_cutoff)
+                .order_by('-created_at')
+                .first()
             )
-            return existing, False
+            if existing:
+                logger.warning(
+                    "DUPLICATE BET BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
+                    existing.transactionid, fightnum, side, amount, cashier,
+                )
+                return existing, False
 
-        addwager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=True)
-        addwager.save()
+        addwager = Wagers(
+            fightnum=fightnum,
+            side=side,
+            wager=amount,
+            cashier=cashier,
+            registered=True,
+            client_request_id=client_request_id,
+        )
+        try:
+            # Savepoint so a unique-key race on client_request_id only rolls
+            # back the insert, not the whole atomic block (PostgreSQL).
+            with db_transaction.atomic():
+                addwager.save()
+        except IntegrityError:
+            if client_request_id:
+                existing = _lookup_idempotent_wager(client_request_id)
+                if existing:
+                    logger.warning(
+                        "IDEMPOTENT BET RACE: txn=%s client_request_id=%s cashier=%s",
+                        existing.transactionid, client_request_id, cashier,
+                    )
+                    return existing, False
+            raise
         add_total(amount, side)
     logger.info(
         "BET PLACED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
@@ -263,123 +334,6 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
 def is_wager_receipt_printing_enabled():
     return getattr(settings, "WAGER_RECEIPT_PRINTING_ENABLED", True)
 
-def reserve_wager_receipt(amount, side, fightnum, cashier="Juan DelaCruz"):
-    with db_transaction.atomic():
-        duplicate_cutoff = now() - timedelta(seconds=DUPLICATE_WAGER_WINDOW_SECONDS)
-
-        # Check for an already-confirmed (registered=True) bet in the window first so
-        # a second reserve that arrives after the first was confirmed is also blocked.
-        registered_existing = (
-            Wagers.objects
-            .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
-                    registered=True, cancelled=False, created_at__gte=duplicate_cutoff)
-            .order_by('-created_at')
-            .first()
-        )
-        if registered_existing:
-            logger.warning(
-                "DUPLICATE RESERVE BLOCKED (already registered): txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-                registered_existing.transactionid, fightnum, side, amount, cashier,
-            )
-            return registered_existing
-
-        # Lock any matching active pending row so concurrent requests are
-        # serialized and only one proceeds to create a new reservation.
-        # Soft-cancelled (discarded) pendings must not be reused — they keep
-        # their transaction IDs so a printed ticket cannot map to another cashier.
-        existing = (
-            Wagers.objects
-            .select_for_update()
-            .filter(cashier=cashier, fightnum=fightnum, side=side, wager=amount,
-                    registered=False, cancelled=False, created_at__gte=duplicate_cutoff)
-            .order_by('-created_at')
-            .first()
-        )
-        if existing:
-            logger.warning(
-                "DUPLICATE RESERVE BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-                existing.transactionid, fightnum, side, amount, cashier,
-            )
-            return existing
-
-        pending_wager = Wagers(fightnum=fightnum, side=side, wager=amount, cashier=cashier, registered=False)
-        pending_wager.save()
-        logger.debug(
-            "BET RESERVED (pending print): txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-            pending_wager.transactionid, fightnum, side, amount, cashier,
-        )
-        return pending_wager
-
-def confirm_wager_receipt(transaction_id, admin=False):
-    """Confirm a pending (printed) wager reservation.
-
-    Betting openness is enforced at reserve time. Once a receipt has been
-    reserved/printed, confirm must register it even if betting closed in the
-    meantime — otherwise tellers end up with physical tickets missing from
-    reports. Re-confirming an already-registered txn is idempotent.
-    """
-    active_event = get_active_event()
-    with db_transaction.atomic():
-        qs = Wagers.objects.select_for_update().filter(transactionid=transaction_id)
-        if active_event:
-            qs = qs.filter(created_at__gte=active_event.started_at)
-        wager = qs.first()
-        if wager is None:
-            logger.warning("CONFIRM BET: txn=%s not found", transaction_id)
-            return None
-
-        if wager.cancelled:
-            logger.warning(
-                "CONFIRM BET REJECTED (discarded pending): txn=%s cashier=%s",
-                transaction_id, wager.cashier,
-            )
-            return None
-
-        if wager.registered:
-            logger.info(
-                "CONFIRM BET IDEMPOTENT: txn=%s already registered cashier=%s",
-                transaction_id, wager.cashier,
-            )
-            return wager
-
-        # admin flag retained for call-site compatibility; openness is not
-        # re-checked here (see docstring).
-        _ = admin
-        wager.registered = True
-        wager.save(update_fields=['registered'])
-        add_total(wager.wager, wager.side)
-        pending_wager = wager
-
-    logger.info(
-        "BET CONFIRMED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-        pending_wager.transactionid, pending_wager.fightnum,
-        pending_wager.side, pending_wager.wager, pending_wager.cashier,
-    )
-    return pending_wager
-
-def cancel_wager_receipt(transaction_id):
-    """Discard a pending (unregistered) receipt reservation.
-
-    Soft-delete only: the row is kept with cancelled=True so its transaction
-    ID can never be reassigned to another cashier. Hard-deleting caused printed
-    tickets to resolve to a different cashier at payout.
-    """
-    active_event = get_active_event()
-    qs = Wagers.objects.filter(transactionid=transaction_id, registered=False, cancelled=False)
-    if active_event:
-        qs = qs.filter(created_at__gte=active_event.started_at)
-    pending_wager = qs.first()
-    if pending_wager is not None:
-        logger.info(
-            "BET RECEIPT CANCELLED (before confirm): txn=%s side=%s amount=%.2f cashier=%s",
-            transaction_id, pending_wager.side, pending_wager.wager, pending_wager.cashier,
-        )
-        pending_wager.cancelled = True
-        pending_wager.save(update_fields=['cancelled'])
-    else:
-        logger.debug("CANCEL RECEIPT: txn=%s not found (already confirmed or expired)", transaction_id)
-
-    return pending_wager is not None
 
 def get_active_event():
     """Return the currently active Event, or None."""

@@ -64,6 +64,14 @@ class Wagers (models.Model):
     cashed_out = models.BooleanField(default=False)
     registered = models.BooleanField(default=True)
     cancelled = models.BooleanField(default=False)
+    client_request_id = models.CharField(
+        max_length=36,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        help_text="Client-generated UUID for idempotent bet submission.",
+    )
 
     def save(self, *args, **kwargs):
         if self.pk is None and self.cashier == 'System':
