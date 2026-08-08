@@ -5,7 +5,7 @@ from django.test import Client
 from django.utils.timezone import now
 
 from SmartWagers.models import (
-    Event, TellerCloseOut, TellerStatus, TellerTransaction, Wagers,
+    AdminBankTransaction, Event, TellerCloseOut, TellerStatus, TellerTransaction, Wagers,
 )
 from SmartWagers import services
 
@@ -215,3 +215,87 @@ class TestEventReportCloseOut:
         content = response.content.decode()
         assert 'Reconciled' in content
         assert '3100' in content.replace(',', '')
+
+    def test_event_report_shows_admin_breakdown_when_closed(
+        self, admin_client, admin_user, event_with_fight,
+    ):
+        Wagers.objects.create(
+            fightnum=1,
+            side='WALA',
+            wager=2500.0,
+            cashier=str(admin_user),
+            registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=admin_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=500.0,
+            affects_admin_fund=True,
+        )
+
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'Admin Performance Breakdown' in content
+        assert 'Shared Admin Fund' in content
+        assert 'Cash on Hand' in content
+        assert 'Total from Bank' in content
+        assert 'Remitted to Bank' in content
+        assert 'Test Admin' in content
+        assert '2500' in content.replace(',', '')
+        assert 'Export Fund Summary' in content
+
+    def test_event_report_shows_shared_fund_bank_totals(
+        self, admin_client, admin_user, event_with_fight, default_settings,
+    ):
+        event_with_fight.admin_opening_fund = 50000.0
+        event_with_fight.save(update_fields=['admin_opening_fund'])
+        AdminBankTransaction.objects.create(
+            event=event_with_fight,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.BORROW,
+            amount=20000.0,
+        )
+        AdminBankTransaction.objects.create(
+            event=event_with_fight,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.REMIT,
+            amount=5000.0,
+        )
+
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        content = response.content.decode().replace(',', '')
+        assert 'Shared Admin Fund' in content
+        assert '70000' in content  # opening 50k + borrow 20k
+        assert '5000' in content   # remitted to bank
+
+    def test_event_report_hides_admin_breakdown_for_active_event(
+        self, admin_client, admin_user, event_with_fight,
+    ):
+        Wagers.objects.create(
+            fightnum=1,
+            side='MERON',
+            wager=1000.0,
+            cashier=str(admin_user),
+            registered=True,
+        )
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'Admin Performance Breakdown' not in content

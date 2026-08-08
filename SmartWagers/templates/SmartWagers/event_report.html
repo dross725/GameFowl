@@ -168,6 +168,32 @@
     padding: 3px 10px;
   }
 
+  .er-section-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .er-export-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    color: rgba(255,255,255,0.70);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 5px 12px;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+  .er-export-btn:hover {
+    background: rgba(241,196,15,0.12);
+    border-color: rgba(241,196,15,0.35);
+    color: #f1c40f;
+  }
+
   /* ── Generic scrollable table wrap ── */
   .er-table-wrap {
     border-radius: 8px;
@@ -177,14 +203,18 @@
   }
 
   /* ── Teller table ── */
-  #er-teller-table {
+  #er-teller-table,
+  #er-admin-table,
+  #er-admin-fund-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
     min-width: 780px;
   }
 
-  #er-teller-table thead th {
+  #er-teller-table thead th,
+  #er-admin-table thead th,
+  #er-admin-fund-table thead th {
     background: #12151c;
     color: rgba(255,255,255,0.40);
     font-size: 10px;
@@ -208,24 +238,37 @@
   }
   .th-group-header.left { text-align: left !important; }
 
-  #er-teller-table thead th.num { text-align: right; }
+  #er-teller-table thead th.num,
+  #er-admin-table thead th.num,
+  #er-admin-fund-table thead th.num { text-align: right; }
 
-  #er-teller-table tbody tr {
+  #er-teller-table tbody tr,
+  #er-admin-table tbody tr,
+  #er-admin-fund-table tbody tr {
     border-bottom: 1px solid rgba(255,255,255,0.04);
     transition: background 0.10s;
   }
-  #er-teller-table tbody tr:last-child { border-bottom: none; }
-  #er-teller-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+  #er-teller-table tbody tr:last-child,
+  #er-admin-table tbody tr:last-child,
+  #er-admin-fund-table tbody tr:last-child { border-bottom: none; }
+  #er-teller-table tbody tr:hover,
+  #er-admin-table tbody tr:hover,
+  #er-admin-fund-table tbody tr:hover { background: rgba(255,255,255,0.03); }
 
-  #er-teller-table td {
+  #er-teller-table td,
+  #er-admin-table td,
+  #er-admin-fund-table td {
     padding: 8px 12px;
     color: rgba(255,255,255,0.75);
     vertical-align: middle;
     white-space: nowrap;
   }
-  #er-teller-table td.num { text-align: right; }
+  #er-teller-table td.num,
+  #er-admin-table td.num,
+  #er-admin-fund-table td.num { text-align: right; }
 
-  #er-teller-table tfoot td {
+  #er-teller-table tfoot td,
+  #er-admin-table tfoot td {
     padding: 8px 12px;
     background: #12151c;
     border-top: 2px solid rgba(255,255,255,0.10);
@@ -236,7 +279,8 @@
     bottom: 0;
     white-space: nowrap;
   }
-  #er-teller-table tfoot td.num { text-align: right; }
+  #er-teller-table tfoot td.num,
+  #er-admin-table tfoot td.num { text-align: right; }
 
   /* cell colours */
   .c-name     { font-weight: 700; color: white !important; }
@@ -622,7 +666,13 @@
   <div>
     <div class="er-section-header">
       <span class="er-section-label">Teller Performance Breakdown</span>
-      <span class="er-section-badge">{{ teller_data|length }} teller{{ teller_data|length|pluralize }}</span>
+      <div class="er-section-actions">
+        <span class="er-section-badge">{{ teller_data|length }} teller{{ teller_data|length|pluralize }}</span>
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-teller-table', '{{ event.name|escapejs }} — Teller Performance')">
+          Export to Excel
+        </button>
+      </div>
     </div>
     <div class="er-table-wrap">
       <table id="er-teller-table">
@@ -769,9 +819,15 @@
   <div>
     <div class="er-section-header" style="margin-bottom:8px;">
       <span class="er-section-label" style="color:#e74c3c;">Unclaimed Winning Tickets</span>
-      <span class="er-section-badge" style="border-color:rgba(231,76,60,0.25);color:#e74c3c;">
-        {{ unclaimed_detail_list|length }} ticket{{ unclaimed_detail_list|length|pluralize }} · ₱ {{ total_unclaimed_all|floatformat:2|intcomma }}
-      </span>
+      <div class="er-section-actions">
+        <span class="er-section-badge" style="border-color:rgba(231,76,60,0.25);color:#e74c3c;">
+          {{ unclaimed_detail_list|length }} ticket{{ unclaimed_detail_list|length|pluralize }} · ₱ {{ total_unclaimed_all|floatformat:2|intcomma }}
+        </span>
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-unclaimed-table', '{{ event.name|escapejs }} — Unclaimed Tickets')">
+          Export to Excel
+        </button>
+      </div>
     </div>
     <div style="background:rgba(231,76,60,0.05);border:1px solid rgba(231,76,60,0.18);border-radius:8px;padding:8px 14px;font-size:11px;color:rgba(255,255,255,0.50);margin-bottom:8px;">
       These winning tickets have not been presented for payout and remain outstanding.
@@ -822,6 +878,142 @@
   </div>
   {% endif %}
 
+  {% if event_closed and admin_fund_summary %}
+  <hr class="er-divider">
+
+  <!-- ── Admin breakdown (closed events only) ── -->
+  <div>
+    <div class="er-section-header">
+      <span class="er-section-label">Admin Performance Breakdown</span>
+      <div class="er-section-actions">
+        {% if admin_data %}
+        <span class="er-section-badge">{{ admin_data|length }} admin{{ admin_data|length|pluralize }}</span>
+        {% endif %}
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-admin-fund-table', '{{ event.name|escapejs }} — Shared Admin Fund')">
+          Export Fund Summary
+        </button>
+        {% if admin_data %}
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-admin-table', '{{ event.name|escapejs }} — Admin Performance')">
+          Export Activity
+        </button>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Shared admin fund summary -->
+    <div class="er-table-wrap" style="margin-bottom:12px;">
+      <table id="er-admin-fund-table">
+        <thead>
+          <tr>
+            <th class="th-group-header" colspan="5">Shared Admin Fund</th>
+          </tr>
+          <tr>
+            <th class="num">Cash on Hand</th>
+            <th class="num">Total from Bank</th>
+            <th class="num">Remitted to Bank</th>
+            <th class="num">Net Bank Funding</th>
+            <th class="num">Teller Remits</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num {% if admin_fund_summary.balance > 0 %}c-balance-pos{% elif admin_fund_summary.balance == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
+              ₱ {{ admin_fund_summary.balance|floatformat:2|intcomma }}
+            </td>
+            <td class="num c-collect">₱ {{ admin_fund_summary.bank_borrowed|floatformat:2|intcomma }}</td>
+            <td class="num c-remit">₱ {{ admin_fund_summary.bank_remitted|floatformat:2|intcomma }}</td>
+            <td class="num c-total">₱ {{ admin_fund_summary.net_bank_funding|floatformat:2|intcomma }}</td>
+            <td class="num c-remit">₱ {{ admin_fund_summary.teller_remits|floatformat:2|intcomma }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if admin_data %}
+    <div class="er-table-wrap">
+      <table id="er-admin-table">
+        <thead>
+          <tr>
+            <th class="th-group-header left" rowspan="1">Admin</th>
+            <th class="th-group-header" colspan="3">Bets Placed</th>
+            <th class="th-group-header" colspan="2">Transactions</th>
+            <th class="th-group-header" colspan="2">Unclaimed Wins</th>
+            <th class="th-group-header">Balance</th>
+          </tr>
+          <tr>
+            <th>Name</th>
+            <th class="num">Count</th>
+            <th class="num">Meron</th>
+            <th class="num">Wala</th>
+            <th class="num">Gross Collected</th>
+            <th class="num">Payouts</th>
+            <th class="num">Count</th>
+            <th class="num">Amount</th>
+            <th class="num">On-Hand</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in admin_data %}
+          <tr>
+            <td class="c-name">{{ a.display_name }}</td>
+            <td class="num c-count">{{ a.bet_count }}</td>
+            <td class="num c-meron">
+              {% if a.meron_count > 0 %}
+                ₱ {{ a.meron_total|floatformat:0|intcomma }}
+                <span class="c-count">({{ a.meron_count }})</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num c-wala">
+              {% if a.wala_count > 0 %}
+                ₱ {{ a.wala_total|floatformat:0|intcomma }}
+                <span class="c-count">({{ a.wala_count }})</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="num c-total">₱ {{ a.grand_total|floatformat:2|intcomma }}</td>
+            <td class="num c-payout">
+              {% if a.payout_total > 0 %}₱ {{ a.payout_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num">
+              {% if a.unclaimed_count > 0 %}
+                {{ a.unclaimed_count }} ticket{{ a.unclaimed_count|pluralize }}
+              {% else %}
+                <span style="color:rgba(255,255,255,0.20);">—</span>
+              {% endif %}
+            </td>
+            <td class="num {% if a.unclaimed_count > 0 %}c-unclaim{% else %}c-unclaim zero{% endif %}">
+              {% if a.unclaimed_count > 0 %}₱ {{ a.unclaimed_total|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num {% if a.balance > 0 %}c-balance-pos{% elif a.balance == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
+              ₱ {{ a.balance|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Totals ({{ admin_data|length }} admin{{ admin_data|length|pluralize }})</td>
+            <td class="num c-count">{{ admin_bets_count_all }}</td>
+            <td></td>
+            <td></td>
+            <td class="num c-total">₱ {{ admin_grand_total_all|floatformat:2|intcomma }}</td>
+            <td class="num c-payout">₱ {{ admin_payout_all|floatformat:2|intcomma }}</td>
+            <td></td>
+            <td class="num c-unclaim {% if admin_unclaimed_all == 0 %}zero{% endif %}">
+              {% if admin_unclaimed_all > 0 %}₱ {{ admin_unclaimed_all|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num {% if admin_fund_summary.balance > 0 %}c-balance-pos{% elif admin_fund_summary.balance == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
+              ₱ {{ admin_fund_summary.balance|floatformat:2|intcomma }}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <hr class="er-divider">
 
   <!-- ── Commission / fight results breakdown ── -->
@@ -829,7 +1021,13 @@
   <div>
     <div class="er-section-header">
       <span class="er-section-label">Commission Breakdown by Fight</span>
-      <span class="er-section-badge">Plasada {{ plasada_pct|floatformat:1 }}% · {{ fight_commissions|length }} fight{{ fight_commissions|length|pluralize }}</span>
+      <div class="er-section-actions">
+        <span class="er-section-badge">Plasada {{ plasada_pct|floatformat:1 }}% · {{ fight_commissions|length }} fight{{ fight_commissions|length|pluralize }}</span>
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-comm-table', '{{ event.name|escapejs }} — Commission Breakdown')">
+          Export to Excel
+        </button>
+      </div>
     </div>
     <div class="er-table-wrap">
       <table id="er-comm-table">
@@ -939,6 +1137,37 @@
 <script>
 function navigateToEvent(eventId) {
     window.location.href = "{% url 'admin-event-report' %}?event_id=" + eventId;
+}
+
+function exportTableToExcel(tableId, filename) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+
+    const rows = [];
+    table.querySelectorAll('tr').forEach((row) => {
+        const cells = [];
+        row.querySelectorAll('th, td').forEach((cell) => {
+            let text = (cell.innerText || cell.textContent || '').replace(/\s+/g, ' ').trim();
+            text = text.replace(/₱\s*/g, '').replace(/,/g, '');
+            if (/[",\n]/.test(text)) {
+                text = '"' + text.replace(/"/g, '""') + '"';
+            }
+            cells.push(text);
+        });
+        if (cells.length) rows.push(cells.join(','));
+    });
+
+    const blob = new Blob(['\ufeff' + rows.join('\n')], {
+        type: 'text/csv;charset=utf-8;',
+    });
+    const link = document.createElement('a');
+    const safeName = (filename || tableId).replace(/[\\/:*?"<>|]+/g, '-');
+    link.href = URL.createObjectURL(blob);
+    link.download = safeName + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
 }
 
 // ── Old-ticket claim modal ──────────────────────────────────────────────

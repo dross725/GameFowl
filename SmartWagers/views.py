@@ -796,6 +796,60 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True):
     return balance, grand_total
 
 
+def _build_event_user_stats(user, event, unclaimed_by_cashier, close_out=None):
+    """Aggregate bet and transaction stats for one user within an event."""
+    balance, grand_total = _compute_teller_balance(user, event=event)
+    username = str(user)
+
+    wager_qs = Wagers.objects.filter(
+        cashier=username, registered=True, cancelled=False,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+
+    bet_stats = wager_qs.aggregate(
+        bet_count=Count('id'),
+        meron_total=Sum('wager', filter=Q(side='MERON')),
+        wala_total=Sum('wager', filter=Q(side='WALA')),
+        meron_count=Count('id', filter=Q(side='MERON')),
+        wala_count=Count('id', filter=Q(side='WALA')),
+    )
+
+    txn_qs = TellerTransaction.objects.filter(
+        user=user,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+    txn_stats = txn_qs.aggregate(
+        remit_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.REMIT)),
+        collect_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.COLLECT)),
+        payout_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.PAYOUT)),
+    )
+
+    unclaimed_info = unclaimed_by_cashier.get(username, {'count': 0, 'total': 0.0})
+
+    return {
+        'user': user,
+        'display_name': (f"{user.first_name} {user.last_name}".strip() or user.username),
+        'bet_count': bet_stats['bet_count'] or 0,
+        'meron_count': bet_stats['meron_count'] or 0,
+        'wala_count': bet_stats['wala_count'] or 0,
+        'grand_total': grand_total,
+        'meron_total': bet_stats['meron_total'] or 0.0,
+        'wala_total': bet_stats['wala_total'] or 0.0,
+        'payout_total': txn_stats['payout_total'] or 0.0,
+        'remit_total': txn_stats['remit_total'] or 0.0,
+        'collect_total': txn_stats['collect_total'] or 0.0,
+        'unclaimed_count': unclaimed_info['count'],
+        'unclaimed_total': unclaimed_info['total'],
+        'balance': balance,
+        'close_out': close_out,
+    }
+
+
 def _remit_exceeds_cash_on_hand(user, amount, event=None, apply_end_bound=True):
     """Return (exceeds, balance, grand_total) for a proposed REMIT amount.
 
@@ -1349,79 +1403,56 @@ def admin_event_report(request):
     }
 
     for teller in tellers:
-        balance, grand_total = _compute_teller_balance(teller, event=event)
-        username = str(teller)
-
-        wager_qs = Wagers.objects.filter(
-            cashier=username, registered=True, cancelled=False,
-            created_at__gte=event.started_at,
+        stats = _build_event_user_stats(
+            teller, event, unclaimed_by_cashier,
+            close_out=close_outs.get(teller.pk),
         )
-        if event.ended_at:
-            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-
-        bet_stats = wager_qs.aggregate(
-            bet_count=Count('id'),
-            meron_total=Sum('wager', filter=Q(side='MERON')),
-            wala_total=Sum('wager', filter=Q(side='WALA')),
-            meron_count=Count('id', filter=Q(side='MERON')),
-            wala_count=Count('id', filter=Q(side='WALA')),
-        )
-        bet_count = bet_stats['bet_count'] or 0
-        meron_total = bet_stats['meron_total'] or 0.0
-        wala_total = bet_stats['wala_total'] or 0.0
-        meron_count = bet_stats['meron_count'] or 0
-        wala_count = bet_stats['wala_count'] or 0
-
-        txn_qs = TellerTransaction.objects.filter(
-            user=teller,
-            created_at__gte=event.started_at,
-        )
-        if event.ended_at:
-            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
-
-        txn_stats = txn_qs.aggregate(
-            remit_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.REMIT)),
-            collect_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.COLLECT)),
-            payout_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.PAYOUT)),
-        )
-        remit_total   = txn_stats['remit_total']   or 0.0
-        collect_total = txn_stats['collect_total'] or 0.0
-        payout_total  = txn_stats['payout_total']  or 0.0
-
-        unclaimed_info = unclaimed_by_cashier.get(username, {'count': 0, 'total': 0.0})
-        close_out = close_outs.get(teller.pk)
-
-        teller_data.append({
-            'user': teller,
-            'display_name': (f"{teller.first_name} {teller.last_name}".strip() or teller.username),
-            'bet_count':      bet_count,
-            'meron_count':    meron_count,
-            'wala_count':     wala_count,
-            'grand_total':    grand_total,
-            'meron_total':    meron_total,
-            'wala_total':     wala_total,
-            'payout_total':   payout_total,
-            'remit_total':    remit_total,
-            'collect_total':  collect_total,
-            'unclaimed_count': unclaimed_info['count'],
-            'unclaimed_total': unclaimed_info['total'],
-            'balance':        balance,
-            'close_out':      close_out,
-        })
-        grand_total_all       += grand_total
-        total_unclaimed_all   += unclaimed_info['total']
-        total_bets_count_all  += bet_count
+        teller_data.append(stats)
+        grand_total_all += stats['grand_total']
+        total_unclaimed_all += stats['unclaimed_total']
+        total_bets_count_all += stats['bet_count']
+        close_out = stats['close_out']
         if close_out is not None and close_out.variance is not None:
             total_variance_all += close_out.variance
+
+    event_closed = not event.is_active or event.ended_at is not None
+    admin_data = []
+    admin_grand_total_all = 0.0
+    admin_unclaimed_all = 0.0
+    admin_bets_count_all = 0
+    admin_payout_all = 0.0
+    admin_fund_summary = None
+
+    if event_closed:
+        admins = User.objects.filter(groups__name='admin').order_by('username')
+        for admin in admins:
+            stats = _build_event_user_stats(admin, event, unclaimed_by_cashier)
+            if not (stats['bet_count'] or stats['payout_total'] or stats['unclaimed_count']):
+                continue
+            admin_data.append(stats)
+            admin_grand_total_all += stats['grand_total']
+            admin_unclaimed_all += stats['unclaimed_total']
+            admin_bets_count_all += stats['bet_count']
+            admin_payout_all += stats['payout_total']
+        admin_fund_summary = services.get_admin_fund_summary(
+            event=event, apply_end_bound=True,
+        )
 
     return render(request, 'SmartWagers/event_report.html', {
         'event': event,
         'all_events': all_events,
+        'event_closed': event_closed,
         'teller_data': teller_data,
         'grand_total_all': grand_total_all,
         'total_unclaimed_all': total_unclaimed_all,
         'total_bets_count_all': total_bets_count_all,
         'total_variance_all': total_variance_all,
+        'admin_data': admin_data,
+        'admin_grand_total_all': admin_grand_total_all,
+        'admin_unclaimed_all': admin_unclaimed_all,
+        'admin_bets_count_all': admin_bets_count_all,
+        'admin_payout_all': admin_payout_all,
+        'admin_fund_summary': admin_fund_summary,
         'unclaimed_detail_list': unclaimed_detail_list,
         'fight_commissions': fight_commissions,
         'total_pot_all': total_pot_all,
