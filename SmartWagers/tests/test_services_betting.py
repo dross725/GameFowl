@@ -1,8 +1,7 @@
 """
 Tests for betting and totals service functions.
 
-Covers: add_wager, reserve/confirm/cancel_wager_receipt,
-add_total, deduct_totals, compute_payout (llamado/dehado/zero-pot),
+Covers: add_wager, add_total, deduct_totals, compute_payout (llamado/dehado/zero-pot),
 cancel_bet, is_betting_open, is_match_open, update_control_status.
 """
 
@@ -90,6 +89,56 @@ class TestAddWager:
         ).count() == 1
         m, _, _, _, _, _ = services.get_Totals()
         assert m == 250
+
+    def test_idempotent_client_request_id_returns_same_wager(self, default_settings):
+        _open_fight()
+        request_id = 'aaaaaaaa-bbbb-4ccc-dddd-eeeeeeeeeeee'
+        w1, created1 = services.add_wager(
+            250, 'MERON', 1, cashier='teller1', client_request_id=request_id,
+        )
+        w2, created2 = services.add_wager(
+            250, 'MERON', 1, cashier='teller1', client_request_id=request_id,
+        )
+        assert created1 is True
+        assert created2 is False
+        assert w1.pk == w2.pk
+        assert Wagers.objects.filter(client_request_id=request_id.lower()).count() == 1
+        m, _, _, _, _, _ = services.get_Totals()
+        assert m == 250
+
+    def test_different_client_request_ids_allow_identical_bets(self, default_settings):
+        _open_fight()
+        w1, created1 = services.add_wager(
+            500, 'MERON', 1, cashier='teller1',
+            client_request_id='11111111-1111-4111-8111-111111111111',
+        )
+        w2, created2 = services.add_wager(
+            500, 'MERON', 1, cashier='teller1',
+            client_request_id='22222222-2222-4222-8222-222222222222',
+        )
+        assert created1 is True
+        assert created2 is True
+        assert w1.pk != w2.pk
+        m, _, _, _, _, _ = services.get_Totals()
+        assert m == 1000
+
+    def test_invalid_client_request_id_is_ignored(self, default_settings):
+        _open_fight()
+        w1, created1 = services.add_wager(
+            100, 'MERON', 1, cashier='teller1', client_request_id='not-a-uuid',
+        )
+        w2, created2 = services.add_wager(
+            100, 'MERON', 1, cashier='teller1', client_request_id='also-invalid',
+        )
+        assert created1 is True
+        assert created2 is False
+        assert w1.pk == w2.pk
+        assert w1.client_request_id is None
+
+    def test_normalize_client_request_id_lowercases_uuid(self):
+        assert services.normalize_client_request_id('AABBCCDD-EEFF-4111-8111-112233445566') == (
+            'aabbccdd-eeff-4111-8111-112233445566'
+        )
 
     def test_teller_blocked_when_side_closed(self, default_settings):
         _open_fight()
@@ -282,102 +331,6 @@ class TestUpdateControlStatus:
         services.update_control_status('MERON', 'CLOSE')
         assert services.is_betting_open('MERON') is False
         assert services.is_betting_open('WALA') is True
-
-
-# ---------------------------------------------------------------------------
-# reserve / confirm / cancel wager receipt flow
-# ---------------------------------------------------------------------------
-
-@pytest.mark.django_db
-class TestWagerReceiptFlow:
-
-    def test_reserve_creates_unregistered_wager(self):
-        _open_fight()
-        pending = services.reserve_wager_receipt(500, 'MERON', 1, cashier='teller1')
-        assert pending.registered is False
-        assert pending.wager == 500
-
-    def test_reserve_does_not_update_totals(self, default_settings):
-        _open_fight()
-        services.reserve_wager_receipt(500, 'MERON', 1, cashier='teller1')
-        m, _, _, _, pot, _ = services.get_Totals()
-        assert m == 0 and pot == 0
-
-    def test_confirm_sets_registered_true(self, default_settings):
-        _open_fight()
-        pending = services.reserve_wager_receipt(300, 'WALA', 1, cashier='teller1')
-        confirmed = services.confirm_wager_receipt(pending.transactionid)
-        assert confirmed is not None
-        assert confirmed.registered is True
-
-    def test_confirm_updates_totals(self, default_settings):
-        _open_fight()
-        pending = services.reserve_wager_receipt(400, 'MERON', 1, cashier='teller1')
-        services.confirm_wager_receipt(pending.transactionid)
-        m, _, _, _, _, _ = services.get_Totals()
-        assert m == 400
-
-    def test_confirm_still_registers_when_betting_closed(self, default_settings):
-        """Once reserved, confirm must succeed even if betting closed mid-print."""
-        Fight_Status.objects.create(
-            fightnum=1, overall_status='CLOSED', meron_status='CLOSE', wala_status='CLOSE'
-        )
-        Totals.objects.create(fightnum=1, mtotal=0, wtotal=0, mpayout=0, wpayout=0, totalpot=0)
-        Wagers.objects.create(fightnum=1, side='START', wager=0, cashier='System', registered=True)
-        pending = services.reserve_wager_receipt(300, 'MERON', 1, cashier='teller1')
-        result = services.confirm_wager_receipt(pending.transactionid)
-        assert result is not None
-        assert result.registered is True
-        assert Wagers.objects.filter(transactionid=pending.transactionid, registered=True).exists()
-
-    def test_cancel_soft_deletes_pending_wager(self):
-        _open_fight()
-        pending = services.reserve_wager_receipt(200, 'WALA', 1, cashier='teller1')
-        tid = pending.transactionid
-        cancelled = services.cancel_wager_receipt(tid)
-        assert cancelled is True
-        discarded = Wagers.objects.get(transactionid=tid)
-        assert discarded.registered is False
-        assert discarded.cancelled is True
-
-    def test_cancelled_pending_transaction_id_is_not_reused(self):
-        """A discarded pending receipt must keep its txn ID so payout cannot
-        resolve a printed ticket to a different cashier."""
-        _open_fight()
-        pending_a = services.reserve_wager_receipt(500, 'MERON', 1, cashier='cashier-a')
-        tid_a = pending_a.transactionid
-        services.cancel_wager_receipt(tid_a)
-
-        pending_b = services.reserve_wager_receipt(500, 'MERON', 1, cashier='cashier-b')
-        assert pending_b.transactionid != tid_a
-        assert int(pending_b.transactionid) > int(tid_a)
-
-        # Payout lookup for the printed (discarded) ticket must not find cashier-b
-        assert not Wagers.objects.filter(
-            transactionid=tid_a, registered=True, cancelled=False
-        ).exists()
-        assert Wagers.objects.get(transactionid=pending_b.transactionid).cashier == 'cashier-b'
-
-    def test_cancel_nonexistent_returns_false(self):
-        result = services.cancel_wager_receipt('999999')
-        assert result is False
-
-    def test_confirm_rejects_discarded_pending(self, default_settings):
-        _open_fight()
-        pending = services.reserve_wager_receipt(100, 'MERON', 1, cashier='teller1')
-        services.cancel_wager_receipt(pending.transactionid)
-        assert services.confirm_wager_receipt(pending.transactionid) is None
-
-    def test_confirm_already_confirmed_is_idempotent(self, default_settings):
-        _open_fight()
-        pending = services.reserve_wager_receipt(100, 'MERON', 1, cashier='teller1')
-        first = services.confirm_wager_receipt(pending.transactionid)
-        second = services.confirm_wager_receipt(pending.transactionid)
-        assert first is not None and first.registered is True
-        assert second is not None and second.pk == first.pk
-        # Totals must not be double-counted on the idempotent re-confirm
-        m, _, _, _, _, _ = services.get_Totals()
-        assert m == 100
 
 
 # ---------------------------------------------------------------------------

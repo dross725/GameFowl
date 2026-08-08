@@ -10,6 +10,7 @@ from django.contrib.auth.hashers import make_password
 from django.test import Client, override_settings
 
 from SmartWagers import masterlock
+from SmartWagers.models import Event
 
 TEST_KEY = 'test-master-key-only-for-unit-tests'
 TEST_HASH = make_password(TEST_KEY)
@@ -137,7 +138,7 @@ class TestMasterLockHttp:
         assert data['locked'] is True
         assert response['Cache-Control'] == 'no-store'
 
-    def test_locked_html_redirects_to_master_lock(self, lock_env):
+    def test_locked_html_allows_login(self, lock_env):
         masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
         past = datetime.now(timezone.utc) - timedelta(days=1)
         payload = masterlock._read_envelope(lock_env)
@@ -153,10 +154,9 @@ class TestMasterLockHttp:
             MASTER_LOCK_STATE_PATH=str(lock_env),
         ):
             response = client.get('/login')
-        assert response.status_code in (301, 302)
-        assert '/master-lock' in response['Location']
+        assert response.status_code == 200
 
-    def test_locked_api_returns_503_json(self, lock_env, teller_user):
+    def test_locked_api_not_blocked(self, lock_env, teller_user):
         masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
         past = datetime.now(timezone.utc) - timedelta(days=1)
         payload = masterlock._read_envelope(lock_env)
@@ -177,8 +177,28 @@ class TestMasterLockHttp:
                 HTTP_ACCEPT='application/json',
                 HTTP_X_REQUESTED_WITH='XMLHttpRequest',
             )
-        assert response.status_code == 503
+        assert response.status_code == 200
+
+    def test_start_event_blocked_when_locked(self, lock_env, admin_user, default_settings):
+        masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
+        past = datetime.now(timezone.utc) - timedelta(days=1)
+        payload = masterlock._read_envelope(lock_env)
+        payload['valid_until'] = masterlock._to_iso(past)
+        payload['last_seen'] = masterlock._to_iso(past)
+        masterlock._write_payload(payload)
+
+        client = Client()
+        client.force_login(admin_user)
+        with override_settings(
+            MASTER_LOCK_REQUIRED=True,
+            MASTER_LOCK_SIGNING_KEY=TEST_SIGNING,
+            MASTER_LOCK_PASSWORD_HASH=TEST_HASH,
+            MASTER_LOCK_STATE_PATH=str(lock_env),
+        ):
+            response = client.post('/administrator/start-event/', {'event_name': 'Night Derby'})
+        assert response.status_code == 403
         assert response.json()['error'] == 'app_locked'
+        assert Event.objects.filter(is_active=True).count() == 0
 
     def test_teller_can_logout_while_locked(self, lock_env, teller_user):
         masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
@@ -310,8 +330,8 @@ def test_locked_page_rejects_disable_without_superuser(lock_env):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_websocket_rejected_when_locked(lock_env, teller_user, settings):
-    """New WS connections are rejected while the master lock is active."""
+async def test_websocket_allowed_when_locked(lock_env, teller_user, settings):
+    """WebSocket connections stay open while locked (enforcement is at event start)."""
     settings.CHANNEL_LAYERS = {
         'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
     }
@@ -327,6 +347,6 @@ async def test_websocket_rejected_when_locked(lock_env, teller_user, settings):
 
     communicator = WebsocketCommunicator(application, '/ws/user/')
     communicator.scope['user'] = teller_user
-    connected, code = await communicator.connect()
-    assert not connected or code == masterlock.WS_CLOSE_LOCKED
+    connected, _code = await communicator.connect()
+    assert connected
     await communicator.disconnect()

@@ -113,36 +113,10 @@
         });
     }
 
-    function initMasterLockPoll() {
-        if (window.location.pathname.indexOf('/master-lock') === 0) return;
-        var pollMs = 15000;
-        async function check() {
-            try {
-                var res = await fetch('/master-lock/status/', {
-                    headers: { 'Accept': 'application/json' },
-                    credentials: 'same-origin',
-                    cache: 'no-store',
-                });
-                if (!res.ok) return;
-                var data = await res.json();
-                if (data && data.locked) {
-                    window.location.href = '/master-lock/';
-                }
-            } catch (err) {
-                // Ignore transient network errors.
-            }
-        }
-        setInterval(check, pollMs);
-    }
-
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () {
-            initDropdowns();
-            initMasterLockPoll();
-        });
+        document.addEventListener('DOMContentLoaded', initDropdowns);
     } else {
         initDropdowns();
-        initMasterLockPoll();
     }
 })();
 </script>

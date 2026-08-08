@@ -352,6 +352,7 @@
         {% csrf_token %}
         <input type='hidden' name='wager_value' id='wager_value'></input>
         <input type='hidden' name='wager_id' id='wager_id'></input>
+        <input type='hidden' name='client_request_id' id='client_request_id'></input>
     </form>
 
     <div id='confirmationModal' class='modal'>
@@ -802,6 +803,10 @@
             const data = await res.json();
 
             if (!data.ok) {
+                if (data.error === 'app_locked') {
+                    window.location.href = '/master-lock/';
+                    return;
+                }
                 statusEl.style.color = '#e74c3c';
                 statusEl.innerText = 'Error: ' + (data.error || 'Unknown error');
                 btn.disabled = false;
