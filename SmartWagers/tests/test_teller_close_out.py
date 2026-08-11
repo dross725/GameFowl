@@ -299,3 +299,23 @@ class TestEventReportCloseOut:
         assert response.status_code == 200
         content = response.content.decode()
         assert 'Admin Performance Breakdown' not in content
+
+    def test_event_report_shows_teller_initial_fund(
+        self, admin_client, teller_user, event_with_fight, teller_status_online,
+        default_settings,
+    ):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        content = response.content.decode().replace(',', '')
+        assert 'Initial Fund' in content
+        assert 'Initial Funds Issued' in content
+        assert str(int(default_settings.teller_initial_fund)) in content

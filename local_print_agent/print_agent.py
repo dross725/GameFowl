@@ -1,12 +1,15 @@
+# -*- coding: utf-8 -*-
 import json
 import sys
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
-AGENT_VERSION = "1.10-big-barcode"
+STARTUP_LOG_PATH = BASE_DIR / "print_agent_silent.log"
+AGENT_VERSION = "1.11.1-barcode-match"
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8765,
@@ -16,9 +19,9 @@ DEFAULT_CONFIG = {
     "font_scale": 1.0,
     # 58mm roll printable width is typically 384 dots (48mm @ 203dpi).
     "paper_width_dots": 384,
-    # 58mm paper sits on the left of the printer path — use left by default.
+    # 58mm paper sits on the left of the printer path - use left by default.
     "text_align": "left",
-    # Barcode size (ESC/POS). Width 2–6; height in dots (e.g. 80–162).
+    # Barcode size (ESC/POS). Width 2-6; height in dots (e.g. 80-162).
     "barcode_module_width": 3,
     "barcode_height": 120,
 }
@@ -86,7 +89,7 @@ def text_line(value="", code_page="cp437"):
 
 
 def escpos_align_byte(text_align="left"):
-    """ESC a n — 0 left, 1 center, 2 right."""
+    """ESC a n - 0 left, 1 center, 2 right."""
     align = str(text_align or "left").strip().lower()
     if align == "center":
         return b"\x1ba\x01"
@@ -112,24 +115,35 @@ def escpos_page_setup(paper_width_dots=384):
     return bytes(output)
 
 
-def escpos_barcode(transaction_id, module_width=3, height=120):
-    """CODE128 barcode sized for 58mm left-fed paper + handheld scanners.
+def normalize_receipt_transaction_id(raw):
+    """Canonical txn id for receipt text and barcode (must match exactly)."""
+    tid = str(raw or "").strip()
+    if not tid:
+        return tid
+    upper = tid.upper()
+    if upper.startswith("R") and upper[1:].isdigit():
+        return "R" + upper[1:].zfill(6)
+    if tid.isdigit():
+        return tid.zfill(6)
+    return tid
 
-    Numeric bet IDs use Code Set C (denser) so module width 3 still fits
-    384-dot paper. Alphanumeric remit IDs use Code Set B.
+
+def escpos_barcode_payload(transaction_id):
+    """Return the exact CODE128 payload bytes for a transaction id."""
+    tid = normalize_receipt_transaction_id(transaction_id)
+    return ("{B" + tid).encode("ascii", errors="ignore")
+
+
+def escpos_barcode(transaction_id, module_width=3, height=120):
+    """CODE128 barcode (Code Set B) - encodes the txn id exactly as printed.
+
+    Code Set B maps each character literally, so scanned output always matches
+    the transaction id line on the receipt. (Code Set C required even-length
+    padding that could diverge from the printed id.)
     """
-    tid = str(transaction_id)
+    barcode_data = escpos_barcode_payload(transaction_id)
     width = max(2, min(int(module_width or 3), 6))
     bar_h = max(40, min(int(height or 120), 162))
-
-    if tid.isdigit() and len(tid) % 2 == 1:
-        tid = "0" + tid  # Code Set C needs even-length digit pairs
-    if tid.isdigit():
-        payload = "{C" + tid
-    else:
-        payload = "{B" + tid
-
-    barcode_data = payload.encode("ascii", errors="ignore")
     output = bytearray()
     output += b"\n"          # Quiet zone above barcode
     output += b"\x1dH\x00"   # No HRI under bars (txn id printed as text already)
@@ -192,7 +206,7 @@ def escpos_receipt(
     barcode_module_width=3,
     barcode_height=120,
 ):
-    transaction_id = str(receipt.get("transaction_id", ""))
+    transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     event_name = str(receipt.get("event_name", "")).strip()
     side = str(receipt.get("side", "")).upper()
     odds = str(receipt.get("odds", ""))
@@ -436,7 +450,7 @@ def start_print_doc(dc, title):
 def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left"):
     win32ui = get_win32ui()
     win32con = get_win32con()
-    transaction_id = str(receipt.get("transaction_id", ""))
+    transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     event_name = str(receipt.get("event_name", "")).strip()
     side = str(receipt.get("side", "")).upper()
     odds = str(receipt.get("odds", ""))
@@ -557,7 +571,7 @@ def print_receipt(config, printer_name, receipt):
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
 
 
-# ── Remit / Collect receipts ──────────────────────────────
+# -- Remit / Collect receipts --
 
 def escpos_remit_receipt(
     receipt,
@@ -568,7 +582,7 @@ def escpos_remit_receipt(
     barcode_height=120,
 ):
     transaction_type = str(receipt.get("transaction_type", "REMIT")).upper()
-    transaction_id = str(receipt.get("transaction_id", ""))
+    transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     amount = money(receipt.get("amount"))
     balance = money(receipt.get("balance"))
     grand_total = money(receipt.get("grand_total"))
@@ -611,7 +625,7 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
     win32con = get_win32con()
 
     transaction_type = str(receipt.get("transaction_type", "REMIT")).upper()
-    transaction_id = str(receipt.get("transaction_id", ""))
+    transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     amount = money(receipt.get("amount"))
     balance = money(receipt.get("balance"))
     grand_total = money(receipt.get("grand_total"))
@@ -839,14 +853,47 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
         })
 
 
+def startup_log(message):
+    """Append a line to print_agent_silent.log (visible when pythonw has no console)."""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with STARTUP_LOG_PATH.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"{timestamp} {message}\n")
+    except OSError:
+        pass
+
+
 def main():
     config = load_config()
-    server_address = (config["host"], int(config["port"]))
-    httpd = HTTPServer(server_address, PrintAgentHandler)
-    print(f"SmartWagers print agent {AGENT_VERSION} running at http://{server_address[0]}:{server_address[1]}")
+    host = str(config.get("host") or "127.0.0.1")
+    port = int(config.get("port") or 8765)
+    server_address = (host, port)
+    startup_log(
+        f"Starting SmartWagers print agent {AGENT_VERSION} on http://{host}:{port} "
+        f"(python {sys.version.split()[0]} @ {sys.executable})"
+    )
+    try:
+        httpd = HTTPServer(server_address, PrintAgentHandler)
+    except OSError as exc:
+        win_error = getattr(exc, "winerror", None)
+        if exc.errno in (98, 10048) or win_error == 10048:
+            startup_log(
+                f"ERROR: port {port} already in use. "
+                "Stop the other print agent in Task Manager or change port in config.json."
+            )
+        else:
+            startup_log(f"ERROR: could not bind {host}:{port}: {exc}")
+        raise
+    print(f"SmartWagers print agent {AGENT_VERSION} running at http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     httpd.serve_forever()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        startup_log("Print agent stopped (KeyboardInterrupt).")
+    except Exception as exc:
+        startup_log(f"FATAL: {type(exc).__name__}: {exc}")
+        raise
