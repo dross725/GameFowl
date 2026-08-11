@@ -310,3 +310,93 @@ Offline monthly activation. Disabled by default after `6_init_master_lock.bat`.
 | Service logs | `C:\SmartWagers\logs\` |
 | NSSM | `C:\SmartWagers\nssm\nssm.exe` |
 | Print agent | `C:\SmartWagers\local_print_agent\` (on each cashier PC) |
+
+---
+
+## Incremental Deploy (changed files only)
+
+Use this when production is already set up and you only need to push code changes
+from your dev machine — not a full reinstall.
+
+### 1. Configure once
+
+```cmd
+copy deploy\sync_config.example.env deploy\sync_config.env
+```
+
+Edit `deploy\sync_config.env`:
+
+| Scenario | Settings |
+|----------|----------|
+| **Dev WSL → server over SSH** | `DEPLOY_METHOD=scp`, set `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_REMOTE_ROOT=C:/SmartWagers/GameFowl` |
+| **Copy on the server itself** | `DEPLOY_METHOD=copy`, `DEPLOY_LOCAL_ROOT=C:\SmartWagers\GameFowl` |
+| **Faster SSH sync (rsync installed)** | `DEPLOY_METHOD=rsync` |
+
+Requirements for SSH deploy:
+- Windows OpenSSH Server enabled on the production PC
+- Your dev key or password can reach `DEPLOY_HOST`
+- Firewall allows SSH (port 22) from your dev machine
+
+### 2. Preview changed files
+
+From WSL (project root):
+
+```bash
+chmod +x deploy/sync_release.sh
+cp deploy/sync_config.example.env deploy/sync_config.env
+# edit deploy/sync_config.env
+./deploy/sync_release.sh --dry-run
+```
+
+From Windows Command Prompt on the server or dev PC:
+
+```cmd
+deploy\11_sync_release.bat --dry-run
+```
+
+The script uses git to find files that changed since the last deploy marker
+(`deploy/.deploy-last-sync`) or, on the first run, since `HEAD~1`. Uncommitted
+changes are included by default.
+
+### 3. Deploy
+
+```bash
+./deploy/sync_release.sh
+```
+
+Or deploy explicit paths (useful right before a commit):
+
+```bash
+./deploy/sync_release.sh --files SmartWagers/services.py SmartWagers/views.py SmartWagers/static/SmartWagers/user.js
+```
+
+What happens:
+1. Only deployable files are copied (tests, `.env`, `db.sqlite3`, and `staticfiles/` are skipped)
+2. `deploy/.last_sync_manifest` is written and copied to the server
+3. The server runs `deploy\11_apply_release.bat`, which:
+   - runs `migrate` when migration files changed
+   - runs `collectstatic` when static/template/JS/CSS files changed
+   - restarts `SmartWagers-Daphne` when Python/runtime files changed
+
+Logs: `C:\SmartWagers\logs\deploy_apply.log`
+
+### 4. After you commit (optional baseline)
+
+Record the deployed commit so the next sync only picks up newer changes:
+
+```bash
+./deploy/sync_release.sh --mark-deployed --no-apply
+```
+
+Or let a full deploy mark it automatically:
+
+```bash
+./deploy/sync_release.sh --mark-deployed
+```
+
+### Never overwritten by sync
+
+- `C:\SmartWagers\GameFowl\.env`
+- `C:\SmartWagers\data\master_lock.state`
+- PostgreSQL data
+- `staticfiles/` on the server (updated via `collectstatic`, not direct copy)

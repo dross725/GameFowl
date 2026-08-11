@@ -20,6 +20,9 @@ staticfiles/
 .env.*
 !.env.example
 deploy/python_path.txt
+deploy/sync_config.env
+deploy/.deploy-last-sync
+deploy/.last_sync_manifest
 master_lock.state
 master_lock.state.lock
 *.master_lock.*.tmp

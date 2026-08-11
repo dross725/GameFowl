@@ -810,6 +810,9 @@ def _build_event_user_stats(user, event, unclaimed_by_cashier, close_out=None):
         collect_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.COLLECT)),
         payout_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.PAYOUT)),
     )
+    opening_fund_total = services.get_teller_opening_fund_total(
+        user, event, txn_qs=txn_qs,
+    )
 
     unclaimed_info = unclaimed_by_cashier.get(username, {'count': 0, 'total': 0.0})
 
@@ -825,6 +828,7 @@ def _build_event_user_stats(user, event, unclaimed_by_cashier, close_out=None):
         'payout_total': txn_stats['payout_total'] or 0.0,
         'remit_total': txn_stats['remit_total'] or 0.0,
         'collect_total': txn_stats['collect_total'] or 0.0,
+        'opening_fund_total': opening_fund_total,
         'unclaimed_count': unclaimed_info['count'],
         'unclaimed_total': unclaimed_info['total'],
         'balance': balance,
@@ -1305,6 +1309,8 @@ def admin_event_report(request):
         return render(request, 'SmartWagers/event_report.html', {
             'event': None,
             'all_events': all_events,
+            'total_opening_fund_all': 0.0,
+            'teller_initial_fund': 0.0,
         })
 
     try:
@@ -1388,6 +1394,7 @@ def admin_event_report(request):
     total_unclaimed_all = 0.0
     total_bets_count_all = 0
     total_variance_all = 0.0
+    total_opening_fund_all = 0.0
 
     close_outs = {
         co.user_id: co
@@ -1403,6 +1410,7 @@ def admin_event_report(request):
         grand_total_all += stats['grand_total']
         total_unclaimed_all += stats['unclaimed_total']
         total_bets_count_all += stats['bet_count']
+        total_opening_fund_all += stats['opening_fund_total']
         close_out = stats['close_out']
         if close_out is not None and close_out.variance is not None:
             total_variance_all += close_out.variance
@@ -1430,6 +1438,9 @@ def admin_event_report(request):
             event=event, apply_end_bound=True,
         )
 
+    setting = Settings.objects.order_by('-id').first()
+    teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
+
     return render(request, 'SmartWagers/event_report.html', {
         'event': event,
         'all_events': all_events,
@@ -1438,7 +1449,9 @@ def admin_event_report(request):
         'grand_total_all': grand_total_all,
         'total_unclaimed_all': total_unclaimed_all,
         'total_bets_count_all': total_bets_count_all,
+        'total_opening_fund_all': total_opening_fund_all,
         'total_variance_all': total_variance_all,
+        'teller_initial_fund': teller_initial_fund,
         'admin_data': admin_data,
         'admin_grand_total_all': admin_grand_total_all,
         'admin_unclaimed_all': admin_unclaimed_all,
@@ -1641,7 +1654,7 @@ def toggle_teller_online(request):
     fund_issued = False
     if is_online and not was_online:
         active_event = services.get_active_event()
-        if active_event is not None:
+        if active_event is not None and not services.teller_has_opening_fund_for_event(teller, active_event):
             setting = Settings.objects.order_by('-id').first()
             initial_fund = setting.teller_initial_fund if setting else 10000.0
             if initial_fund > 0:
@@ -1655,11 +1668,18 @@ def toggle_teller_online(request):
 
     notify_teller_online_status(teller_id, is_online)
 
+    event_scope, apply_end_bound = services.get_event_scope()
+    balance, grand_total = _compute_teller_balance(
+        teller, event=event_scope, apply_end_bound=apply_end_bound,
+    )
+
     return JsonResponse({
         'ok': True,
         'teller_id': teller_id,
         'is_online': is_online,
         'fund_issued': fund_issued,
+        'balance': balance,
+        'grand_total': grand_total,
     })
 
 

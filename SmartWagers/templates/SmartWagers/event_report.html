@@ -657,6 +657,11 @@
       <div class="er-card-value red">₱ {{ total_unclaimed_all|floatformat:2|intcomma }}</div>
       <div class="er-card-sub">Not yet paid out to bettors</div>
     </div>
+    <div class="er-card">
+      <div class="er-card-label">Initial Funds Issued</div>
+      <div class="er-card-value blue">₱ {{ total_opening_fund_all|floatformat:2|intcomma }}</div>
+      <div class="er-card-sub">₱ {{ teller_initial_fund|floatformat:0|intcomma }} per funded teller</div>
+    </div>
   </div>
 
   <hr class="er-divider">
@@ -680,7 +685,7 @@
           <tr>
             <th class="th-group-header left" rowspan="1">Teller</th>
             <th class="th-group-header" colspan="3">Bets Placed</th>
-            <th class="th-group-header" colspan="3">Transactions</th>
+            <th class="th-group-header" colspan="4">Transactions</th>
             <th class="th-group-header" colspan="2">Unclaimed Wins</th>
             <th class="th-group-header">Balance</th>
             <th class="th-group-header" colspan="5">Station Close-Out</th>
@@ -692,6 +697,7 @@
             <th class="num">Wala</th>
             <th class="num">Gross Collected</th>
             <th class="num">Payouts</th>
+            <th class="num">Initial Fund</th>
             <th class="num">Remitted</th>
             <th class="num">Count</th>
             <th class="num">Amount</th>
@@ -723,6 +729,9 @@
             <td class="num c-total">₱ {{ t.grand_total|floatformat:2|intcomma }}</td>
             <td class="num c-payout">
               {% if t.payout_total > 0 %}₱ {{ t.payout_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num c-collect">
+              {% if t.opening_fund_total > 0 %}₱ {{ t.opening_fund_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
             </td>
             <td class="num c-remit">
               {% if t.remit_total > 0 %}₱ {{ t.remit_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
@@ -793,6 +802,7 @@
             <td></td>
             <td class="num c-total">₱ {{ grand_total_all|floatformat:2|intcomma }}</td>
             <td></td>
+            <td class="num c-collect">₱ {{ total_opening_fund_all|floatformat:2|intcomma }}</td>
             <td></td>
             <td></td>
             <td class="num c-unclaim {% if total_unclaimed_all == 0 %}zero{% endif %}">

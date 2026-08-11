@@ -73,6 +73,8 @@ function connectUserSocket() {
         console.log("Initial data request sent.");
         updateStatus("Connected");
         get_fightstatus();
+        fetchTellerBalance();
+        fetchFightTotals();
     };
 
     socket.onerror = (error) => {
@@ -294,8 +296,12 @@ function handleFightStatusBroadcast(data) {
         closemodalIfOpen('matchclosedmodal');
         update_trends();
         fetchPendingPayouts();
-    } else if (fightAction === "event_changed" && !("overall_status" in data)) {
-        get_fightstatus();
+    } else if (fightAction === "event_changed") {
+        fetchTellerBalance();
+        fetchFightTotals();
+        if (!("overall_status" in data)) {
+            get_fightstatus();
+        }
     }
 }
 
