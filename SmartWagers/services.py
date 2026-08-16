@@ -456,6 +456,97 @@ def get_admin_fund_summary(event=None, apply_end_bound=True):
     }
 
 
+def get_event_cash_reconciliation(
+    event,
+    *,
+    teller_cash_on_hand,
+    total_bets_collected,
+    total_opening_fund,
+    admin_fund_summary,
+    expected_commission,
+    close_out_variance_total=0.0,
+):
+    """Reconcile physical cash (admin + tellers) against expected commission.
+
+    Two independent checks:
+      1. Betting surplus vs expected commission — same house take measured two
+         ways (wagers−payouts vs pot×plasada); variance should be ~0.
+      2. Net earnings (from cash position) vs betting surplus — physical cash
+         after stripping house capital; variance should be ~0 unless stations
+         were short/over at close-out (see close_out_variance_total).
+    """
+    from django.db.models import Sum
+
+    if event is None:
+        return None
+
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    teller_ids = User.objects.filter(
+        groups__name='teller',
+    ).exclude(
+        pk__in=admin_ids,
+    ).values_list('pk', flat=True)
+
+    txn_qs = TellerTransaction.objects.filter(
+        user_id__in=teller_ids,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+    remit_qs = txn_qs.filter(transaction_type=TellerTransaction.REMIT)
+    teller_remits_all = remit_qs.aggregate(total=Sum('amount'))['total'] or 0.0
+    # Cash that left teller stations but is not already in the admin fund balance.
+    remits_not_in_admin = (
+        remit_qs.exclude(received=True, affects_admin_fund=True)
+        .aggregate(total=Sum('amount'))['total'] or 0.0
+    )
+    total_payouts = TellerTransaction.objects.filter(
+        transaction_type=TellerTransaction.PAYOUT,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        total_payouts = total_payouts.filter(created_at__lte=event.ended_at)
+    total_payouts = total_payouts.aggregate(total=Sum('amount'))['total'] or 0.0
+
+    admin_cash = admin_fund_summary['balance']
+    total_cash = teller_cash_on_hand + admin_cash
+    net_bank = admin_fund_summary['net_bank_funding']
+    net_earnings = (
+        total_cash
+        + float(remits_not_in_admin)
+        - float(total_opening_fund)
+        - float(net_bank)
+    )
+    betting_surplus = float(total_bets_collected) - float(total_payouts)
+    surplus_vs_commission = betting_surplus - float(expected_commission)
+    close_out_variance = float(close_out_variance_total)
+    physical_net_earnings = net_earnings + close_out_variance
+
+    return {
+        'teller_cash_on_hand': round(float(teller_cash_on_hand), 2),
+        'admin_cash_on_hand': round(float(admin_cash), 2),
+        'total_cash_on_hand': round(float(total_cash), 2),
+        'opening_fund_total': round(float(total_opening_fund), 2),
+        'net_bank_funding': round(float(net_bank), 2),
+        'teller_remits_all': round(float(teller_remits_all), 2),
+        'remits_not_in_admin': round(float(remits_not_in_admin), 2),
+        'total_payouts': round(float(total_payouts), 2),
+        'betting_surplus': round(betting_surplus, 2),
+        'net_earnings': round(net_earnings, 2),
+        'expected_commission': round(float(expected_commission), 2),
+        'surplus_vs_commission': round(surplus_vs_commission, 2),
+        'earnings_vs_betting_surplus': round(net_earnings - betting_surplus, 2),
+        'close_out_variance_total': round(close_out_variance, 2),
+        'physical_net_earnings': round(physical_net_earnings, 2),
+        'physical_vs_commission': round(physical_net_earnings - float(expected_commission), 2),
+        # Kept for backwards compatibility in templates/tests.
+        'earnings_vs_commission': round(net_earnings - float(expected_commission), 2),
+    }
+
+
 def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     """Return the outstanding balance for a teller, optionally scoped to an event.
 

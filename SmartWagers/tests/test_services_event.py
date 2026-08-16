@@ -526,3 +526,59 @@ class TestOnlineTellerFreshBalanceOnEventStart:
             teller_user, event=event,
         )
         assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+
+@pytest.mark.django_db
+class TestEventCashReconciliation:
+
+    def test_cash_reconciliation_matches_betting_surplus(
+            self, active_event, admin_user, teller_user, default_settings):
+        active_event.admin_opening_fund = 50000.0
+        active_event.save(update_fields=['admin_opening_fund'])
+
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000.0,
+            cashier=teller_user.username, registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=2000.0,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=1500.0,
+            received=True,
+            affects_admin_fund=False,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        teller_balance = services._get_teller_outstanding_balance(
+            teller_user, event=active_event,
+        )
+        admin_summary = services.get_admin_fund_summary(event=active_event)
+        recon = services.get_event_cash_reconciliation(
+            active_event,
+            teller_cash_on_hand=teller_balance,
+            total_bets_collected=5000.0,
+            total_opening_fund=default_settings.teller_initial_fund,
+            admin_fund_summary=admin_summary,
+            expected_commission=350.0,
+        )
+
+        assert recon['total_cash_on_hand'] == pytest.approx(
+            teller_balance + admin_summary['balance'],
+        )
+        assert recon['net_earnings'] == pytest.approx(recon['betting_surplus'])
+        assert recon['betting_surplus'] == pytest.approx(3000.0)
+        assert recon['surplus_vs_commission'] == pytest.approx(3000.0 - 350.0)

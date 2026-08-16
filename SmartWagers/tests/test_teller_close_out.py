@@ -215,6 +215,10 @@ class TestEventReportCloseOut:
         content = response.content.decode()
         assert 'Reconciled' in content
         assert '3100' in content.replace(',', '')
+        assert response.context['total_on_hand_all'] == -100.0
+        assert response.context['total_expected_all'] == 3000.0
+        assert response.context['total_actual_all'] == 3100.0
+        assert response.context['total_variance_all'] == 100.0
 
     def test_event_report_shows_admin_breakdown_when_closed(
         self, admin_client, admin_user, event_with_fight,
@@ -281,6 +285,45 @@ class TestEventReportCloseOut:
         assert 'Shared Admin Fund' in content
         assert '70000' in content  # opening 50k + borrow 20k
         assert '5000' in content   # remitted to bank
+        assert 'Admin Wagers' in content
+        assert 'Admin Payouts' in content
+        assert 'Teller Borrows' in content
+        assert 'Net Bank Funding + Admin Wagers' in content
+
+    def test_event_report_admin_payouts_exclude_legacy_from_totals(
+        self, admin_client, admin_user, event_with_fight,
+    ):
+        Wagers.objects.create(
+            fightnum=1,
+            side='MERON',
+            wager=5000.0,
+            cashier=admin_user.username,
+            registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=admin_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=1000.0,
+            affects_admin_fund=True,
+        )
+        TellerTransaction.objects.create(
+            user=admin_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=500.0,
+            affects_admin_fund=False,
+        )
+
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        content = response.content.decode().replace(',', '')
+        assert response.status_code == 200
+        assert content.count('1000') >= 1
+        assert '500' not in content.split('Admin Payouts')[1].split('Teller Remits')[0]
 
     def test_event_report_hides_admin_breakdown_for_active_event(
         self, admin_client, admin_user, event_with_fight,
@@ -316,6 +359,118 @@ class TestEventReportCloseOut:
         )
         assert response.status_code == 200
         content = response.content.decode().replace(',', '')
-        assert 'Initial Fund' in content
+        assert response.context['teller_data'] == []
+        assert response.context['total_opening_fund_recon'] == default_settings.teller_initial_fund
         assert 'Initial Funds Issued' in content
         assert str(int(default_settings.teller_initial_fund)) in content
+
+    def test_event_report_excludes_zero_bet_tellers_from_table(
+        self, admin_client, teller_user, teller_user2, event_with_fight,
+        teller_status_online, default_settings,
+    ):
+        _place_bet(teller_user, 2000.0)
+        TellerTransaction.objects.create(
+            user=teller_user2,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        usernames = [row['user'].username for row in response.context['teller_data']]
+        assert teller_user.username in usernames
+        assert teller_user2.username not in usernames
+        assert response.context['teller_station_count'] == 1
+        assert response.context['total_opening_fund_all'] == 0.0
+        assert response.context['total_opening_fund_recon'] == default_settings.teller_initial_fund
+
+    def test_event_report_includes_admin_bets_in_teller_breakdown(
+        self, admin_client, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        _place_bet(teller_user, 1500.0)
+        Wagers.objects.create(
+            fightnum=1,
+            side='WALA',
+            wager=3200.0,
+            cashier=str(admin_user),
+            registered=True,
+        )
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'Teller Performance Breakdown' in content
+        assert 'Test Admin' in content
+        assert '(Admin)' in content
+        assert '3200' in content.replace(',', '')
+        assert response.context['admin_bets_station_count'] == 1
+        assert response.context['admin_bets_in_teller_section'] == 3200.0
+
+    def test_event_report_admin_breakdown_shows_bank_borrowed(
+        self, admin_client, admin_user, event_with_fight,
+    ):
+        AdminBankTransaction.objects.create(
+            event=event_with_fight,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.BORROW,
+            amount=15000.0,
+        )
+
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'Borrowed from Bank' in content
+        assert '15000' in content.replace(',', '')
+        assert response.context['admin_bank_borrowed_all'] == 15000.0
+        assert len(response.context['admin_data']) == 1
+
+    def test_event_report_cash_reconciliation_excludes_admin_from_teller_cash(
+        self, admin_client, admin_user, teller_user, event_with_fight,
+        teller_status_online, default_settings,
+    ):
+        event_with_fight.admin_opening_fund = default_settings.admin_initial_fund
+        event_with_fight.save(update_fields=['admin_opening_fund'])
+
+        _place_bet(teller_user, 5000.0)
+        Wagers.objects.create(
+            fightnum=1,
+            side='WALA',
+            wager=2500.0,
+            cashier=str(admin_user),
+            registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        recon = response.context['cash_reconciliation']
+        assert recon is not None
+        assert recon['earnings_vs_betting_surplus'] == pytest.approx(0.0)
+        assert recon['teller_cash_on_hand'] == pytest.approx(
+            5000.0 + default_settings.teller_initial_fund,
+        )
+        assert response.context['total_on_hand_all'] == pytest.approx(
+            recon['teller_cash_on_hand'] + 2500.0,
+        )
