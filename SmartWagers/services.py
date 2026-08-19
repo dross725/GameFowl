@@ -17,6 +17,7 @@ from django.db import IntegrityError
 from django.db import transaction as db_transaction
 from functools import lru_cache
 import logging
+import math
 import re
 import os
 import shutil
@@ -227,7 +228,7 @@ class StationAlreadyClosedError(Exception):
 
 
 class CloseOutAlreadyCountedError(Exception):
-    """Raised when admin tries to count cash for a reconciled close-out."""
+    """Raised when admin tries to modify a reconciled close-out."""
 
 
 class CloseOutNotFoundError(Exception):
@@ -370,7 +371,10 @@ def get_admin_fund_summary(event=None, apply_end_bound=True):
     if event is None:
         return {
             'balance': 0.0,
+            'balance_before_closeouts': 0.0,
+            'teller_closeout_remits': 0.0,
             'opening_fund': 0.0,
+            'additional_bank_borrowed': 0.0,
             'bank_borrowed': 0.0,
             'bank_remitted': 0.0,
             'net_bank_funding': 0.0,
@@ -433,6 +437,20 @@ def get_admin_fund_summary(event=None, apply_end_bound=True):
     teller_borrows = teller_txn_qs.filter(
         transaction_type=TellerTransaction.COLLECT,
     ).aggregate(total=Sum('amount'))['total'] or 0.0
+    closeout_remit_qs = TellerCloseOut.objects.filter(
+        event=event,
+        remit_transaction__isnull=False,
+        remit_transaction__received=True,
+        remit_transaction__affects_admin_fund=True,
+        remit_transaction__created_at__gte=event.started_at,
+    )
+    if apply_end_bound and event.ended_at:
+        closeout_remit_qs = closeout_remit_qs.filter(
+            remit_transaction__created_at__lte=event.ended_at,
+        )
+    teller_closeout_remits = closeout_remit_qs.aggregate(
+        total=Sum('remit_transaction__amount'),
+    )['total'] or 0.0
 
     bank_borrowed = opening_fund + float(explicit_borrows)
     net_bank_funding = bank_borrowed - float(bank_remitted)
@@ -443,9 +461,13 @@ def get_admin_fund_summary(event=None, apply_end_bound=True):
         + float(teller_remits)
         - float(teller_borrows)
     )
+    balance_before_closeouts = balance - float(teller_closeout_remits)
     return {
         'balance': round(balance, 2),
+        'balance_before_closeouts': round(balance_before_closeouts, 2),
+        'teller_closeout_remits': round(float(teller_closeout_remits), 2),
         'opening_fund': round(opening_fund, 2),
+        'additional_bank_borrowed': round(float(explicit_borrows), 2),
         'bank_borrowed': round(bank_borrowed, 2),
         'bank_remitted': round(float(bank_remitted), 2),
         'net_bank_funding': round(net_bank_funding, 2),
@@ -656,6 +678,35 @@ def close_teller_station(user, event=None):
         user.username, event.pk, fightnum, breakdown['balance'],
     )
     return close_out
+
+
+def reopen_teller_station(close_out_id, admin_user):
+    """Cancel an uncounted close-out and bring the teller back online."""
+    with db_transaction.atomic():
+        close_out = TellerCloseOut.objects.select_for_update().select_related(
+            'user',
+        ).filter(pk=close_out_id).first()
+        if close_out is None:
+            raise CloseOutNotFoundError()
+        if close_out.actual_cash_counted is not None:
+            raise CloseOutAlreadyCountedError()
+
+        teller = close_out.user
+        event_id = close_out.event_id
+        close_out.delete()
+
+        ts, _ = TellerStatus.objects.get_or_create(
+            user=teller,
+            defaults={'is_online': True},
+        )
+        ts.is_online = True
+        ts.save(update_fields=['is_online'])
+
+    logger.info(
+        "STATION REOPENED: teller=%s event=%s admin=%s",
+        teller.username, event_id, admin_user.username,
+    )
+    return teller
 
 
 def register_teller_cash_count(close_out_id, actual_amount, admin_user):
@@ -945,16 +996,56 @@ def start_event(name):
     return event
 
 
-def end_event():
-    """Mark the active event as ended and return it."""
-    event = Event.objects.filter(is_active=True).order_by('-started_at').first()
-    if event is None:
-        logger.warning("END EVENT called but no active event found")
-        return None
-    event.is_active = False
-    event.ended_at = now()
-    event.save(update_fields=['is_active', 'ended_at'])
-    logger.info("EVENT ENDED: id=%s name=%r ended_at=%s", event.id, event.name, event.ended_at)
+def end_event(actual_admin_cash, counted_by):
+    """End the active event and snapshot the shared admin cash count."""
+    actual_admin_cash = float(actual_admin_cash)
+    if not math.isfinite(actual_admin_cash) or actual_admin_cash < 0:
+        raise ValueError('actual_admin_cash must be a non-negative amount')
+
+    with db_transaction.atomic():
+        event = Event.objects.select_for_update().filter(
+            is_active=True,
+        ).order_by('-started_at').first()
+        if event is None:
+            logger.warning("END EVENT called but no active event found")
+            return None
+
+        expected_admin_cash = get_admin_fund_summary(
+            event=event,
+            apply_end_bound=True,
+        )['balance_before_closeouts']
+        actual_admin_cash = round(actual_admin_cash, 2)
+        event.is_active = False
+        event.ended_at = now()
+        event.expected_admin_cash_on_hand = expected_admin_cash
+        event.actual_admin_cash_counted = actual_admin_cash
+        event.admin_cash_variance = round(
+            actual_admin_cash - expected_admin_cash,
+            2,
+        )
+        event.admin_cash_counted_by = counted_by
+        event.admin_cash_counted_at = now()
+        event.save(update_fields=[
+            'is_active',
+            'ended_at',
+            'expected_admin_cash_on_hand',
+            'actual_admin_cash_counted',
+            'admin_cash_variance',
+            'admin_cash_counted_by',
+            'admin_cash_counted_at',
+        ])
+
+    logger.info(
+        "EVENT ENDED: id=%s name=%r ended_at=%s expected_admin_cash=%.2f "
+        "actual_admin_cash=%.2f variance=%.2f counted_by=%s",
+        event.id,
+        event.name,
+        event.ended_at,
+        event.expected_admin_cash_on_hand,
+        event.actual_admin_cash_counted,
+        event.admin_cash_variance,
+        counted_by.username,
+    )
     return event
 
 

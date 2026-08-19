@@ -40,6 +40,7 @@ urlpatterns = [
     path("administrator/teller-alerts/", views.admin_teller_alerts, name="admin-teller-alerts"),
     path("administrator/teller-online-toggle/", views.toggle_teller_online, name="admin-teller-online-toggle"),
     path("administrator/teller-closeout/count/", views.admin_register_teller_cash_count, name="admin-teller-closeout-count"),
+    path("administrator/teller-closeout/reopen/", views.admin_reopen_teller_station, name="admin-teller-closeout-reopen"),
     #path("get_button_state_view/<str:side>/", views.get_button_state_view)
     #path("reports", views.Reports, name="reports-page"),
     #path("su_admin/<slug:slug>", views.SuperUser, name="su_admin")

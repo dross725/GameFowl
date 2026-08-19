@@ -81,24 +81,41 @@ class TestStartEvent:
 @pytest.mark.django_db
 class TestEndEvent:
 
-    def test_end_event_marks_inactive(self, active_event):
-        services.end_event()
+    def test_end_event_marks_inactive(self, active_event, admin_user):
+        services.end_event(100000, admin_user)
         active_event.refresh_from_db()
         assert active_event.is_active is False
 
-    def test_end_event_sets_ended_at(self, active_event):
-        services.end_event()
+    def test_end_event_sets_ended_at(self, active_event, admin_user):
+        services.end_event(100000, admin_user)
         active_event.refresh_from_db()
         assert active_event.ended_at is not None
 
-    def test_end_event_returns_event_object(self, active_event):
-        result = services.end_event()
+    def test_end_event_returns_event_object(self, active_event, admin_user):
+        result = services.end_event(100000, admin_user)
         assert result is not None
         assert result.pk == active_event.pk
 
-    def test_end_event_returns_none_when_no_active_event(self):
-        result = services.end_event()
+    def test_end_event_returns_none_when_no_active_event(self, admin_user):
+        result = services.end_event(100000, admin_user)
         assert result is None
+
+    def test_end_event_snapshots_admin_cash_and_variance(
+            self, active_event, admin_user):
+        result = services.end_event(99950.25, admin_user)
+
+        result.refresh_from_db()
+        assert result.expected_admin_cash_on_hand == 100000
+        assert result.actual_admin_cash_counted == 99950.25
+        assert result.admin_cash_variance == -49.75
+        assert result.admin_cash_counted_by == admin_user
+        assert result.admin_cash_counted_at is not None
+
+    def test_end_event_rejects_negative_cash(self, active_event, admin_user):
+        with pytest.raises(ValueError):
+            services.end_event(-1, admin_user)
+        active_event.refresh_from_db()
+        assert active_event.is_active is True
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +305,7 @@ class TestSharedAdminFund:
         summary = services.get_admin_fund_summary(event=active_event)
 
         assert summary['bank_borrowed'] == 125000
+        assert summary['additional_bank_borrowed'] == 25000
         assert summary['bank_remitted'] == 5000
         assert summary['net_bank_funding'] == 120000
         assert summary['balance'] == 120000

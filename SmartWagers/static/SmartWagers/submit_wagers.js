@@ -3,6 +3,7 @@ let wager_value = 0;
 let wager_id = '';
 let clientRequestId = '';
 let isSubmitting = false;
+let tellerEnterAction = null;
 
 function formatNumber(n) {
     return Number(n).toLocaleString('en-US');
@@ -396,7 +397,7 @@ async function printRemitReceipt(receipt) {
 
         return {
             ok: true,
-            message: result.message || "Remit receipt sent to local printer.",
+            message: result.message || "Advance receipt sent to local printer.",
         };
     } catch (error) {
         return {
@@ -606,6 +607,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Do not await — printing must never block the bet UI.
     consumePendingPrints();
 
+    document.addEventListener('click', (event) => {
+        const actionButton = event.target.closest('.button');
+        if (!actionButton) return;
+        tellerEnterAction = actionButton.id === 'payout_button' ? 'payout' : null;
+    });
+
     const textarea = document.getElementById('bet_textinput');
     if (!textarea) return;
 
@@ -726,6 +733,13 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             action();
         }
-        break; /* Only the topmost visible modal gets the keystroke */
+        return; /* Only the topmost visible modal gets the keystroke */
+    }
+
+    if (e.key === 'Enter' && !e.repeat && tellerEnterAction === 'payout') {
+        e.preventDefault();
+        if (typeof openmodal === 'function') {
+            openmodal('payoutmodal');
+        }
     }
 });

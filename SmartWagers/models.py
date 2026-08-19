@@ -169,7 +169,7 @@ class TellerTransaction(models.Model):
     COLLECT = 'COLLECT'
     PAYOUT = 'PAYOUT'
     TRANSACTION_TYPES = [
-        (REMIT, 'Remit'),
+        (REMIT, 'Advance'),
         (COLLECT, 'Borrow'),
         (PAYOUT, 'Payout'),
     ]
@@ -195,7 +195,10 @@ class TellerTransaction(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.transaction_id} | {self.user} | {self.transaction_type} | {self.amount} | {self.created_at}"
+        return (
+            f"{self.transaction_id} | {self.user} | "
+            f"{self.get_transaction_type_display()} | {self.amount} | {self.created_at}"
+        )
 
 
 class TellerStatus(models.Model):
@@ -257,6 +260,17 @@ class Event(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     admin_opening_fund = models.FloatField(default=100000.0)
+    expected_admin_cash_on_hand = models.FloatField(null=True, blank=True)
+    actual_admin_cash_counted = models.FloatField(null=True, blank=True)
+    admin_cash_variance = models.FloatField(null=True, blank=True)
+    admin_cash_counted_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='admin_cash_counts',
+    )
+    admin_cash_counted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-started_at']
@@ -278,7 +292,7 @@ class AdminBankTransaction(models.Model):
     REMIT = 'REMIT'
     TRANSACTION_TYPES = [
         (BORROW, 'Borrow'),
-        (REMIT, 'Remit'),
+        (REMIT, 'Advance'),
     ]
 
     event = models.ForeignKey(
@@ -310,5 +324,5 @@ class AdminBankTransaction(models.Model):
     def __str__(self):
         return (
             f"{self.event} | {self.admin} | "
-            f"{self.transaction_type} | {self.amount}"
+            f"{self.get_transaction_type_display()} | {self.amount}"
         )

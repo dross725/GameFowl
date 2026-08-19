@@ -19,6 +19,7 @@ from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
 from django.utils.timezone import now
 import logging
+import math
 
 logger = logging.getLogger('SmartWagers.views')
 
@@ -327,6 +328,37 @@ def reprint_wager(request):
 
     print_required = services.is_wager_receipt_printing_enabled()
 
+    if transaction_id.lower() == 'test':
+        event_scope, apply_end_bound = services.get_event_scope()
+        if is_admin:
+            current_total = services.get_admin_fund_summary(
+                event=event_scope,
+                apply_end_bound=apply_end_bound,
+            )['balance']
+        else:
+            current_total, _ = _compute_teller_balance(
+                request.user,
+                event=event_scope,
+                apply_end_bound=apply_end_bound,
+            )
+        return JsonResponse({
+            'ok': True,
+            'receipt_type': 'test',
+            'print_required': print_required,
+            'receipt': {
+                # Keep wager compatibility so older local print agents still
+                # produce a usable test slip and barcode.
+                'receipt_type': 'wager',
+                'test_print': True,
+                'transaction_id': 'test',
+                'fightnum': 'TEST',
+                'side': 'PRINTER TEST',
+                'cashier': str(request.user),
+                'amount': current_total,
+                'date': now().strftime("%Y-%m-%d %H:%M:%S"),
+            },
+        })
+
     receipt = services.lookup_wager_for_reprint(
         transaction_id, cashier=cashier_filter,
     )
@@ -595,7 +627,22 @@ def admin_bank_transaction(request):
         "ADMIN BANK TXN: id=%s type=%s amount=%.2f admin=%s event=%s",
         txn.pk, transaction_type, amount, request.user.username, event.pk,
     )
-    return JsonResponse(_admin_fund_payload(event))
+    payload = _admin_fund_payload(event)
+    payload.update({
+        'print_required': services.is_wager_receipt_printing_enabled(),
+        'created_transaction': {
+            'id': txn.pk,
+            'transaction_id': f"B{txn.pk:06d}",
+            'transaction_type': txn.transaction_type,
+            'amount': round(txn.amount, 2),
+            'admin': (
+                f"{txn.admin.first_name} {txn.admin.last_name}".strip()
+                or txn.admin.username
+            ),
+            'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        },
+    })
+    return JsonResponse(payload)
 
    
 @group_required('teller')
@@ -1069,7 +1116,9 @@ def admin_tellers(request):
             txn_qs = txn_qs.filter(created_at__gte=event_scope.started_at)
             if apply_end_bound and event_scope.ended_at:
                 txn_qs = txn_qs.filter(created_at__lte=event_scope.ended_at)
-        transactions = txn_qs.order_by('-created_at')
+        transactions = txn_qs.exclude(
+            transaction_type=TellerTransaction.PAYOUT,
+        ).order_by('-created_at')
 
         ts, _ = TellerStatus.objects.get_or_create(user=teller)
         is_online = ts.is_online
@@ -1307,7 +1356,22 @@ def end_event_view(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
-    event = services.end_event()
+    try:
+        actual_admin_cash = _parse_currency_amount(
+            request.POST.get('actual_admin_cash'),
+        )
+    except (ValueError, TypeError):
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_actual_admin_cash'},
+            status=400,
+        )
+    if not math.isfinite(actual_admin_cash) or actual_admin_cash < 0:
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_actual_admin_cash'},
+            status=400,
+        )
+
+    event = services.end_event(actual_admin_cash, request.user)
     if event is None:
         logger.warning("END EVENT (view): no active event found — admin=%s", request.user.username)
         return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=404)
@@ -1374,26 +1438,31 @@ def admin_event_report(request):
     total_pot_all = sum(fc['totalpot'] for fc in fight_commissions if fc['side'] not in ('CANCELLED', 'DRAW'))
     total_commission = sum(fc['commission'] for fc in fight_commissions)
 
-    # Build map of winning fights {fightnum: winning_side} for unclaimed bet detection.
-    # DRAW and CANCELLED are paid out immediately, so only MERON/WALA produce unclaimed tickets.
-    winning_fights = {
+    # Build payable outcomes for outstanding payout detection.  Winning
+    # MERON/WALA tickets are payable, while every ticket from a DRAW or
+    # CANCELLED fight is payable as a full refund.
+    payable_results = {
         r.fightnum: r.side
         for r in fight_results_qs
-        if r.side not in ('CANCELLED', 'DRAW')
     }
 
-    # Fetch all unclaimed winning wagers for this event in one DB hit.
+    # Fetch all outstanding winning and refund tickets for this event.
     # Build both an aggregate dict (for the summary table) and a full list
     # (for the detailed transaction-ID breakdown at the bottom).
     unclaimed_by_cashier: dict = {}
     unclaimed_detail_list: list = []
-    if winning_fights:
-        winning_filter = Q()
-        for fn, ws in winning_fights.items():
-            winning_filter |= Q(fightnum=fn, side=ws)
+    outstanding_payout_count_all = 0
+    outstanding_payout_total_all = 0.0
+    if payable_results:
+        payable_filter = Q()
+        for fightnum, result_side in payable_results.items():
+            if result_side in ('CANCELLED', 'DRAW'):
+                payable_filter |= Q(fightnum=fightnum)
+            else:
+                payable_filter |= Q(fightnum=fightnum, side=result_side)
 
         unclaimed_qs = Wagers.objects.filter(
-            winning_filter,
+            payable_filter,
             cashed_out=False,
             registered=True,
             cancelled=False,
@@ -1403,8 +1472,15 @@ def admin_event_report(request):
         if event.ended_at:
             unclaimed_qs = unclaimed_qs.filter(created_at__lte=event.ended_at)
 
+        outstanding_totals = unclaimed_qs.order_by().aggregate(
+            count=Count('id'),
+            total=Sum('wager'),
+        )
+        outstanding_payout_count_all = outstanding_totals['count'] or 0
+        outstanding_payout_total_all = outstanding_totals['total'] or 0.0
+
         # Aggregate totals per cashier for the summary table
-        for row in unclaimed_qs.values('cashier').annotate(
+        for row in unclaimed_qs.order_by().values('cashier').annotate(
             count=Count('id'), total=Sum('wager')
         ):
             unclaimed_by_cashier[row['cashier']] = {
@@ -1416,11 +1492,15 @@ def admin_event_report(request):
         for w in unclaimed_qs.values(
             'transactionid', 'fightnum', 'side', 'wager', 'cashier', 'created_at'
         ):
+            w['result_side'] = payable_results.get(w['fightnum'])
             unclaimed_detail_list.append(w)
 
     # Per-teller aggregates
+    show_all_tellers = request.GET.get('show_all_tellers') == '1'
     teller_data = []
     grand_total_all = 0.0
+    total_payout_all = 0.0
+    total_remit_all = 0.0
     total_unclaimed_all = 0.0
     total_bets_count_all = 0
     total_opening_fund_all = 0.0
@@ -1498,6 +1578,13 @@ def admin_event_report(request):
 
     if event_closed:
         admins = User.objects.filter(groups__name='admin').order_by('username')
+        admin_bank_remits = {
+            row['admin_id']: row['total'] or 0.0
+            for row in AdminBankTransaction.objects.filter(
+                event=event,
+                transaction_type=AdminBankTransaction.REMIT,
+            ).values('admin_id').annotate(total=Sum('amount'))
+        }
         for admin in admins:
             stats = _build_event_user_stats(
                 admin, event, unclaimed_by_cashier, admin_fund_mode=True,
@@ -1528,6 +1615,76 @@ def admin_event_report(request):
             expected_commission=total_commission,
             close_out_variance_total=total_variance_all,
         )
+        admin_fund_summary.update({
+            'expected_cash_on_hand': (
+                event.expected_admin_cash_on_hand
+                if event.expected_admin_cash_on_hand is not None
+                else admin_fund_summary['balance_before_closeouts']
+            ),
+            'actual_cash_counted': event.actual_admin_cash_counted,
+            'variance': event.admin_cash_variance,
+            'counted_by': event.admin_cash_counted_by,
+            'counted_by_name': (
+                event.admin_cash_counted_by.get_full_name()
+                or event.admin_cash_counted_by.username
+                if event.admin_cash_counted_by
+                else ''
+            ),
+            'counted_at': event.admin_cash_counted_at,
+        })
+
+        final_reconciliation_rows.append({
+            'name': 'Admin',
+            'coh': (
+                admin_fund_summary['opening_fund']
+                + admin_fund_summary['expected_cash_on_hand']
+            ),
+            'petty': admin_fund_summary['opening_fund'],
+            'expected': admin_fund_summary['expected_cash_on_hand'],
+            'actual': admin_fund_summary['actual_cash_counted'],
+            'variance': admin_fund_summary['variance'],
+        })
+        for stats in teller_data:
+            close_out = stats['close_out']
+            final_reconciliation_rows.append({
+                'name': stats['display_name'],
+                'coh': stats['reporting_coh'],
+                'petty': stats['initial_fund'],
+                'expected': (
+                    close_out.expected_cash_on_hand
+                    if close_out is not None
+                    else None
+                ),
+                'actual': (
+                    close_out.actual_cash_counted
+                    if close_out is not None
+                    else None
+                ),
+                'variance': (
+                    close_out.variance
+                    if close_out is not None
+                    else None
+                ),
+            })
+
+        def total_recorded(field):
+            return round(sum(
+                row[field]
+                for row in final_reconciliation_rows
+                if row[field] not in (None, 0)
+            ), 2)
+
+        final_reconciliation_totals = {
+            'coh': total_recorded('coh'),
+            'petty': total_recorded('petty'),
+            'expected': total_recorded('expected'),
+            'actual': total_recorded('actual'),
+            'variance': total_recorded('variance'),
+        }
+
+    commission_20 = round(total_commission * 0.20, 2)
+    commission_80 = round(total_commission * 0.80, 2)
+    commission_4_of_80 = round(commission_80 * 0.04, 2)
 
     setting = Settings.objects.order_by('-id').first()
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
@@ -1536,6 +1693,7 @@ def admin_event_report(request):
         'event': event,
         'all_events': all_events,
         'event_closed': event_closed,
+        'show_all_tellers': show_all_tellers,
         'teller_data': teller_data,
         'teller_station_count': teller_station_count,
         'admin_bets_station_count': admin_bets_station_count,
@@ -1559,9 +1717,14 @@ def admin_event_report(request):
         'admin_fund_summary': admin_fund_summary,
         'cash_reconciliation': cash_reconciliation,
         'unclaimed_detail_list': unclaimed_detail_list,
+        'outstanding_payout_count_all': outstanding_payout_count_all,
+        'outstanding_payout_total_all': outstanding_payout_total_all,
         'fight_commissions': fight_commissions,
         'total_pot_all': total_pot_all,
         'total_commission': total_commission,
+        'commission_20': commission_20,
+        'commission_80': commission_80,
+        'commission_4_of_80': commission_4_of_80,
         'plasada': plasada,
         'plasada_pct': plasada * 100,
     })
@@ -1919,6 +2082,36 @@ def admin_register_teller_cash_count(request):
             close_out.remit_transaction.transaction_id
             if close_out.remit_transaction else None
         ),
+    })
+
+
+@group_required('admin')
+def admin_reopen_teller_station(request):
+    """Admin endpoint: cancel an uncounted close-out and reopen the station."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    try:
+        close_out_id = int(str(request.POST.get('close_out_id', '')).strip())
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_close_out_id'}, status=400)
+
+    try:
+        teller = services.reopen_teller_station(close_out_id, request.user)
+    except services.CloseOutNotFoundError:
+        return JsonResponse({'ok': False, 'error': 'close_out_not_found'}, status=404)
+    except services.CloseOutAlreadyCountedError:
+        return JsonResponse({
+            'ok': False,
+            'error': 'already_counted',
+            'message': 'A reconciled close-out cannot be reopened.',
+        }, status=409)
+
+    notify_teller_online_status(teller.pk, True)
+    return JsonResponse({
+        'ok': True,
+        'teller_id': teller.pk,
+        'is_online': True,
     })
 
 

@@ -20,7 +20,7 @@
             ['Teller', cfg.tellerName || '—'],
             ['Closed Fight #', String(data.fightnum ?? cfg.currentFightnum ?? '—')],
             ['Gross Bets Collected', formatMoney(data.grand_total)],
-            ['Remitted', formatMoney(data.remit_total)],
+            ['Advanced', formatMoney(data.remit_total)],
             ['Borrowed', formatMoney(data.collect_total)],
             ['Payouts', formatMoney(data.payout_total)],
             ['Expected Cash On Hand', formatMoney(data.expected_cash_on_hand)],
