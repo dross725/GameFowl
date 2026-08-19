@@ -520,7 +520,29 @@ async function submitValue() {
                 "X-Requested-With": "XMLHttpRequest",
             },
         });
-        const result = await response.json();
+
+        const contentType = response.headers.get("content-type") || "";
+        let result = {};
+        if (contentType.includes("application/json")) {
+            result = await response.json();
+        } else {
+            const snippet = (await response.text()).slice(0, 200);
+            console.error("Non-JSON wager response:", response.status, snippet);
+            if (response.status === 403) {
+                alert(
+                    "Bet blocked (403). If the page loaded but bets fail, check "
+                    + "DJANGO_CSRF_TRUSTED_ORIGINS in .env — it must match this "
+                    + "browser URL exactly (include :8080)."
+                );
+            } else {
+                alert(
+                    "Unable to submit wager (HTTP " + response.status + "). "
+                    + "On the server run: python manage.py migrate "
+                    + "then check C:\\SmartWagers\\logs\\app.log"
+                );
+            }
+            return;
+        }
 
         if (!response.ok || !result.ok) {
             if (result.error === "betting_closed") {
@@ -556,7 +578,12 @@ async function submitValue() {
         submissionSucceeded = true;
         window.location.reload();
     } catch (error) {
-        alert("Unable to submit wager. Please check the connection and try again.");
+        console.error("Wager submit failed:", error);
+        alert(
+            "Unable to submit wager: "
+            + (error && error.message ? error.message : "request failed")
+            + ". Press F12 → Console for details, or check C:\\SmartWagers\\logs\\app.log on the server."
+        );
     } finally {
         if (!submissionSucceeded) {
             /* Only release the lock on failure/cancellation — the page is about

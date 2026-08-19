@@ -1526,6 +1526,14 @@ async function handleOnlineToggle(checkbox) {
     } else {
       if (TELLER_BALANCES[tid] !== undefined) {
         TELLER_BALANCES[tid].is_online = isOnline;
+        if (typeof data.balance === 'number') {
+          TELLER_BALANCES[tid].balance = data.balance;
+          updateTellerCard({
+            teller_id: Number(tid),
+            balance: data.balance,
+            grand_total: data.grand_total ?? TELLER_BALANCES[tid].balance,
+          });
+        }
       }
       updatePreEventFunding();
       refreshWarningBanner();
@@ -1680,5 +1688,20 @@ async function markTellerOnlineFromBanner(tid) {
 /* run on page load */
 attachModalAmountFormatters();
 refreshWarningBanner();
+
+(function () {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${window.location.host}/ws/administrator/`);
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.fight_status === 'event_changed') {
+        window.location.reload();
+      }
+    } catch (_) {
+      // Ignore malformed websocket payloads.
+    }
+  };
+})();
 </script>
 {% endblock content %}

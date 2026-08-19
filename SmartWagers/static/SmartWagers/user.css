@@ -115,9 +115,11 @@ textarea {
   margin: 6px 0 0;
 }
 
+#meron-betting-status,
+#wala-betting-status,
 #meron-betting-status h1,
 #wala-betting-status h1 {
-  font-size: 14px;
+  font-size: 19.2px;
   font-weight: 400;
   color: rgba(255, 255, 255, 0.5);
   margin-top: 3px;

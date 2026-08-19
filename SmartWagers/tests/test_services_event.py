@@ -7,6 +7,7 @@ _issue_initial_teller_funds.
 """
 
 import pytest
+from datetime import timedelta
 from django.utils.timezone import now
 from SmartWagers.models import (
     AdminBankTransaction, Event, TellerStatus, TellerTransaction, Wagers,
@@ -431,3 +432,171 @@ class TestResetTellerBalances:
         ).latest('id')
         assert settlement.amount == 500
         assert settlement.affects_admin_fund is False
+
+    def test_settles_last_ended_event_when_no_active_event(
+            self, default_settings, teller_user):
+        """End → Start workflow must settle the ended event, not lifetime history."""
+        event = Event.objects.create(name='Ended Event', is_active=False)
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=2500,
+            cashier=teller_user.username, registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+        event.ended_at = now()
+        event.save(update_fields=['ended_at'])
+
+        services._reset_teller_balances()
+
+        settlement = TellerTransaction.objects.get(
+            user=teller_user, transaction_type=TellerTransaction.REMIT,
+        )
+        expected_balance = (
+            2500 - 0 + default_settings.teller_initial_fund - 0
+        )
+        assert settlement.amount == pytest.approx(expected_balance)
+        assert settlement.affects_admin_fund is False
+
+    def test_end_then_start_settlement_included_in_ended_event_balance(
+            self, default_settings, teller_user, teller_status_online):
+        """Rollover txns after ended_at must zero the closed event's report balance."""
+        event = services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=2500,
+            cashier=teller_user.username, registered=True,
+        )
+        ended = services.end_event()
+        Event.objects.filter(pk=ended.pk).update(
+            ended_at=now() - timedelta(hours=1),
+        )
+        ended.refresh_from_db()
+
+        services.start_event('Event B')
+
+        balance = services._get_teller_outstanding_balance(
+            teller_user, event=ended, apply_end_bound=True,
+        )
+        assert balance == pytest.approx(0)
+
+
+@pytest.mark.django_db
+class TestOnlineTellerFreshBalanceOnEventStart:
+
+    def test_online_teller_balance_resets_to_initial_fund(
+            self, default_settings, teller_user, teller_status_online):
+        services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000,
+            cashier=teller_user.username, registered=True,
+        )
+        event_b = services.start_event('Event B')
+        balance = services._get_teller_outstanding_balance(
+            teller_user, event=event_b,
+        )
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_online_teller_balance_after_end_then_start(
+            self, default_settings, teller_user, teller_status_online):
+        services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000,
+            cashier=teller_user.username, registered=True,
+        )
+        services.end_event()
+        event_c = services.start_event('Event C')
+        balance = services._get_teller_outstanding_balance(
+            teller_user, event=event_c,
+        )
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_toggle_online_does_not_double_issue_opening_fund(
+            self, default_settings, teller_user, teller_status_online):
+        event = services.start_event('Event A')
+        opening_count = TellerTransaction.objects.filter(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            affects_admin_fund=False,
+            created_at__gte=event.started_at,
+        ).count()
+        assert opening_count == 1
+
+        status = TellerStatus.objects.get(user=teller_user)
+        status.is_online = False
+        status.save(update_fields=['is_online'])
+        status.is_online = True
+        status.save(update_fields=['is_online'])
+
+        if not services.teller_has_opening_fund_for_event(teller_user, event):
+            services._issue_initial_teller_funds()
+
+        opening_count = TellerTransaction.objects.filter(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            affects_admin_fund=False,
+            created_at__gte=event.started_at,
+        ).count()
+        assert opening_count == 1
+        balance = services._get_teller_outstanding_balance(
+            teller_user, event=event,
+        )
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+
+@pytest.mark.django_db
+class TestEventCashReconciliation:
+
+    def test_cash_reconciliation_matches_betting_surplus(
+            self, active_event, admin_user, teller_user, default_settings):
+        active_event.admin_opening_fund = 50000.0
+        active_event.save(update_fields=['admin_opening_fund'])
+
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000.0,
+            cashier=teller_user.username, registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=2000.0,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=1500.0,
+            received=True,
+            affects_admin_fund=False,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        teller_balance = services._get_teller_outstanding_balance(
+            teller_user, event=active_event,
+        )
+        admin_summary = services.get_admin_fund_summary(event=active_event)
+        recon = services.get_event_cash_reconciliation(
+            active_event,
+            teller_cash_on_hand=teller_balance,
+            total_bets_collected=5000.0,
+            total_opening_fund=default_settings.teller_initial_fund,
+            admin_fund_summary=admin_summary,
+            expected_commission=350.0,
+        )
+
+        assert recon['total_cash_on_hand'] == pytest.approx(
+            teller_balance + admin_summary['balance'],
+        )
+        assert recon['net_earnings'] == pytest.approx(recon['betting_surplus'])
+        assert recon['betting_surplus'] == pytest.approx(3000.0)
+        assert recon['surplus_vs_commission'] == pytest.approx(3000.0 - 350.0)

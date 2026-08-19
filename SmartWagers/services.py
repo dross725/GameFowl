@@ -478,6 +478,97 @@ def get_admin_fund_summary(event=None, apply_end_bound=True):
     }
 
 
+def get_event_cash_reconciliation(
+    event,
+    *,
+    teller_cash_on_hand,
+    total_bets_collected,
+    total_opening_fund,
+    admin_fund_summary,
+    expected_commission,
+    close_out_variance_total=0.0,
+):
+    """Reconcile physical cash (admin + tellers) against expected commission.
+
+    Two independent checks:
+      1. Betting surplus vs expected commission — same house take measured two
+         ways (wagers−payouts vs pot×plasada); variance should be ~0.
+      2. Net earnings (from cash position) vs betting surplus — physical cash
+         after stripping house capital; variance should be ~0 unless stations
+         were short/over at close-out (see close_out_variance_total).
+    """
+    from django.db.models import Sum
+
+    if event is None:
+        return None
+
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    teller_ids = User.objects.filter(
+        groups__name='teller',
+    ).exclude(
+        pk__in=admin_ids,
+    ).values_list('pk', flat=True)
+
+    txn_qs = TellerTransaction.objects.filter(
+        user_id__in=teller_ids,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+    remit_qs = txn_qs.filter(transaction_type=TellerTransaction.REMIT)
+    teller_remits_all = remit_qs.aggregate(total=Sum('amount'))['total'] or 0.0
+    # Cash that left teller stations but is not already in the admin fund balance.
+    remits_not_in_admin = (
+        remit_qs.exclude(received=True, affects_admin_fund=True)
+        .aggregate(total=Sum('amount'))['total'] or 0.0
+    )
+    total_payouts = TellerTransaction.objects.filter(
+        transaction_type=TellerTransaction.PAYOUT,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        total_payouts = total_payouts.filter(created_at__lte=event.ended_at)
+    total_payouts = total_payouts.aggregate(total=Sum('amount'))['total'] or 0.0
+
+    admin_cash = admin_fund_summary['balance']
+    total_cash = teller_cash_on_hand + admin_cash
+    net_bank = admin_fund_summary['net_bank_funding']
+    net_earnings = (
+        total_cash
+        + float(remits_not_in_admin)
+        - float(total_opening_fund)
+        - float(net_bank)
+    )
+    betting_surplus = float(total_bets_collected) - float(total_payouts)
+    surplus_vs_commission = betting_surplus - float(expected_commission)
+    close_out_variance = float(close_out_variance_total)
+    physical_net_earnings = net_earnings + close_out_variance
+
+    return {
+        'teller_cash_on_hand': round(float(teller_cash_on_hand), 2),
+        'admin_cash_on_hand': round(float(admin_cash), 2),
+        'total_cash_on_hand': round(float(total_cash), 2),
+        'opening_fund_total': round(float(total_opening_fund), 2),
+        'net_bank_funding': round(float(net_bank), 2),
+        'teller_remits_all': round(float(teller_remits_all), 2),
+        'remits_not_in_admin': round(float(remits_not_in_admin), 2),
+        'total_payouts': round(float(total_payouts), 2),
+        'betting_surplus': round(betting_surplus, 2),
+        'net_earnings': round(net_earnings, 2),
+        'expected_commission': round(float(expected_commission), 2),
+        'surplus_vs_commission': round(surplus_vs_commission, 2),
+        'earnings_vs_betting_surplus': round(net_earnings - betting_surplus, 2),
+        'close_out_variance_total': round(close_out_variance, 2),
+        'physical_net_earnings': round(physical_net_earnings, 2),
+        'physical_vs_commission': round(physical_net_earnings - float(expected_commission), 2),
+        # Kept for backwards compatibility in templates/tests.
+        'earnings_vs_commission': round(net_earnings - float(expected_commission), 2),
+    }
+
+
 def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     """Return the outstanding balance for a teller, optionally scoped to an event.
 
@@ -702,6 +793,46 @@ def _payout_exceeds_cash_on_hand(cashier_username, amount, transaction_id):
     return None
 
 
+def _closing_event_for_settlement():
+    """Return the event whose teller balances should be settled before a new event opens."""
+    active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+    if active_event is not None:
+        return active_event
+    return Event.objects.filter(is_active=False).order_by('-started_at').first()
+
+
+def teller_has_opening_fund_for_event(teller, event):
+    """Return True if *teller* already received opening float in *event*."""
+    return get_teller_opening_fund_total(teller, event) > 0
+
+
+def get_teller_opening_fund_total(teller, event, txn_qs=None):
+    """Return the opening float issued to *teller* within *event*."""
+    from django.db.models import Sum
+
+    if event is None:
+        return 0.0
+    setting = Settings.objects.order_by('-id').first()
+    initial_fund = setting.teller_initial_fund if setting else 10000.0
+    if initial_fund <= 0:
+        return 0.0
+
+    if txn_qs is None:
+        txn_qs = TellerTransaction.objects.filter(
+            user=teller,
+            created_at__gte=event.started_at,
+        )
+        if event.ended_at:
+            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+
+    total = txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT,
+        amount=round(initial_fund, 2),
+        affects_admin_fund=False,
+    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    return round(float(total), 2)
+
+
 def _reset_teller_balances():
     """Create a settlement transaction for every teller who has a non-zero
     outstanding balance.  These are created NOW (before the new event is
@@ -714,7 +845,15 @@ def _reset_teller_balances():
     These rollover entries are accounting-only. The outgoing event is settled
     with the bank, so they must not change the next event's shared admin fund.
     """
-    active_event = Event.objects.filter(is_active=True).order_by('-started_at').first()
+    closing_event = _closing_event_for_settlement()
+    if closing_event is None:
+        return
+
+    # Active events have no ended_at yet; already-ended events must include
+    # post-ended_at settlement rows in the closing event's report window.
+    already_ended = not closing_event.is_active
+    apply_end_bound = closing_event.is_active
+
     admin_ids = User.objects.filter(
         groups__name='admin',
     ).values_list('pk', flat=True)
@@ -722,10 +861,14 @@ def _reset_teller_balances():
         pk__in=admin_ids,
     )
 
+    created_settlements = False
     for cashier in cashiers:
-        balance = _get_teller_outstanding_balance(cashier, event=active_event)
+        balance = _get_teller_outstanding_balance(
+            cashier, event=closing_event, apply_end_bound=apply_end_bound,
+        )
         if balance == 0:
             continue
+        created_settlements = True
         if balance > 0:
             TellerTransaction.objects.create(
                 user=cashier,
@@ -741,6 +884,9 @@ def _reset_teller_balances():
                 amount=round(abs(balance), 2),
                 affects_admin_fund=False,
             )
+
+    if already_ended and created_settlements:
+        Event.objects.filter(pk=closing_event.pk).update(ended_at=now())
 
 
 def _issue_initial_teller_funds():
@@ -771,6 +917,8 @@ def _issue_initial_teller_funds():
         for teller in tellers:
             status, _ = TellerStatus.objects.get_or_create(user=teller)
             if not status.is_online:
+                continue
+            if teller_has_opening_fund_for_event(teller, get_active_event()):
                 continue
             TellerTransaction.objects.create(
                 user=teller,
@@ -807,9 +955,13 @@ def start_event(name):
 
         setting = Settings.objects.order_by('-id').first()
         admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
+        # Stamp started_at after settlement so rollover transactions never leak
+        # into the new event window on backends with coarse timestamps.
+        event_start = now()
         event = Event.objects.create(
             name=name,
             is_active=True,
+            started_at=event_start,
             admin_opening_fund=round(admin_opening_fund, 2),
         )
 
