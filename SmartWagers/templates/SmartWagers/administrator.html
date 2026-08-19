@@ -233,8 +233,8 @@
 {% endblock css_files %}
 
 {% block script_files %}
-<script src="{% static 'SmartWagers/administrator.js' %}?v=remit-reprint-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=remit-reprint-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=advance-labels-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=advance-labels-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
@@ -490,7 +490,7 @@
             <div class='modal-content'>
                 <h2>Reprint Receipt</h2>
                 <br>
-                <p>Enter bet or remit Transaction ID (e.g. 123, 000123, or R000123)</p>
+                <p>Enter bet or advance Transaction ID (e.g. 123, 000123, or R000123)</p>
                 <br>
                 <input type='text' id='reprint_transaction_id' placeholder='123 or R000123' inputmode='text' autocomplete='off'>
                 <br>
@@ -503,9 +503,9 @@
 
         <div id='receivedmodal' class='modal'>
             <div class='modal-content'>
-                <h2>Mark Remit Received</h2>
+                <h2>Mark Advance Received</h2>
                 <br>
-                <p>Scan or enter the Remit Transaction ID</p>
+                <p>Scan or enter the Advance Transaction ID</p>
                 <br>
                 <input type='text' id='received_txn_id' placeholder='e.g. R2026000001'
                        autocomplete='off' style='text-transform:uppercase;letter-spacing:1px;'
@@ -536,7 +536,7 @@
                         <strong id='admin-fund-borrowed'>₱ 0</strong>
                     </div>
                     <div class='admin-fund-stat'>
-                        <span>Remitted to Bank</span>
+                        <span>Advanced to Bank</span>
                         <strong id='admin-fund-remitted'>₱ 0</strong>
                     </div>
                 </div>
@@ -544,7 +544,7 @@
                        placeholder='Amount' autocomplete='off'>
                 <p id='admin-bank-status' style='min-height:1.2em;'></p>
                 <button id='admin-bank-borrow-btn' onclick='submitAdminBankTransaction("BORROW")'>Borrow from Bank</button>
-                <button id='admin-bank-remit-btn' onclick='submitAdminBankTransaction("REMIT")'>Remit to Bank</button>
+                <button id='admin-bank-remit-btn' onclick='submitAdminBankTransaction("REMIT")'>Advance to Bank</button>
                 <button onclick='closemodal("adminfundmodal")'>Close</button>
                 <div id='admin-bank-history'></div>
             </div>
@@ -579,7 +579,17 @@
         <div class='modal-content'>
             <h2>End Event</h2>
             <br>
-            <p>This will close the current event and generate a full teller totals report. Continue?</p>
+            <p>Count the shared admin cash before closing the event.</p>
+            <br>
+            <p>Expected cash on hand (before teller counts):
+                <strong id='endevent_expected_cash'>Loading…</strong>
+            </p>
+            <br>
+            <label for='endevent_actual_cash'>Actual cash on hand</label>
+            <input type='text' id='endevent_actual_cash' inputmode='decimal'
+                   placeholder='0.00' autocomplete='off'
+                   style='width:100%;box-sizing:border-box;'
+                   onkeydown="if(event.key==='Enter')submitEndEvent()">
             <br>
             <p id='endevent_status_msg' style='min-height:1.2em;'></p>
             <br>
@@ -633,7 +643,7 @@
         history.innerHTML = rows.length
             ? rows.map(txn => `
                 <div class="admin-bank-history-row">
-                    <strong>${txn.transaction_type}</strong>
+                    <strong>${txn.transaction_type === 'REMIT' ? 'ADVANCE' : txn.transaction_type}</strong>
                     <span>${_escHtml(txn.admin)}</span>
                     <span>${formatAdminFund(txn.amount)}</span>
                 </div>
@@ -701,10 +711,34 @@
             }
             renderAdminFund(data);
             input.value = '';
-            statusEl.style.color = '#2ecc71';
-            statusEl.textContent = transactionType === 'BORROW'
+            const successMessage = transactionType === 'BORROW'
                 ? 'Funds received from the bank.'
-                : 'Funds remitted to the bank.';
+                : 'Funds advanced to the bank.';
+            if (data.print_required !== false && data.created_transaction) {
+                statusEl.style.color = '';
+                statusEl.textContent = 'Printing admin and bank copies...';
+                const txn = data.created_transaction;
+                const printResult = await printRemitReceipt({
+                    receipt_scope: 'admin_bank',
+                    transaction_type: txn.transaction_type,
+                    transaction_id: txn.transaction_id,
+                    amount: txn.amount,
+                    balance: data.balance,
+                    cashier: txn.admin,
+                    event_name: data.event_name,
+                    date: txn.created_at,
+                });
+                if (!printResult.ok) {
+                    statusEl.style.color = '#e67e22';
+                    statusEl.textContent = `${successMessage} Receipt printing failed: ${printResult.message}`;
+                    return;
+                }
+                statusEl.style.color = '#2ecc71';
+                statusEl.textContent = `${successMessage} Admin and bank copies printed.`;
+            } else {
+                statusEl.style.color = '#2ecc71';
+                statusEl.textContent = `${successMessage} Receipt printing is disabled.`;
+            }
         } catch (err) {
             statusEl.style.color = '#e74c3c';
             statusEl.textContent = 'Network error. Check connection.';
@@ -748,7 +782,7 @@
             if (!data.ok) {
                 const msgs = {
                     not_found:        'Transaction ID not found.',
-                    not_a_remit:      'Only REMIT transactions can be marked received.',
+                    not_a_remit:      'Only ADVANCE transactions can be marked received.',
                     already_received: 'This transaction was already marked received.',
                 };
                 statusEl.style.color = '#e74c3c';
@@ -824,22 +858,48 @@
         }
     }
 
-    function openEndEventModal() {
+    async function openEndEventModal() {
+        const actualInput = document.getElementById('endevent_actual_cash');
+        const expectedEl = document.getElementById('endevent_expected_cash');
+        actualInput.value = '';
+        expectedEl.textContent = 'Loading…';
         document.getElementById('endevent_status_msg').innerText = '';
         document.getElementById('endevent_status_msg').style.color = '';
         document.getElementById('endevent_confirm_btn').disabled = false;
         document.getElementById('endeventmodal').style.display = 'flex';
+        try {
+            const res = await fetch(ADMIN_FUND_STATUS_URL, {
+                headers: { 'Accept': 'application/json' },
+            });
+            const data = await res.json();
+            expectedEl.textContent = data.ok && data.active
+                ? formatAdminFund(data.balance_before_closeouts)
+                : 'Unavailable';
+        } catch (err) {
+            expectedEl.textContent = 'Unavailable';
+        }
+        setTimeout(() => actualInput.focus(), 80);
     }
 
     async function submitEndEvent() {
         const statusEl = document.getElementById('endevent_status_msg');
         const btn      = document.getElementById('endevent_confirm_btn');
+        const actualInput = document.getElementById('endevent_actual_cash');
+        const actualCash = Number(actualInput.value.replace(/,/g, ''));
+
+        if (!Number.isFinite(actualCash) || actualCash < 0 || !actualInput.value.trim()) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Enter a valid non-negative cash amount.';
+            actualInput.focus();
+            return;
+        }
 
         btn.disabled = true;
         statusEl.style.color = '';
         statusEl.innerText = 'Ending event…';
 
         const fd = new FormData();
+        fd.append('actual_admin_cash', actualCash.toString());
         fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
 
         try {
@@ -847,7 +907,10 @@
             const data = await res.json();
 
             if (!data.ok) {
-                const msgs = { no_active_event: 'No active event to end.' };
+                const msgs = {
+                    no_active_event: 'No active event to end.',
+                    invalid_actual_admin_cash: 'Enter a valid non-negative cash amount.',
+                };
                 statusEl.style.color = '#e74c3c';
                 statusEl.innerText = msgs[data.error] || ('Error: ' + data.error);
                 btn.disabled = false;
@@ -932,7 +995,7 @@
                     item.innerHTML = `
                         <span class="tap-item-name">${_escHtml(a.name)}</span>
                         <span class="tap-item-balance over">${_fmtBal(a.balance)}</span>
-                        <span class="tap-item-tag remit-tag">Remit</span>
+                        <span class="tap-item-tag remit-tag">Advance</span>
                     `;
                 } else {
                     // borrow / low on-hand

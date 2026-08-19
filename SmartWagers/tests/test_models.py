@@ -227,7 +227,7 @@ class TestTellerTransactionModel:
         )
         s = str(txn)
         assert teller_user.username in s
-        assert 'REMIT' in s
+        assert 'Advance' in s
 
 
 # ---------------------------------------------------------------------------

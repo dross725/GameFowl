@@ -6,7 +6,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
-AGENT_VERSION = "1.10-big-barcode"
+AGENT_VERSION = "1.13-admin-bank-copies"
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8765,
@@ -157,22 +157,28 @@ def is_bet_receipt(receipt):
     return receipt_type(receipt) == "wager"
 
 
+def is_test_receipt(receipt):
+    return receipt_type(receipt) == "test" or receipt.get("test_print") is True
+
+
 def is_teller_remit_receipt(receipt):
     """Only REMIT (not COLLECT) keeps a barcode."""
     return str(receipt.get("transaction_type", "REMIT")).upper() == "REMIT"
 
 
 def should_print_barcode(receipt):
-    return is_bet_receipt(receipt)
+    return is_bet_receipt(receipt) or is_test_receipt(receipt)
 
 
 def should_print_transaction_id(receipt):
     # Cancel, payout, and refund slips omit txn id to save paper.
-    return is_bet_receipt(receipt)
+    return is_bet_receipt(receipt) or is_test_receipt(receipt)
 
 
 def receipt_title(receipt):
     kind = receipt_type(receipt)
+    if is_test_receipt(receipt):
+        return "PRINTER TEST"
     if kind == "cancel":
         return "CANCEL RECEIPT"
     if kind == "wager":
@@ -202,7 +208,8 @@ def escpos_receipt(
     fightnum = str(receipt.get("fightnum", ""))
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
-    is_wager = is_wager_style_receipt(receipt)
+    is_test = is_test_receipt(receipt)
+    is_wager = is_wager_style_receipt(receipt) and not is_test
     is_refund = is_refund_receipt(receipt)
     show_txn = should_print_transaction_id(receipt) and bool(transaction_id)
     show_barcode = should_print_barcode(receipt) and bool(transaction_id)
@@ -218,13 +225,20 @@ def escpos_receipt(
     output += text_line(date, code_page)
     output += b"\x1bE\x01"
     output += text_line(receipt_title(receipt), code_page)
-    output += text_line(f"Fight Number: {fightnum}", code_page)
+    if is_test:
+        output += text_line(f"Teller: {cashier}", code_page)
+        output += text_line("Current Total:", code_page)
+        output += b"\x1d!\x11"  # Double width + double height
+        output += text_line(amount, code_page)
+        output += b"\x1d!\x00"  # Back to normal size
+    else:
+        output += text_line(f"Fight Number: {fightnum}", code_page)
     if is_wager:
         output += b"\x1d!\x11"  # Double width + double height
         output += text_line(side, code_page)
         output += text_line(f"Amount: {amount}", code_page)
         output += b"\x1d!\x00"  # Back to normal size
-    else:
+    elif not is_test:
         output += b"\x1d!\x11"  # Double width + double height
         output += text_line(f"{side} - {odds}", code_page)
         output += b"\x1d!\x00"  # Back to normal size
@@ -235,7 +249,8 @@ def escpos_receipt(
         output += text_line(total_payout, code_page)
         output += b"\x1d!\x00"  # Back to normal size
     output += b"\x1bE\x00"
-    output += text_line(f"Cashier: {cashier}", code_page)
+    if not is_test:
+        output += text_line(f"Cashier: {cashier}", code_page)
     if show_txn:
         output += text_line(f"{transaction_id}", code_page)
 
@@ -446,7 +461,8 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
     fightnum = str(receipt.get("fightnum", ""))
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
-    is_wager = is_wager_style_receipt(receipt)
+    is_test = is_test_receipt(receipt)
+    is_wager = is_wager_style_receipt(receipt) and not is_test
     is_refund = is_refund_receipt(receipt)
     show_txn = should_print_transaction_id(receipt) and bool(transaction_id)
     show_barcode = should_print_barcode(receipt) and bool(transaction_id)
@@ -505,17 +521,22 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
             draw_line(event_name, bold_font, tight_gap)
         draw_line(date, normal_font, tight_gap)
         draw_line(receipt_title(receipt), bold_font, tight_gap)
-        draw_line(f"Fight Number: {fightnum}", bold_font)
+        if is_test:
+            draw_line(f"Teller: {cashier}", bold_font)
+            draw_line(f"Current Total: {amount}", highlight_font)
+        else:
+            draw_line(f"Fight Number: {fightnum}", bold_font)
         if is_wager:
             draw_line(side, highlight_font)
             draw_line(f"Amount: {amount}", highlight_font)
-        else:
+        elif not is_test:
             draw_line(f"{side} - {odds}", highlight_font)
             draw_line(f"Amount: {amount}", bold_font)
             draw_line(f"Odds: {multiplier}", bold_font)
             draw_line("Refund Amount:" if is_refund else "Payout Amount:", bold_font)
             draw_line(total_payout, highlight_font)
-        draw_line(f"Cashier: {cashier}", normal_font, tight_gap)
+        if not is_test:
+            draw_line(f"Cashier: {cashier}", normal_font, tight_gap)
         if show_txn:
             draw_line(f"{transaction_id}", normal_font, tight_gap)
         if show_barcode:
@@ -557,7 +578,16 @@ def print_receipt(config, printer_name, receipt):
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
 
 
-# ── Remit / Collect receipts ──────────────────────────────
+# ── Advance / Borrow receipts ─────────────────────────────
+
+TELLER_TRANSACTION_RECEIPT_COPIES = ("TELLERS COPY", "ADMIN COPY")
+ADMIN_BANK_RECEIPT_COPIES = ("ADMIN COPY", "BANK COPY")
+
+
+def transaction_receipt_copies(receipt):
+    if receipt.get("receipt_scope") == "admin_bank":
+        return ADMIN_BANK_RECEIPT_COPIES
+    return TELLER_TRANSACTION_RECEIPT_COPIES
 
 def escpos_remit_receipt(
     receipt,
@@ -574,35 +604,44 @@ def escpos_remit_receipt(
     grand_total = money(receipt.get("grand_total"))
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
-    show_barcode = is_teller_remit_receipt(receipt) and bool(transaction_id)
+    event_name = str(receipt.get("event_name", ""))
+    is_admin_bank = receipt.get("receipt_scope") == "admin_bank"
+    show_barcode = (
+        not is_admin_bank
+        and is_teller_remit_receipt(receipt)
+        and bool(transaction_id)
+    )
     align = escpos_align_byte(text_align)
 
     label = "ADVANCE RECEIPT" if transaction_type == "REMIT" else "BORROW RECEIPT"
-    action_line = f"*** {transaction_type} ***"
-
     output = bytearray()
-    output += escpos_page_setup(paper_width_dots)
-    output += align
-    output += text_line(date, code_page)
-    output += b"\x1bE\x01"
-    output += text_line(label, code_page)
-    output += b"\x1bE\x00"
-    output += b"\x1ba\x00"   # Detail lines always left for columns
-    output += text_line(f"Teller   : {cashier}", code_page)
-    output += text_line(f"Amount   : {amount}", code_page)
-    output += text_line(f"Balance  : {balance}", code_page)
-    if transaction_id:
-        output += text_line(f"Txn ID   : {transaction_id}", code_page)
-
-    if show_barcode:
+    for copy_label in transaction_receipt_copies(receipt):
+        output += escpos_page_setup(paper_width_dots)
         output += align
-        output += escpos_barcode(
-            transaction_id,
-            module_width=barcode_module_width,
-            height=barcode_height,
-        )
+        output += text_line(date, code_page)
+        output += b"\x1bE\x01"
+        output += text_line(label, code_page)
+        output += text_line(copy_label, code_page)
+        output += b"\x1bE\x00"
+        output += b"\x1ba\x00"   # Detail lines always left for columns
+        if event_name:
+            output += text_line(f"Event    : {event_name}", code_page)
+        actor_label = "Admin" if is_admin_bank else "Teller"
+        output += text_line(f"{actor_label:<9}: {cashier}", code_page)
+        output += text_line(f"Amount   : {amount}", code_page)
+        output += text_line(f"Balance  : {balance}", code_page)
+        if transaction_id:
+            output += text_line(f"Txn ID   : {transaction_id}", code_page)
 
-    output += b"\x1dV\x42\x00"  # Partial cut
+        if show_barcode:
+            output += align
+            output += escpos_barcode(
+                transaction_id,
+                module_width=barcode_module_width,
+                height=barcode_height,
+            )
+
+        output += b"\x1dV\x42\x00"  # Partial cut between copies
     return bytes(output)
 
 
@@ -617,9 +656,15 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
     grand_total = money(receipt.get("grand_total"))
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
+    event_name = str(receipt.get("event_name", ""))
+    is_admin_bank = receipt.get("receipt_scope") == "admin_bank"
 
-    label = "REMIT RECEIPT" if transaction_type == "REMIT" else "COLLECT RECEIPT"
-    show_barcode = is_teller_remit_receipt(receipt) and bool(transaction_id)
+    label = "ADVANCE RECEIPT" if transaction_type == "REMIT" else "BORROW RECEIPT"
+    show_barcode = (
+        not is_admin_bank
+        and is_teller_remit_receipt(receipt)
+        and bool(transaction_id)
+    )
     align_left = str(text_align or "left").strip().lower() != "center"
 
     dc = win32ui.CreateDC()
@@ -628,7 +673,8 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
     dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
     page_width = dc.GetDeviceCaps(win32con.HORZRES)
     margin_x = max(int(dpi_x * 0.10), 20)
-    y = max(int(dpi_y * 0.04), 8)
+    top_margin = max(int(dpi_y * 0.04), 8)
+    y = top_margin
     line_gap = int(dpi_y * 0.04 * font_scale)
     tight_gap = max(int(dpi_y * 0.015 * font_scale), 2)
 
@@ -666,25 +712,30 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
         dc.TextOut(margin_x, y, text)
         y += text_height + gap
 
-    start_print_doc(dc, "SmartWagers Remit Receipt")
+    start_print_doc(dc, f"SmartWagers {label.title()}")
     try:
-        dc.StartPage()
-        draw_header(date, normal_font, tight_gap)
-        draw_header(label, bold_font, tight_gap)
-        draw_header(f"*** {transaction_type} ***", bold_font)
-        draw_left(f"Teller    : {cashier}")
-        draw_left(f"Amount    : {amount}")
-        draw_left(f"Balance   : {balance}")
-        draw_left(f"Grand Tot : {grand_total}")
-        if transaction_id:
-            draw_left(f"Txn ID    : {transaction_id}", gap=tight_gap)
-        if show_barcode:
-            barcode_width = code39_width(transaction_id, barcode_narrow)
-            barcode_x = margin_x if align_left else max(int((page_width - barcode_width) / 2), margin_x)
-            draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
-            y += barcode_height + tight_gap
-            draw_header(transaction_id, barcode_font, tight_gap)
-        dc.EndPage()
+        for copy_label in transaction_receipt_copies(receipt):
+            y = top_margin
+            dc.StartPage()
+            draw_header(date, normal_font, tight_gap)
+            draw_header(label, bold_font, tight_gap)
+            draw_header(copy_label, bold_font)
+            if event_name:
+                draw_left(f"Event     : {event_name}")
+            actor_label = "Admin" if is_admin_bank else "Teller"
+            draw_left(f"{actor_label:<10}: {cashier}")
+            draw_left(f"Amount    : {amount}")
+            draw_left(f"Balance   : {balance}")
+            draw_left(f"Grand Tot : {grand_total}")
+            if transaction_id:
+                draw_left(f"Txn ID    : {transaction_id}", gap=tight_gap)
+            if show_barcode:
+                barcode_width = code39_width(transaction_id, barcode_narrow)
+                barcode_x = margin_x if align_left else max(int((page_width - barcode_width) / 2), margin_x)
+                draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
+                y += barcode_height + tight_gap
+                draw_header(transaction_id, barcode_font, tight_gap)
+            dc.EndPage()
     finally:
         dc.EndDoc()
         dc.DeleteDC()

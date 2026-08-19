@@ -875,9 +875,12 @@ async function reprintReceipt() {
         }
 
         const isRemit = data.receipt_type === 'remit';
-        statusMsg.innerText = isRemit
-            ? 'Remit found. Sending to printer...'
-            : 'Transaction found. Sending to printer...';
+        const isTest = data.receipt_type === 'test';
+        statusMsg.innerText = isTest
+            ? 'Sending test receipt to printer...'
+            : (isRemit
+                ? 'Advance found. Sending to printer...'
+                : 'Transaction found. Sending to printer...');
 
         let printResult;
         if (data.print_required !== false) {
@@ -891,12 +894,14 @@ async function reprintReceipt() {
         }
 
         closemodal('reprintmodal');
-        document.getElementById('payout_success_header').innerText = isRemit
-            ? 'Reprint Remit Receipt'
-            : 'Reprint Receipt';
-        document.getElementById('payout_message1').innerText = 'Transaction ID: ' + (
-            (data.receipt && data.receipt.transaction_id) || transactionId
-        );
+        document.getElementById('payout_success_header').innerText = isTest
+            ? 'Printer Test'
+            : (isRemit ? 'Reprint Advance Receipt' : 'Reprint Receipt');
+        document.getElementById('payout_message1').innerText = isTest
+            ? 'Test barcode value: test'
+            : 'Transaction ID: ' + (
+                (data.receipt && data.receipt.transaction_id) || transactionId
+            );
         document.getElementById('payout_message2').innerText = printResult.ok
             ? 'Receipt sent to printer successfully.'
             : 'Print failed: ' + printResult.message;

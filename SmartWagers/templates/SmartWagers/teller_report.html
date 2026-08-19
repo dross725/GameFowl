@@ -568,8 +568,8 @@
     tellerName: "{{ teller_name|escapejs }}",
   };
 </script>
-<script src="{% static 'SmartWagers/submit_wagers.js' %}?v=print-after-reload-1"></script>
-<script src="{% static 'SmartWagers/teller_report.js' %}?v=1"></script>
+<script src="{% static 'SmartWagers/submit_wagers.js' %}?v=advance-labels-1"></script>
+<script src="{% static 'SmartWagers/teller_report.js' %}?v=advance-labels-1"></script>
 <script>
 async function reprintFromReport(btn, transactionId) {
     btn.disabled = true;

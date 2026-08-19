@@ -12,9 +12,9 @@
         window.TELLER_IS_ONLINE = {{ teller_is_online|yesno:"true,false" }};
         window.TELLER_STATION_CLOSED = {{ teller_station_closed|yesno:"true,false" }};
     </script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=remit-reprint-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=remit-reprint-1"></script>
-    <script src="{% static 'SmartWagers/user.js' %}?v=remit-reprint-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=advance-labels-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=advance-labels-1"></script>
+    <script src="{% static 'SmartWagers/user.js' %}?v=advance-labels-1"></script>
 {% endblock script_files %}
 
 {% block content %}
@@ -256,9 +256,9 @@
             <div class='modal-content'>
                 <h2>Reprint Receipt</h2>
                 <br>
-                <p>Enter bet or remit Transaction ID (e.g. 123, 000123, or R000123)</p>
+                <p>Enter a bet/advance Transaction ID, or enter "test" for a printer test.</p>
                 <br>
-                <input type='text' id='reprint_transaction_id' placeholder='123 or R000123' inputmode='text' autocomplete='off'>
+                <input type='text' id='reprint_transaction_id' placeholder='123, R000123, or test' inputmode='text' autocomplete='off'>
                 <br>
                 <p id='reprint_status_message' style='min-height:1.2em;'></p>
                 <br>
@@ -276,11 +276,11 @@
                 <p style='margin-top:10px;'>Current On-Hand Balance</p>
                 <div id='balance_display'>₱ 0</div>
                 <br>
-                <p>Enter amount to remit:</p>
+                <p>Enter advance amount:</p>
                 <input type='text' inputmode='numeric' id='balance_amount' placeholder='0' autocomplete='off'>
                 <p id='balance_status_message' style='min-height:1.2em;'></p>
                 <br>
-                <button id='balance_remit_btn' onclick='submitTellerTransaction("REMIT")'>Remit</button>
+                <button id='balance_remit_btn' onclick='submitTellerTransaction("REMIT")'>Advance</button>
                 <button id='balance_cancel_btn' onclick='closemodal("balancemodal")'>Cancel</button>
             </div>
         </div>
