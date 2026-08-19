@@ -368,7 +368,13 @@ def notify_bet_updates():
         'fightnum': fightnum,
     }
     for group in ["index", "user", "administrator"]:
-        async_to_sync(channel_layer.group_send)(group, payload)
+        try:
+            async_to_sync(channel_layer.group_send)(group, payload)
+        except Exception:
+            logger.exception(
+                "notify_bet_updates: broadcast to %s failed — wager was still saved",
+                group,
+            )
 
 def notify_event_change():
     """Broadcast an event-state change to all connected clients so they re-poll get_fight_status_view."""
@@ -377,17 +383,23 @@ def notify_event_change():
         return
     overall_status, meron_status, wala_status, fightnum = services.get_fight_status()
     for group in ["administrator", "user", "index"]:
-        async_to_sync(channel_layer.group_send)(
-            group,
-            {
-                'type': 'send_data',
-                'fight_status': 'event_changed',
-                'overall_status': overall_status,
-                'meron_status': meron_status,
-                'wala_status': wala_status,
-                'fightnum': fightnum,
-            }
-        )
+        try:
+            async_to_sync(channel_layer.group_send)(
+                group,
+                {
+                    'type': 'send_data',
+                    'fight_status': 'event_changed',
+                    'overall_status': overall_status,
+                    'meron_status': meron_status,
+                    'wala_status': wala_status,
+                    'fightnum': fightnum,
+                },
+            )
+        except Exception:
+            logger.exception(
+                "notify_event_change: broadcast to %s failed",
+                group,
+            )
 
 def wager_ajax_response(saved_wager, duplicate=False):
     meron_total, meron_payout, wala_total, wala_payout, total_bet, fightnum = services.get_Totals()
@@ -778,7 +790,9 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True):
     return balance, grand_total
 
 
-def _build_event_user_stats(user, event, unclaimed_by_cashier, close_out=None):
+def _build_event_user_stats(
+    user, event, unclaimed_by_cashier, close_out=None, *, admin_fund_mode=False,
+):
     """Aggregate bet and transaction stats for one user within an event."""
     balance, grand_total = _compute_teller_balance(user, event=event)
     username = str(user)
@@ -805,16 +819,29 @@ def _build_event_user_stats(user, event, unclaimed_by_cashier, close_out=None):
     if event.ended_at:
         txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
 
+    payout_filter = Q(transaction_type=TellerTransaction.PAYOUT)
+    if admin_fund_mode:
+        payout_filter &= Q(affects_admin_fund=True)
+
     txn_stats = txn_qs.aggregate(
         remit_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.REMIT)),
         collect_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.COLLECT)),
-        payout_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.PAYOUT)),
+        payout_total=Sum('amount', filter=payout_filter),
     )
     opening_fund_total = services.get_teller_opening_fund_total(
         user, event, txn_qs=txn_qs,
     )
 
     unclaimed_info = unclaimed_by_cashier.get(username, {'count': 0, 'total': 0.0})
+    payout_total = txn_stats['payout_total'] or 0.0
+    bank_borrowed = 0.0
+    if admin_fund_mode:
+        balance = grand_total - payout_total
+        bank_borrowed = AdminBankTransaction.objects.filter(
+            event=event,
+            admin=user,
+            transaction_type=AdminBankTransaction.BORROW,
+        ).aggregate(total=Sum('amount'))['total'] or 0.0
 
     return {
         'user': user,
@@ -825,7 +852,7 @@ def _build_event_user_stats(user, event, unclaimed_by_cashier, close_out=None):
         'grand_total': grand_total,
         'meron_total': bet_stats['meron_total'] or 0.0,
         'wala_total': bet_stats['wala_total'] or 0.0,
-        'payout_total': txn_stats['payout_total'] or 0.0,
+        'payout_total': payout_total,
         'remit_total': txn_stats['remit_total'] or 0.0,
         'collect_total': txn_stats['collect_total'] or 0.0,
         'opening_fund_total': opening_fund_total,
@@ -833,6 +860,8 @@ def _build_event_user_stats(user, event, unclaimed_by_cashier, close_out=None):
         'unclaimed_total': unclaimed_info['total'],
         'balance': balance,
         'close_out': close_out,
+        'admin_fund_mode': admin_fund_mode,
+        'bank_borrowed': bank_borrowed,
     }
 
 
@@ -1310,6 +1339,7 @@ def admin_event_report(request):
             'event': None,
             'all_events': all_events,
             'total_opening_fund_all': 0.0,
+            'total_opening_fund_recon': 0.0,
             'teller_initial_fund': 0.0,
         })
 
@@ -1393,7 +1423,6 @@ def admin_event_report(request):
     grand_total_all = 0.0
     total_unclaimed_all = 0.0
     total_bets_count_all = 0
-    total_variance_all = 0.0
     total_opening_fund_all = 0.0
 
     close_outs = {
@@ -1401,41 +1430,103 @@ def admin_event_report(request):
         for co in TellerCloseOut.objects.filter(event=event).select_related('user')
     }
 
+    teller_grand_total_all = 0.0
+    teller_cash_on_hand_recon = 0.0
+    total_opening_fund_recon = 0.0
+    teller_station_count = 0
     for teller in tellers:
         stats = _build_event_user_stats(
             teller, event, unclaimed_by_cashier,
             close_out=close_outs.get(teller.pk),
         )
+        stats['is_admin_account'] = False
+        teller_cash_on_hand_recon += stats['balance']
+        total_opening_fund_recon += stats['opening_fund_total']
+        if stats['bet_count'] <= 0:
+            continue
         teller_data.append(stats)
+        teller_station_count += 1
         grand_total_all += stats['grand_total']
+        teller_grand_total_all += stats['grand_total']
         total_unclaimed_all += stats['unclaimed_total']
         total_bets_count_all += stats['bet_count']
         total_opening_fund_all += stats['opening_fund_total']
-        close_out = stats['close_out']
-        if close_out is not None and close_out.variance is not None:
+
+    admin_bets_in_teller_section = 0.0
+    for admin in User.objects.filter(groups__name='admin').order_by('username'):
+        stats = _build_event_user_stats(
+            admin, event, unclaimed_by_cashier,
+        )
+        if stats['bet_count'] <= 0:
+            continue
+        stats['is_admin_account'] = True
+        teller_data.append(stats)
+        grand_total_all += stats['grand_total']
+        admin_bets_in_teller_section += stats['grand_total']
+        total_unclaimed_all += stats['unclaimed_total']
+        total_bets_count_all += stats['bet_count']
+
+    admin_bets_station_count = sum(
+        1 for row in teller_data if row.get('is_admin_account')
+    )
+
+    total_on_hand_all = 0.0
+    total_expected_all = 0.0
+    total_actual_all = 0.0
+    total_variance_all = 0.0
+    for row in teller_data:
+        total_on_hand_all += row['balance']
+        if row.get('is_admin_account'):
+            continue
+        close_out = row.get('close_out')
+        if close_out is None:
+            continue
+        total_expected_all += close_out.expected_cash_on_hand or 0.0
+        if close_out.actual_cash_counted is not None:
+            total_actual_all += close_out.actual_cash_counted
+        if close_out.variance is not None:
             total_variance_all += close_out.variance
 
     event_closed = not event.is_active or event.ended_at is not None
     admin_data = []
-    admin_grand_total_all = 0.0
     admin_unclaimed_all = 0.0
     admin_bets_count_all = 0
-    admin_payout_all = 0.0
-    admin_fund_summary = None
+    admin_bank_borrowed_all = 0.0
+    admin_fund_summary = services.get_admin_fund_summary(
+        event=event, apply_end_bound=True,
+    )
 
     if event_closed:
         admins = User.objects.filter(groups__name='admin').order_by('username')
         for admin in admins:
-            stats = _build_event_user_stats(admin, event, unclaimed_by_cashier)
-            if not (stats['bet_count'] or stats['payout_total'] or stats['unclaimed_count']):
+            stats = _build_event_user_stats(
+                admin, event, unclaimed_by_cashier, admin_fund_mode=True,
+            )
+            if not (
+                stats['bet_count']
+                or stats['payout_total']
+                or stats['unclaimed_count']
+                or stats['bank_borrowed']
+            ):
                 continue
             admin_data.append(stats)
-            admin_grand_total_all += stats['grand_total']
             admin_unclaimed_all += stats['unclaimed_total']
             admin_bets_count_all += stats['bet_count']
-            admin_payout_all += stats['payout_total']
-        admin_fund_summary = services.get_admin_fund_summary(
-            event=event, apply_end_bound=True,
+            admin_bank_borrowed_all += stats['bank_borrowed']
+
+    total_bets_collected_all = teller_grand_total_all + admin_fund_summary['admin_wagers']
+    teller_cash_on_hand_all = teller_cash_on_hand_recon
+
+    cash_reconciliation = None
+    if event_closed:
+        cash_reconciliation = services.get_event_cash_reconciliation(
+            event,
+            teller_cash_on_hand=teller_cash_on_hand_all,
+            total_bets_collected=total_bets_collected_all,
+            total_opening_fund=total_opening_fund_recon,
+            admin_fund_summary=admin_fund_summary,
+            expected_commission=total_commission,
+            close_out_variance_total=total_variance_all,
         )
 
     setting = Settings.objects.order_by('-id').first()
@@ -1446,18 +1537,27 @@ def admin_event_report(request):
         'all_events': all_events,
         'event_closed': event_closed,
         'teller_data': teller_data,
+        'teller_station_count': teller_station_count,
+        'admin_bets_station_count': admin_bets_station_count,
         'grand_total_all': grand_total_all,
+        'teller_grand_total_all': teller_grand_total_all,
+        'admin_bets_in_teller_section': admin_bets_in_teller_section,
+        'total_bets_collected_all': total_bets_collected_all,
         'total_unclaimed_all': total_unclaimed_all,
         'total_bets_count_all': total_bets_count_all,
         'total_opening_fund_all': total_opening_fund_all,
+        'total_opening_fund_recon': total_opening_fund_recon,
+        'total_on_hand_all': total_on_hand_all,
+        'total_expected_all': total_expected_all,
+        'total_actual_all': total_actual_all,
         'total_variance_all': total_variance_all,
         'teller_initial_fund': teller_initial_fund,
         'admin_data': admin_data,
-        'admin_grand_total_all': admin_grand_total_all,
         'admin_unclaimed_all': admin_unclaimed_all,
         'admin_bets_count_all': admin_bets_count_all,
-        'admin_payout_all': admin_payout_all,
+        'admin_bank_borrowed_all': admin_bank_borrowed_all,
         'admin_fund_summary': admin_fund_summary,
+        'cash_reconciliation': cash_reconciliation,
         'unclaimed_detail_list': unclaimed_detail_list,
         'fight_commissions': fight_commissions,
         'total_pot_all': total_pot_all,
