@@ -87,23 +87,13 @@ function update_disp_FightStatus(status) {
 }
 
 function update_side_status(side, side_status) {
-    console.log ("Updating side status! ")
+    const elementId = side === "MERON" ? "meron-betting-status" : "wala-betting-status";
+    const betting_status = document.getElementById(elementId);
+    if (!betting_status) return;
 
-    if (side == "MERON"){
-        const meron_betting_status = document.getElementById("meron-betting-status");
-        meron_betting_status.innerText = side_status; 
-        meron_betting_status.style.backgroundColor = side_status === "OPEN" ? "rgba(7, 248, 2, 0.573)" : "rgba(248, 7, 7, 0.573)";
-        meron_betting_status.style.textAlign = "center";
-        meron_betting_status.style.fontSize = "30px";
-        meron_betting_status.style.fontWeight = "bold";
-    } else if (side == "WALA"){
-        const wala_betting_status = document.getElementById("wala-betting-status");
-        wala_betting_status.innerText = side_status;
-        wala_betting_status.style.backgroundColor = side_status === "OPEN" ? "rgba(7, 248, 2, 0.573)" : "rgba(248, 7, 7, 0.573)";
-        wala_betting_status.style.textAlign = "center";
-        wala_betting_status.style.fontSize = "30px";
-        wala_betting_status.style.fontWeight = "bold";
-    }
+    betting_status.textContent = side_status;
+    betting_status.classList.remove("status-open", "status-closed");
+    betting_status.classList.add(side_status === "OPEN" ? "status-open" : "status-closed");
 }
 
 async function update_trends() {

@@ -114,10 +114,30 @@
   margin-top: 0;
 }
 
-/* ── Betting status (hidden on display board) ────────────── */
+/* ── Betting status ──────────────────────────────────────── */
+#meron-betting-status,
+#wala-betting-status,
 #meron-betting-status h1,
 #wala-betting-status h1 {
-  display: none;
+  font-size: clamp(35px, 6.875vw, 90px);
+  font-weight: 800;
+  text-align: center;
+  line-height: 1.1;
+  letter-spacing: 1px;
+  margin-top: 12px;
+  padding: 13px 55px;
+  border-radius: 18px;
+  color: white;
+}
+
+#meron-betting-status.status-open,
+#wala-betting-status.status-open {
+  background-color: rgba(7, 248, 2, 0.573);
+}
+
+#meron-betting-status.status-closed,
+#wala-betting-status.status-closed {
+  background-color: rgba(248, 7, 7, 0.573);
 }
 
 /* ── Mobile ──────────────────────────────────────────────── */
@@ -144,5 +164,14 @@
     width: 90%;
     max-width: 280px;
     padding: 10px 24px;
+  }
+
+  #meron-betting-status,
+  #wala-betting-status,
+  #meron-betting-status h1,
+  #wala-betting-status h1 {
+    font-size: clamp(22px, 7vw, 40px);
+    padding: 10px 24px;
+    margin-top: 8px;
   }
 }
