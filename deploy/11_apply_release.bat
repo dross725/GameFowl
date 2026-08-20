@@ -17,6 +17,10 @@ set MANIFEST=%PROJECT_DIR%\deploy\.last_sync_manifest
 set NSSM=C:\SmartWagers\nssm\nssm.exe
 set SERVICE=SmartWagers-Daphne
 set LOG_DIR=C:\SmartWagers\logs
+set PYTHON_PATH_FILE=%PROJECT_DIR%\deploy\python_path.txt
+
+set PYTHON_EXE=python
+if exist "%PYTHON_PATH_FILE%" set /p PYTHON_EXE=<"%PYTHON_PATH_FILE%"
 
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
@@ -54,7 +58,7 @@ if "%RUN_RESTART%"=="1" set RUN_MIGRATE=1
 if "%RUN_MIGRATE%"=="1" (
     echo Running database migrations...
     echo [%date% %time%] migrate>> "%LOG_DIR%\deploy_apply.log"
-    python manage.py migrate
+    "%PYTHON_EXE%" manage.py migrate
     if errorlevel 1 (
         echo ERROR: migrate failed.
         echo [%date% %time%] ERROR migrate failed>> "%LOG_DIR%\deploy_apply.log"
@@ -67,7 +71,7 @@ if "%RUN_MIGRATE%"=="1" (
 if "%RUN_COLLECTSTATIC%"=="1" (
     echo Collecting static files...
     echo [%date% %time%] collectstatic>> "%LOG_DIR%\deploy_apply.log"
-    python manage.py collectstatic --no-input
+    "%PYTHON_EXE%" manage.py collectstatic --no-input
     if errorlevel 1 (
         echo ERROR: collectstatic failed.
         echo [%date% %time%] ERROR collectstatic failed>> "%LOG_DIR%\deploy_apply.log"

@@ -1,5 +1,7 @@
 """Tests for teller station close-out flow."""
 
+from html.parser import HTMLParser
+
 import pytest
 from django.test import Client
 from django.utils.timezone import now
@@ -38,6 +40,34 @@ def _place_bet(teller_user, amount=500.0, fightnum=1):
         cashier=str(teller_user),
         registered=True,
     )
+
+
+class _TableWidthParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.table_id = None
+        self.in_row = False
+        self.current_width = 0
+        self.widths = {}
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == 'table':
+            self.table_id = attributes.get('id')
+            if self.table_id:
+                self.widths.setdefault(self.table_id, [])
+        elif tag == 'tr' and self.table_id:
+            self.in_row = True
+            self.current_width = 0
+        elif tag in {'th', 'td'} and self.in_row:
+            self.current_width += int(attributes.get('colspan', '1'))
+
+    def handle_endtag(self, tag):
+        if tag == 'tr' and self.in_row:
+            self.widths[self.table_id].append(self.current_width)
+            self.in_row = False
+        elif tag == 'table':
+            self.table_id = None
 
 
 @pytest.mark.django_db
@@ -167,7 +197,7 @@ class TestAdminCashCount:
         assert response.json()['ok'] is True
         assert response.json()['variance'] == 0.0
 
-    def test_register_count_works_with_inflated_teller_sequence(
+    def test_register_count_recovers_from_inflated_teller_sequence(
         self, admin_user, teller_user, event_with_fight, teller_status_online,
     ):
         from SmartWagers.models import TransactionSequence
@@ -182,7 +212,7 @@ class TestAdminCashCount:
 
         assert result.actual_cash_counted == 500.0
         assert result.remit_transaction is not None
-        assert int(result.remit_transaction.transaction_id[1:]) <= 999999
+        assert result.remit_transaction.transaction_id == 'R000000'
 
     def test_admin_cannot_reenable_before_count(
         self, admin_client, teller_user, event_with_fight, teller_status_online,
@@ -690,3 +720,32 @@ class TestEventReportCloseOut:
         assert response.context['total_on_hand_all'] == pytest.approx(
             recon['teller_cash_on_hand'] + 2500.0,
         )
+
+    def test_event_report_table_rows_match_declared_columns(
+        self, admin_client, admin_user, teller_user, event_with_fight,
+    ):
+        _place_bet(teller_user, 1000.0)
+        Wagers.objects.create(
+            fightnum=1,
+            side='WALA',
+            wager=500.0,
+            cashier=admin_user.username,
+            registered=True,
+        )
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        parser = _TableWidthParser()
+        parser.feed(response.content.decode())
+
+        for table_id, expected_width in {
+            'er-teller-table': 18,
+            'er-admin-fund-table': 12,
+            'er-admin-table': 8,
+        }.items():
+            assert parser.widths[table_id]
+            assert set(parser.widths[table_id]) == {expected_width}

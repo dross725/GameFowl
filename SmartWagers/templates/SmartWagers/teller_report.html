@@ -601,6 +601,11 @@ async function reprintFromReport(btn, transactionId) {
             return;
         }
 
+        if (data.print_required === false || !data.receipt) {
+            showReprintToast('Reprint recorded; receipt printing is disabled.', 'success');
+            return;
+        }
+
         const printResult = await printWagerReceipt(data.receipt);
         showReprintToast(
             printResult.ok ? 'Receipt sent to printer.' : 'Print failed: ' + printResult.message,

@@ -125,7 +125,8 @@ class TestSettingsModel:
         assert latest.plasada == 0.10
 
     def test_defaults_are_sane(self):
-        s = Settings.objects.create(plasada=0.05)
+        s = Settings.objects.create()
+        assert s.plasada == 0.05
         assert s.admin_initial_fund == 100000.0
         assert s.teller_initial_fund == 10000.0
         assert s.M_control_status == 'OPEN'
@@ -154,6 +155,8 @@ class TestAdminBankTransactionModel:
         assert txn.event == active_event
         assert txn.admin == admin_user
         assert txn.amount == 25000
+        assert txn.transaction_id.startswith('B')
+        assert len(txn.transaction_id) == 7
 
     def test_amount_must_be_positive(self, active_event, admin_user):
         with pytest.raises(IntegrityError):

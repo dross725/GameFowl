@@ -9,7 +9,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 STARTUP_LOG_PATH = BASE_DIR / "print_agent_silent.log"
-AGENT_VERSION = "1.11.1-barcode-match"
+AGENT_VERSION = "1.13.1-admin-bank-copies-fix"
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8765,
@@ -592,7 +592,17 @@ def print_receipt(config, printer_name, receipt):
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
 
 
-# -- Remit / Collect receipts --
+# -- Advance / Borrow receipts --
+
+TELLER_TRANSACTION_RECEIPT_COPIES = ("TELLERS COPY", "ADMIN COPY")
+ADMIN_BANK_RECEIPT_COPIES = ("ADMIN COPY", "BANK COPY")
+
+
+def transaction_receipt_copies(receipt):
+    """Return the two receipt labels required for the transaction scope."""
+    if receipt.get("receipt_scope") == "admin_bank":
+        return ADMIN_BANK_RECEIPT_COPIES
+    return TELLER_TRANSACTION_RECEIPT_COPIES
 
 def escpos_remit_receipt(
     receipt,

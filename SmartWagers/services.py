@@ -5,9 +5,14 @@ from .models import Fight_Results
 from .models import Fight_Status
 from .models import Event
 from .models import AdminBankTransaction
+from .models import ArchivedAdminBankTransaction
+from .models import ArchivedTellerTransaction
+from .models import ArchivedWager
 from .models import TellerTransaction
 from .models import TellerStatus
 from .models import TellerCloseOut
+from . import reporting
+from .transaction_ids import RolloverBlockedError
 from django.contrib.auth.models import User
 from datetime import timedelta
 from django.conf import settings
@@ -362,12 +367,14 @@ def get_event_scope():
     return last, False
 
 
-def get_admin_fund_summary(event=None, apply_end_bound=True):
+def get_admin_fund_summary(event=None, apply_end_bound=True, include_archived=None):
     """Return the shared admin fund balance and bank totals for an event."""
     from django.db.models import Sum
 
     if event is None:
         event, apply_end_bound = get_event_scope()
+    if include_archived is None:
+        include_archived = reporting.include_archived_for_event(event)
     if event is None:
         return {
             'balance': 0.0,
@@ -396,47 +403,100 @@ def get_admin_fund_summary(event=None, apply_end_bound=True):
         pk__in=admin_ids,
     ).values_list('id', flat=True)
 
-    admin_wager_qs = Wagers.objects.filter(
+    admin_wager_qs = reporting.active_wagers_for_event(event).filter(
         cashier__in=admin_usernames,
         registered=True,
         cancelled=False,
-        created_at__gte=event.started_at,
     )
-    admin_payout_qs = TellerTransaction.objects.filter(
+    archived_admin_wager_qs = (
+        reporting.archived_wagers_for_event(event).filter(
+            cashier__in=admin_usernames,
+            registered=True,
+            cancelled=False,
+        )
+        if include_archived else None
+    )
+    admin_payout_qs = reporting.active_teller_transactions_for_event(event).filter(
         user_id__in=admin_ids,
         transaction_type=TellerTransaction.PAYOUT,
         affects_admin_fund=True,
-        created_at__gte=event.started_at,
     )
-    teller_txn_qs = TellerTransaction.objects.filter(
+    archived_admin_payout_qs = (
+        reporting.archived_teller_transactions_for_event(event).filter(
+            user_id__in=admin_ids,
+            transaction_type=TellerTransaction.PAYOUT,
+            affects_admin_fund=True,
+        )
+        if include_archived else None
+    )
+    teller_txn_qs = reporting.active_teller_transactions_for_event(event).filter(
         user_id__in=teller_ids,
         affects_admin_fund=True,
-        created_at__gte=event.started_at,
+    )
+    archived_teller_txn_qs = (
+        reporting.archived_teller_transactions_for_event(event).filter(
+            user_id__in=teller_ids,
+            affects_admin_fund=True,
+        )
+        if include_archived else None
     )
 
     if apply_end_bound and event.ended_at:
         admin_wager_qs = admin_wager_qs.filter(created_at__lte=event.ended_at)
+        if archived_admin_wager_qs is not None:
+            archived_admin_wager_qs = archived_admin_wager_qs.filter(
+                created_at__lte=event.ended_at,
+            )
         admin_payout_qs = admin_payout_qs.filter(created_at__lte=event.ended_at)
+        if archived_admin_payout_qs is not None:
+            archived_admin_payout_qs = archived_admin_payout_qs.filter(
+                created_at__lte=event.ended_at,
+            )
         teller_txn_qs = teller_txn_qs.filter(created_at__lte=event.ended_at)
+        if archived_teller_txn_qs is not None:
+            archived_teller_txn_qs = archived_teller_txn_qs.filter(
+                created_at__lte=event.ended_at,
+            )
 
     opening_fund = float(event.admin_opening_fund)
-    explicit_borrows = AdminBankTransaction.objects.filter(
-        event=event,
-        transaction_type=AdminBankTransaction.BORROW,
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
-    bank_remitted = AdminBankTransaction.objects.filter(
-        event=event,
-        transaction_type=AdminBankTransaction.REMIT,
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
-    admin_wagers = admin_wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
-    admin_payouts = admin_payout_qs.aggregate(total=Sum('amount'))['total'] or 0.0
-    teller_remits = teller_txn_qs.filter(
-        transaction_type=TellerTransaction.REMIT,
-        received=True,
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
-    teller_borrows = teller_txn_qs.filter(
-        transaction_type=TellerTransaction.COLLECT,
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    explicit_borrows = reporting.sum_admin_bank_amounts(
+        reporting.active_admin_bank_for_event(event).filter(
+            transaction_type=AdminBankTransaction.BORROW,
+        ),
+        reporting.archived_admin_bank_for_event(event).filter(
+            transaction_type=AdminBankTransaction.BORROW,
+        ) if include_archived else None,
+    )
+    bank_remitted = reporting.sum_admin_bank_amounts(
+        reporting.active_admin_bank_for_event(event).filter(
+            transaction_type=AdminBankTransaction.REMIT,
+        ),
+        reporting.archived_admin_bank_for_event(event).filter(
+            transaction_type=AdminBankTransaction.REMIT,
+        ) if include_archived else None,
+    )
+    admin_wagers = reporting.sum_wagers(
+        admin_wager_qs, archived_admin_wager_qs,
+    )
+    admin_payouts = reporting.sum_teller_amounts(
+        admin_payout_qs, archived_admin_payout_qs,
+    )
+    teller_remits = reporting.sum_teller_amounts(
+        teller_txn_qs.filter(
+            transaction_type=TellerTransaction.REMIT,
+            received=True,
+        ),
+        archived_teller_txn_qs.filter(
+            transaction_type=TellerTransaction.REMIT,
+            received=True,
+        ) if archived_teller_txn_qs is not None else None,
+    )
+    teller_borrows = reporting.sum_teller_amounts(
+        teller_txn_qs.filter(transaction_type=TellerTransaction.COLLECT),
+        archived_teller_txn_qs.filter(
+            transaction_type=TellerTransaction.COLLECT,
+        ) if archived_teller_txn_qs is not None else None,
+    )
     closeout_remit_qs = TellerCloseOut.objects.filter(
         event=event,
         remit_transaction__isnull=False,
@@ -444,13 +504,30 @@ def get_admin_fund_summary(event=None, apply_end_bound=True):
         remit_transaction__affects_admin_fund=True,
         remit_transaction__created_at__gte=event.started_at,
     )
+    archived_closeout_remit_qs = TellerCloseOut.objects.filter(
+        event=event,
+        archived_remit_transaction__isnull=False,
+        archived_remit_transaction__received=True,
+        archived_remit_transaction__affects_admin_fund=True,
+        archived_remit_transaction__created_at__gte=event.started_at,
+    ) if include_archived else None
     if apply_end_bound and event.ended_at:
         closeout_remit_qs = closeout_remit_qs.filter(
             remit_transaction__created_at__lte=event.ended_at,
         )
-    teller_closeout_remits = closeout_remit_qs.aggregate(
-        total=Sum('remit_transaction__amount'),
-    )['total'] or 0.0
+        if archived_closeout_remit_qs is not None:
+            archived_closeout_remit_qs = archived_closeout_remit_qs.filter(
+                archived_remit_transaction__created_at__lte=event.ended_at,
+            )
+    teller_closeout_remits = (
+        closeout_remit_qs.aggregate(total=Sum('remit_transaction__amount'))['total'] or 0.0
+    )
+    if archived_closeout_remit_qs is not None:
+        teller_closeout_remits += (
+            archived_closeout_remit_qs.aggregate(
+                total=Sum('archived_remit_transaction__amount'),
+            )['total'] or 0.0
+        )
 
     bank_borrowed = opening_fund + float(explicit_borrows)
     net_bank_funding = bank_borrowed - float(bank_remitted)
@@ -487,6 +564,7 @@ def get_event_cash_reconciliation(
     admin_fund_summary,
     expected_commission,
     close_out_variance_total=0.0,
+    include_archived=None,
 ):
     """Reconcile physical cash (admin + tellers) against expected commission.
 
@@ -511,27 +589,51 @@ def get_event_cash_reconciliation(
         pk__in=admin_ids,
     ).values_list('pk', flat=True)
 
-    txn_qs = TellerTransaction.objects.filter(
+    if include_archived is None:
+        include_archived = reporting.include_archived_for_event(event)
+
+    txn_qs = reporting.active_teller_transactions_for_event(event).filter(
         user_id__in=teller_ids,
-        created_at__gte=event.started_at,
+    )
+    archived_txn_qs = (
+        reporting.archived_teller_transactions_for_event(event).filter(
+            user_id__in=teller_ids,
+        )
+        if include_archived else None
     )
     if event.ended_at:
         txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+        if archived_txn_qs is not None:
+            archived_txn_qs = archived_txn_qs.filter(created_at__lte=event.ended_at)
 
     remit_qs = txn_qs.filter(transaction_type=TellerTransaction.REMIT)
-    teller_remits_all = remit_qs.aggregate(total=Sum('amount'))['total'] or 0.0
-    # Cash that left teller stations but is not already in the admin fund balance.
-    remits_not_in_admin = (
-        remit_qs.exclude(received=True, affects_admin_fund=True)
-        .aggregate(total=Sum('amount'))['total'] or 0.0
+    archived_remit_qs = (
+        archived_txn_qs.filter(transaction_type=TellerTransaction.REMIT)
+        if archived_txn_qs is not None else None
     )
-    total_payouts = TellerTransaction.objects.filter(
-        transaction_type=TellerTransaction.PAYOUT,
-        created_at__gte=event.started_at,
+    teller_remits_all = reporting.sum_teller_amounts(remit_qs, archived_remit_qs)
+    remits_not_in_admin = reporting.sum_teller_amounts(
+        remit_qs.exclude(received=True, affects_admin_fund=True),
+        archived_remit_qs.exclude(received=True, affects_admin_fund=True)
+        if archived_remit_qs is not None else None,
     )
-    if event.ended_at:
-        total_payouts = total_payouts.filter(created_at__lte=event.ended_at)
-    total_payouts = total_payouts.aggregate(total=Sum('amount'))['total'] or 0.0
+    total_payouts = reporting.sum_teller_amounts(
+        reporting.active_teller_transactions_for_event(event).filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        ).filter(created_at__lte=event.ended_at) if event.ended_at else
+        reporting.active_teller_transactions_for_event(event).filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        ),
+        reporting.archived_teller_transactions_for_event(event).filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        ).filter(created_at__lte=event.ended_at) if (
+            include_archived and event.ended_at
+        ) else (
+            reporting.archived_teller_transactions_for_event(event).filter(
+                transaction_type=TellerTransaction.PAYOUT,
+            ) if include_archived else None
+        ),
+    )
 
     admin_cash = admin_fund_summary['balance']
     total_cash = teller_cash_on_hand + admin_cash
@@ -806,7 +908,7 @@ def teller_has_opening_fund_for_event(teller, event):
     return get_teller_opening_fund_total(teller, event) > 0
 
 
-def get_teller_opening_fund_total(teller, event, txn_qs=None):
+def get_teller_opening_fund_total(teller, event, txn_qs=None, include_archived=False):
     """Return the opening float issued to *teller* within *event*."""
     from django.db.models import Sum
 
@@ -818,18 +920,23 @@ def get_teller_opening_fund_total(teller, event, txn_qs=None):
         return 0.0
 
     if txn_qs is None:
-        txn_qs = TellerTransaction.objects.filter(
-            user=teller,
-            created_at__gte=event.started_at,
-        )
-        if event.ended_at:
-            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+        txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=teller)
+    archived_txn_qs = None
+    if include_archived:
+        archived_txn_qs = reporting.archived_teller_transactions_for_event(
+            event,
+        ).filter(user=teller)
 
-    total = txn_qs.filter(
-        transaction_type=TellerTransaction.COLLECT,
-        amount=round(initial_fund, 2),
-        affects_admin_fund=False,
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    filters = {
+        'transaction_type': TellerTransaction.COLLECT,
+        'amount': round(initial_fund, 2),
+        'affects_admin_fund': False,
+    }
+    total = txn_qs.filter(**filters).aggregate(total=Sum('amount'))['total'] or 0.0
+    if archived_txn_qs is not None:
+        total += archived_txn_qs.filter(**filters).aggregate(
+            total=Sum('amount'),
+        )['total'] or 0.0
     return round(float(total), 2)
 
 

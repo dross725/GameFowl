@@ -528,6 +528,7 @@ def _admin_fund_payload(event):
         'transactions': [
             {
                 'id': txn.pk,
+                'transaction_id': txn.transaction_id,
                 'transaction_type': txn.transaction_type,
                 'amount': round(txn.amount, 2),
                 'admin': (
@@ -632,7 +633,7 @@ def admin_bank_transaction(request):
         'print_required': services.is_wager_receipt_printing_enabled(),
         'created_transaction': {
             'id': txn.pk,
-            'transaction_id': f"B{txn.pk:06d}",
+            'transaction_id': txn.transaction_id,
             'transaction_type': txn.transaction_type,
             'amount': round(txn.amount, 2),
             'admin': (
@@ -796,7 +797,7 @@ def teller_close_station(request):
     })
 
 
-def _compute_teller_balance(user, event=None, apply_end_bound=True):
+def _compute_teller_balance(user, event=None, apply_end_bound=True, include_archived=False):
     """Return (balance, grand_total) for a teller, optionally scoped to an event.
 
     When *event* is supplied, only wagers and transactions created within the
@@ -808,30 +809,57 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True):
     post-event settlement transactions (REMIT/COLLECT issued after ended_at)
     are still counted in the last event's totals.
 
+    include_archived adds archived ledger rows for historical event reports.
+
     grand_total = raw sum of registered bets in scope.
     balance     = grand_total − remits + collects (in scope).
     """
+    from SmartWagers import reporting
+
     username = str(user)
     wager_qs = Wagers.objects.filter(cashier=username, registered=True, cancelled=False)
+    archived_wager_qs = None
     txn_qs = TellerTransaction.objects.filter(user=user)
+    archived_txn_qs = None
 
     if event is not None:
-        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
-        txn_qs = txn_qs.filter(created_at__gte=event.started_at)
+        wager_qs = reporting.filter_active_wagers_by_event(wager_qs, event)
+        txn_qs = reporting.filter_active_teller_transactions_by_event(txn_qs, event)
+        if include_archived:
+            archived_wager_qs = reporting.archived_wagers_for_event(event).filter(
+                cashier=username, registered=True, cancelled=False,
+            )
+            archived_txn_qs = reporting.archived_teller_transactions_for_event(
+                event,
+            ).filter(user=user)
         if apply_end_bound and event.ended_at:
             wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
             txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+            if archived_wager_qs is not None:
+                archived_wager_qs = archived_wager_qs.filter(
+                    created_at__lte=event.ended_at,
+                )
+            if archived_txn_qs is not None:
+                archived_txn_qs = archived_txn_qs.filter(
+                    created_at__lte=event.ended_at,
+                )
 
-    grand_total = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
-    remit_total = txn_qs.filter(
-        transaction_type=TellerTransaction.REMIT
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
-    collect_total = txn_qs.filter(
-        transaction_type=TellerTransaction.COLLECT
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
-    payout_total = txn_qs.filter(
-        transaction_type=TellerTransaction.PAYOUT
-    ).aggregate(total=Sum('amount'))['total'] or 0.0
+    grand_total = reporting.sum_wagers(wager_qs, archived_wager_qs)
+    remit_total = reporting.sum_teller_amounts(
+        txn_qs.filter(transaction_type=TellerTransaction.REMIT),
+        archived_txn_qs.filter(transaction_type=TellerTransaction.REMIT)
+        if archived_txn_qs is not None else None,
+    )
+    collect_total = reporting.sum_teller_amounts(
+        txn_qs.filter(transaction_type=TellerTransaction.COLLECT),
+        archived_txn_qs.filter(transaction_type=TellerTransaction.COLLECT)
+        if archived_txn_qs is not None else None,
+    )
+    payout_total = reporting.sum_teller_amounts(
+        txn_qs.filter(transaction_type=TellerTransaction.PAYOUT),
+        archived_txn_qs.filter(transaction_type=TellerTransaction.PAYOUT)
+        if archived_txn_qs is not None else None,
+    )
 
     balance = grand_total - remit_total + collect_total - payout_total
     return balance, grand_total
@@ -839,56 +867,105 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True):
 
 def _build_event_user_stats(
     user, event, unclaimed_by_cashier, close_out=None, *, admin_fund_mode=False,
+    include_archived=False,
 ):
     """Aggregate bet and transaction stats for one user within an event."""
-    balance, grand_total = _compute_teller_balance(user, event=event)
+    from SmartWagers import reporting
+
+    balance, grand_total = _compute_teller_balance(
+        user, event=event, include_archived=include_archived,
+    )
     username = str(user)
 
-    wager_qs = Wagers.objects.filter(
+    wager_qs = reporting.active_wagers_for_event(event).filter(
         cashier=username, registered=True, cancelled=False,
-        created_at__gte=event.started_at,
+    )
+    archived_wager_qs = (
+        reporting.archived_wagers_for_event(event).filter(
+            cashier=username, registered=True, cancelled=False,
+        )
+        if include_archived else None
     )
     if event.ended_at:
         wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+        if archived_wager_qs is not None:
+            archived_wager_qs = archived_wager_qs.filter(
+                created_at__lte=event.ended_at,
+            )
 
-    bet_stats = wager_qs.aggregate(
-        bet_count=Count('id'),
-        meron_total=Sum('wager', filter=Q(side='MERON')),
-        wala_total=Sum('wager', filter=Q(side='WALA')),
-        meron_count=Count('id', filter=Q(side='MERON')),
-        wala_count=Count('id', filter=Q(side='WALA')),
-    )
+    bet_stats = {
+        'bet_count': reporting._count_rows(wager_qs, archived_wager_qs),
+        'meron_total': reporting.sum_wagers(
+            wager_qs.filter(side='MERON'),
+            archived_wager_qs.filter(side='MERON') if archived_wager_qs is not None else None,
+        ),
+        'wala_total': reporting.sum_wagers(
+            wager_qs.filter(side='WALA'),
+            archived_wager_qs.filter(side='WALA') if archived_wager_qs is not None else None,
+        ),
+        'meron_count': wager_qs.filter(side='MERON').count() + (
+            archived_wager_qs.filter(side='MERON').count()
+            if archived_wager_qs is not None else 0
+        ),
+        'wala_count': wager_qs.filter(side='WALA').count() + (
+            archived_wager_qs.filter(side='WALA').count()
+            if archived_wager_qs is not None else 0
+        ),
+    }
 
-    txn_qs = TellerTransaction.objects.filter(
-        user=user,
-        created_at__gte=event.started_at,
+    txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=user)
+    archived_txn_qs = (
+        reporting.archived_teller_transactions_for_event(event).filter(user=user)
+        if include_archived else None
     )
     if event.ended_at:
         txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+        if archived_txn_qs is not None:
+            archived_txn_qs = archived_txn_qs.filter(created_at__lte=event.ended_at)
 
-    payout_filter = Q(transaction_type=TellerTransaction.PAYOUT)
+    payout_filter = {'transaction_type': TellerTransaction.PAYOUT}
     if admin_fund_mode:
-        payout_filter &= Q(affects_admin_fund=True)
+        payout_filter['affects_admin_fund'] = True
 
-    txn_stats = txn_qs.aggregate(
-        remit_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.REMIT)),
-        collect_total=Sum('amount', filter=Q(transaction_type=TellerTransaction.COLLECT)),
-        payout_total=Sum('amount', filter=payout_filter),
-    )
+    txn_stats = {
+        'remit_total': reporting.sum_teller_amounts(
+            txn_qs.filter(transaction_type=TellerTransaction.REMIT),
+            archived_txn_qs.filter(transaction_type=TellerTransaction.REMIT)
+            if archived_txn_qs is not None else None,
+        ),
+        'collect_total': reporting.sum_teller_amounts(
+            txn_qs.filter(transaction_type=TellerTransaction.COLLECT),
+            archived_txn_qs.filter(transaction_type=TellerTransaction.COLLECT)
+            if archived_txn_qs is not None else None,
+        ),
+        'payout_total': reporting.sum_teller_amounts(
+            txn_qs.filter(**payout_filter),
+            archived_txn_qs.filter(**payout_filter)
+            if archived_txn_qs is not None else None,
+        ),
+    }
     opening_fund_total = services.get_teller_opening_fund_total(
-        user, event, txn_qs=txn_qs,
+        user, event, txn_qs=txn_qs, include_archived=include_archived,
     )
+    reporting_coh = None
+    if close_out is not None:
+        reporting_coh = close_out.expected_cash_on_hand + opening_fund_total
 
     unclaimed_info = unclaimed_by_cashier.get(username, {'count': 0, 'total': 0.0})
     payout_total = txn_stats['payout_total'] or 0.0
     bank_borrowed = 0.0
     if admin_fund_mode:
         balance = grand_total - payout_total
-        bank_borrowed = AdminBankTransaction.objects.filter(
-            event=event,
-            admin=user,
-            transaction_type=AdminBankTransaction.BORROW,
-        ).aggregate(total=Sum('amount'))['total'] or 0.0
+        bank_borrowed = reporting.sum_admin_bank_amounts(
+            reporting.active_admin_bank_for_event(event).filter(
+                admin=user,
+                transaction_type=AdminBankTransaction.BORROW,
+            ),
+            reporting.archived_admin_bank_for_event(event).filter(
+                admin=user,
+                transaction_type=AdminBankTransaction.BORROW,
+            ) if include_archived else None,
+        )
 
     return {
         'user': user,
@@ -903,6 +980,8 @@ def _build_event_user_stats(
         'remit_total': txn_stats['remit_total'] or 0.0,
         'collect_total': txn_stats['collect_total'] or 0.0,
         'opening_fund_total': opening_fund_total,
+        'initial_fund': opening_fund_total,
+        'reporting_coh': reporting_coh,
         'unclaimed_count': unclaimed_info['count'],
         'unclaimed_total': unclaimed_info['total'],
         'balance': balance,
@@ -1418,6 +1497,11 @@ def admin_event_report(request):
     except Group.DoesNotExist:
         tellers = []
 
+    event_closed = not event.is_active or event.ended_at is not None
+    from SmartWagers import reporting
+
+    include_archived = reporting.include_archived_for_event(event)
+
     # Commission / fight results
     plasada = services.get_comm_val()
     fight_results_qs = Fight_Results.objects.filter(event=event).order_by('fightnum')
@@ -1461,37 +1545,55 @@ def admin_event_report(request):
             else:
                 payable_filter |= Q(fightnum=fightnum, side=result_side)
 
-        unclaimed_qs = Wagers.objects.filter(
+        unclaimed_qs, archived_unclaimed_qs = reporting.filter_payable_unclaimed_wagers(
+            event,
             payable_filter,
-            cashed_out=False,
-            registered=True,
-            cancelled=False,
-            created_at__gte=event.started_at,
-        ).exclude(cashier='System').order_by('cashier', 'fightnum', 'transactionid')
-
-        if event.ended_at:
-            unclaimed_qs = unclaimed_qs.filter(created_at__lte=event.ended_at)
-
-        outstanding_totals = unclaimed_qs.order_by().aggregate(
-            count=Count('id'),
-            total=Sum('wager'),
+            include_archived=include_archived,
         )
-        outstanding_payout_count_all = outstanding_totals['count'] or 0
-        outstanding_payout_total_all = outstanding_totals['total'] or 0.0
+        unclaimed_qs = unclaimed_qs.order_by('cashier', 'fightnum', 'transactionid')
+
+        outstanding_payout_count_all = reporting._count_rows(
+            unclaimed_qs, archived_unclaimed_qs,
+        )
+        outstanding_payout_total_all = reporting.sum_wagers(
+            unclaimed_qs, archived_unclaimed_qs,
+        )
 
         # Aggregate totals per cashier for the summary table
-        for row in unclaimed_qs.order_by().values('cashier').annotate(
-            count=Count('id'), total=Sum('wager')
-        ):
-            unclaimed_by_cashier[row['cashier']] = {
-                'count': row['count'],
-                'total': row['total'] or 0.0,
+        cashier_names = set(
+            unclaimed_qs.values_list('cashier', flat=True),
+        )
+        if archived_unclaimed_qs is not None:
+            cashier_names.update(
+                archived_unclaimed_qs.values_list('cashier', flat=True),
+            )
+        for cashier in sorted(cashier_names):
+            active_row = unclaimed_qs.filter(cashier=cashier).aggregate(
+                count=Count('id'), total=Sum('wager'),
+            )
+            archived_row = {'count': 0, 'total': 0.0}
+            if archived_unclaimed_qs is not None:
+                archived_row = archived_unclaimed_qs.filter(cashier=cashier).aggregate(
+                    count=Count('id'), total=Sum('wager'),
+                )
+            unclaimed_by_cashier[cashier] = {
+                'count': (active_row['count'] or 0) + (archived_row['count'] or 0),
+                'total': float(active_row['total'] or 0) + float(archived_row['total'] or 0),
             }
 
         # Full row-level detail for the transaction-ID breakdown section
-        for w in unclaimed_qs.values(
-            'transactionid', 'fightnum', 'side', 'wager', 'cashier', 'created_at'
-        ):
+        detail_rows = list(
+            unclaimed_qs.values(
+                'transactionid', 'fightnum', 'side', 'wager', 'cashier', 'created_at',
+            ),
+        )
+        if archived_unclaimed_qs is not None:
+            detail_rows.extend(
+                archived_unclaimed_qs.values(
+                    'transactionid', 'fightnum', 'side', 'wager', 'cashier', 'created_at',
+                ),
+            )
+        for w in detail_rows:
             w['result_side'] = payable_results.get(w['fightnum'])
             unclaimed_detail_list.append(w)
 
@@ -1504,6 +1606,8 @@ def admin_event_report(request):
     total_unclaimed_all = 0.0
     total_bets_count_all = 0
     total_opening_fund_all = 0.0
+    total_reporting_coh_all = 0.0
+    total_initial_fund_all = 0.0
 
     close_outs = {
         co.user_id: co
@@ -1518,11 +1622,12 @@ def admin_event_report(request):
         stats = _build_event_user_stats(
             teller, event, unclaimed_by_cashier,
             close_out=close_outs.get(teller.pk),
+            include_archived=include_archived,
         )
         stats['is_admin_account'] = False
         teller_cash_on_hand_recon += stats['balance']
         total_opening_fund_recon += stats['opening_fund_total']
-        if stats['bet_count'] <= 0:
+        if not show_all_tellers and stats['bet_count'] <= 0:
             continue
         teller_data.append(stats)
         teller_station_count += 1
@@ -1531,11 +1636,15 @@ def admin_event_report(request):
         total_unclaimed_all += stats['unclaimed_total']
         total_bets_count_all += stats['bet_count']
         total_opening_fund_all += stats['opening_fund_total']
+        total_initial_fund_all += stats['initial_fund']
+        if stats['reporting_coh'] is not None:
+            total_reporting_coh_all += stats['reporting_coh']
 
     admin_bets_in_teller_section = 0.0
     for admin in User.objects.filter(groups__name='admin').order_by('username'):
         stats = _build_event_user_stats(
             admin, event, unclaimed_by_cashier,
+            include_archived=include_archived,
         )
         if stats['bet_count'] <= 0:
             continue
@@ -1543,7 +1652,6 @@ def admin_event_report(request):
         teller_data.append(stats)
         grand_total_all += stats['grand_total']
         admin_bets_in_teller_section += stats['grand_total']
-        total_unclaimed_all += stats['unclaimed_total']
         total_bets_count_all += stats['bet_count']
 
     admin_bets_station_count = sum(
@@ -1567,14 +1675,16 @@ def admin_event_report(request):
         if close_out.variance is not None:
             total_variance_all += close_out.variance
 
-    event_closed = not event.is_active or event.ended_at is not None
     admin_data = []
     admin_unclaimed_all = 0.0
+    admin_unclaimed_count_all = 0
     admin_bets_count_all = 0
     admin_bank_borrowed_all = 0.0
     admin_fund_summary = services.get_admin_fund_summary(
-        event=event, apply_end_bound=True,
+        event=event, apply_end_bound=True, include_archived=include_archived,
     )
+    final_reconciliation_rows = []
+    final_reconciliation_totals = None
 
     if event_closed:
         admins = User.objects.filter(groups__name='admin').order_by('username')
@@ -1585,9 +1695,21 @@ def admin_event_report(request):
                 transaction_type=AdminBankTransaction.REMIT,
             ).values('admin_id').annotate(total=Sum('amount'))
         }
+        if include_archived:
+            from SmartWagers.models import ArchivedAdminBankTransaction
+
+            for row in ArchivedAdminBankTransaction.objects.filter(
+                event=event,
+                transaction_type=AdminBankTransaction.REMIT,
+            ).values('admin_id').annotate(total=Sum('amount')):
+                admin_bank_remits[row['admin_id']] = (
+                    admin_bank_remits.get(row['admin_id'], 0.0)
+                    + float(row['total'] or 0.0)
+                )
         for admin in admins:
             stats = _build_event_user_stats(
                 admin, event, unclaimed_by_cashier, admin_fund_mode=True,
+                include_archived=include_archived,
             )
             if not (
                 stats['bet_count']
@@ -1598,6 +1720,7 @@ def admin_event_report(request):
                 continue
             admin_data.append(stats)
             admin_unclaimed_all += stats['unclaimed_total']
+            admin_unclaimed_count_all += stats['unclaimed_count']
             admin_bets_count_all += stats['bet_count']
             admin_bank_borrowed_all += stats['bank_borrowed']
 
@@ -1614,6 +1737,7 @@ def admin_event_report(request):
             admin_fund_summary=admin_fund_summary,
             expected_commission=total_commission,
             close_out_variance_total=total_variance_all,
+            include_archived=include_archived,
         )
         admin_fund_summary.update({
             'expected_cash_on_hand': (
@@ -1645,6 +1769,8 @@ def admin_event_report(request):
             'variance': admin_fund_summary['variance'],
         })
         for stats in teller_data:
+            if stats.get('is_admin_account'):
+                continue
             close_out = stats['close_out']
             final_reconciliation_rows.append({
                 'name': stats['display_name'],
@@ -1685,6 +1811,9 @@ def admin_event_report(request):
     commission_20 = round(total_commission * 0.20, 2)
     commission_80 = round(total_commission * 0.80, 2)
     commission_4_of_80 = round(commission_80 * 0.04, 2)
+    admin_net_activity_all = (
+        admin_fund_summary['admin_wagers'] - admin_fund_summary['admin_payouts']
+    )
 
     setting = Settings.objects.order_by('-id').first()
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
@@ -1705,6 +1834,8 @@ def admin_event_report(request):
         'total_bets_count_all': total_bets_count_all,
         'total_opening_fund_all': total_opening_fund_all,
         'total_opening_fund_recon': total_opening_fund_recon,
+        'total_reporting_coh_all': total_reporting_coh_all,
+        'total_initial_fund_all': total_initial_fund_all,
         'total_on_hand_all': total_on_hand_all,
         'total_expected_all': total_expected_all,
         'total_actual_all': total_actual_all,
@@ -1712,10 +1843,14 @@ def admin_event_report(request):
         'teller_initial_fund': teller_initial_fund,
         'admin_data': admin_data,
         'admin_unclaimed_all': admin_unclaimed_all,
+        'admin_unclaimed_count_all': admin_unclaimed_count_all,
         'admin_bets_count_all': admin_bets_count_all,
         'admin_bank_borrowed_all': admin_bank_borrowed_all,
+        'admin_net_activity_all': admin_net_activity_all,
         'admin_fund_summary': admin_fund_summary,
         'cash_reconciliation': cash_reconciliation,
+        'final_reconciliation_rows': final_reconciliation_rows,
+        'final_reconciliation_totals': final_reconciliation_totals,
         'unclaimed_detail_list': unclaimed_detail_list,
         'outstanding_payout_count_all': outstanding_payout_count_all,
         'outstanding_payout_total_all': outstanding_payout_total_all,
@@ -1962,65 +2097,13 @@ def admin_register_teller_cash_count(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
-    # #region agent log
-    import json as _json, time as _time
-    _raw_close_out_id = request.POST.get('close_out_id')
-    _raw_actual_amount = request.POST.get('actual_amount')
-    try:
-        with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
-            _dbg.write(_json.dumps({
-                'sessionId': '752381', 'hypothesisId': 'H1-H3',
-                'location': 'views.py:admin_register_teller_cash_count:entry',
-                'message': 'cash count POST received',
-                'data': {
-                    'close_out_id_raw': _raw_close_out_id,
-                    'actual_amount_raw': _raw_actual_amount,
-                    'post_keys': list(request.POST.keys()),
-                },
-                'timestamp': int(_time.time() * 1000),
-            }) + '\n')
-    except Exception:
-        pass
-    # #endregion
-
     try:
         close_out_id = int(str(request.POST.get('close_out_id', '')).strip())
         actual_amount = _parse_currency_amount(request.POST.get('actual_amount'))
-    except (ValueError, TypeError) as exc:
-        # #region agent log
-        try:
-            with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
-                _dbg.write(_json.dumps({
-                    'sessionId': '752381', 'hypothesisId': 'H1-H3',
-                    'location': 'views.py:admin_register_teller_cash_count:invalid_params',
-                    'message': 'parse failed',
-                    'data': {
-                        'error_type': type(exc).__name__,
-                        'error': str(exc),
-                        'close_out_id_raw': _raw_close_out_id,
-                        'actual_amount_raw': _raw_actual_amount,
-                    },
-                    'timestamp': int(_time.time() * 1000),
-                }) + '\n')
-        except Exception:
-            pass
-        # #endregion
+    except (ValueError, TypeError):
         return JsonResponse({'ok': False, 'error': 'invalid_params'}, status=400)
 
     if actual_amount < 0:
-        # #region agent log
-        try:
-            with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
-                _dbg.write(_json.dumps({
-                    'sessionId': '752381', 'hypothesisId': 'H2',
-                    'location': 'views.py:admin_register_teller_cash_count:negative_amount',
-                    'message': 'negative amount rejected',
-                    'data': {'actual_amount': actual_amount},
-                    'timestamp': int(_time.time() * 1000),
-                }) + '\n')
-        except Exception:
-            pass
-        # #endregion
         return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
     try:
@@ -2031,46 +2114,17 @@ def admin_register_teller_cash_count(request):
         return JsonResponse({'ok': False, 'error': 'close_out_not_found'}, status=404)
     except services.CloseOutAlreadyCountedError:
         return JsonResponse({'ok': False, 'error': 'already_counted'}, status=409)
+    except services.RolloverBlockedError as exc:
+        return JsonResponse({
+            'ok': False,
+            'error': 'transaction_id_rollover_blocked',
+            'reason': exc.reason,
+            'transaction_id': exc.transaction_id,
+        }, status=409)
     except ValueError as exc:
-        # #region agent log
-        try:
-            with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
-                import json as _json, time as _time
-                _dbg.write(_json.dumps({
-                    'sessionId': '752381', 'hypothesisId': 'H4',
-                    'location': 'views.py:admin_register_teller_cash_count:service_value_error',
-                    'message': 'register_teller_cash_count ValueError',
-                    'data': {
-                        'close_out_id': close_out_id,
-                        'actual_amount': actual_amount,
-                        'error': str(exc),
-                    },
-                    'timestamp': int(_time.time() * 1000),
-                }) + '\n')
-        except Exception:
-            pass
-        # #endregion
         if 'sequence is exhausted' in str(exc):
             return JsonResponse({'ok': False, 'error': 'transaction_id_exhausted'}, status=503)
         return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
-
-    # #region agent log
-    try:
-        with open('/home/dross725/projects/Tabora/GameFowl/.cursor/debug-752381.log', 'a') as _dbg:
-            import json as _json, time as _time
-            _dbg.write(_json.dumps({
-                'sessionId': '752381', 'hypothesisId': 'success',
-                'location': 'views.py:admin_register_teller_cash_count:success',
-                'message': 'cash count registered',
-                'data': {
-                    'close_out_id': close_out.pk,
-                    'variance': close_out.variance,
-                },
-                'timestamp': int(_time.time() * 1000),
-            }) + '\n')
-    except Exception:
-        pass
-    # #endregion
 
     return JsonResponse({
         'ok': True,
