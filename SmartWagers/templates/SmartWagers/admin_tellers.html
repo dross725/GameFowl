@@ -1377,9 +1377,6 @@ document.addEventListener('keydown', e => {
 
 function openCountCashModalFromButton(event, button) {
   event.stopPropagation();
-  // #region agent log
-  fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1',location:'admin_tellers.html:openCountCashModalFromButton',message:'opening count cash modal',data:{closeOutId:button.dataset.closeOutId,tellerName:button.dataset.tellerName,expected:button.dataset.expected,fightnum:button.dataset.fightnum},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   openCountCashModal(
     event,
     button.dataset.closeOutId,
@@ -1430,16 +1427,9 @@ async function submitCountCash() {
   fd.append('actual_amount', amountRaw);
   fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
-  // #region agent log
-  fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1-H2',location:'admin_tellers.html:submitCountCash',message:'submitting cash count',data:{closeOutId,amountRaw,amount,csrfPresent:!!CSRF_TOKEN,countCashUrl:COUNT_CASH_URL},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-
   try {
     const res = await fetch(COUNT_CASH_URL, { method: 'POST', body: fd });
     const data = await res.json();
-    // #region agent log
-    fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1-H4',location:'admin_tellers.html:submitCountCash:response',message:'cash count response',data:{status:res.status,ok:data.ok,error:data.error},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (!data.ok) {
       const messages = {
         close_out_not_found: 'Close-out record not found.',

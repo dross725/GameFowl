@@ -462,14 +462,14 @@ class TestResetTellerBalances:
         assert settlement.affects_admin_fund is False
 
     def test_end_then_start_settlement_included_in_ended_event_balance(
-            self, default_settings, teller_user, teller_status_online):
+            self, default_settings, teller_user, teller_status_online, admin_user):
         """Rollover txns after ended_at must zero the closed event's report balance."""
         event = services.start_event('Event A')
         Wagers.objects.create(
             fightnum=1, side='MERON', wager=2500,
             cashier=teller_user.username, registered=True,
         )
-        ended = services.end_event()
+        ended = services.end_event(0, admin_user)
         Event.objects.filter(pk=ended.pk).update(
             ended_at=now() - timedelta(hours=1),
         )
@@ -500,13 +500,13 @@ class TestOnlineTellerFreshBalanceOnEventStart:
         assert balance == pytest.approx(default_settings.teller_initial_fund)
 
     def test_online_teller_balance_after_end_then_start(
-            self, default_settings, teller_user, teller_status_online):
+            self, default_settings, teller_user, teller_status_online, admin_user):
         services.start_event('Event A')
         Wagers.objects.create(
             fightnum=1, side='MERON', wager=5000,
             cashier=teller_user.username, registered=True,
         )
-        services.end_event()
+        services.end_event(0, admin_user)
         event_c = services.start_event('Event C')
         balance = services._get_teller_outstanding_balance(
             teller_user, event=event_c,

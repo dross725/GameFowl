@@ -13,13 +13,20 @@ from django.db.models import Count, Sum
 
 from SmartWagers import services
 from SmartWagers.models import (
+    AdminBankTransaction,
+    ArchivedAdminBankTransaction,
+    ArchivedTellerTransaction,
+    ArchivedWager,
     Event,
     Fight_Results,
     Fight_Status,
+    TellerCloseOut,
     TellerTransaction,
     Totals,
+    TransactionSequence,
     Wagers,
 )
+from SmartWagers.transaction_ids import RolloverBlockedError  # noqa: F401
 
 
 def stable_hash(queryset, field_names):
@@ -134,6 +141,28 @@ def build_manifest():
         "duplicate_teller_transaction_ids": duplicate_count(
             TellerTransaction.objects.all(), "transaction_id"
         ),
+        "duplicate_admin_bank_transaction_ids": duplicate_count(
+            AdminBankTransaction.objects.all(), "transaction_id"
+        ),
+        "duplicate_archived_wager_cycle_ids": duplicate_count(
+            ArchivedWager.objects.all(), "transactionid"
+        ),
+        "duplicate_archived_teller_cycle_ids": duplicate_count(
+            ArchivedTellerTransaction.objects.all(), "transaction_id"
+        ),
+        "duplicate_archived_admin_bank_cycle_ids": duplicate_count(
+            ArchivedAdminBankTransaction.objects.all(), "transaction_id"
+        ),
+        "transaction_sequences": {
+            key.key: {"value": key.value, "cycle": key.cycle}
+            for key in TransactionSequence.objects.all()
+        },
+        "archived_wager_count": ArchivedWager.objects.count(),
+        "archived_teller_transaction_count": ArchivedTellerTransaction.objects.count(),
+        "archived_admin_bank_transaction_count": ArchivedAdminBankTransaction.objects.count(),
+        "archived_closeout_links": TellerCloseOut.objects.filter(
+            archived_remit_transaction__isnull=False,
+        ).count(),
         "active_event_count": Event.objects.filter(is_active=True).count(),
         "fight_status_row_count": Fight_Status.objects.count(),
         "duplicate_event_fight_results": duplicate_results,
@@ -180,6 +209,22 @@ def strict_problems(manifest):
         problems.append("duplicate wager transaction IDs")
     if invariants["duplicate_teller_transaction_ids"]:
         problems.append("duplicate teller transaction IDs")
+    if invariants["duplicate_admin_bank_transaction_ids"]:
+        problems.append("duplicate admin bank transaction IDs")
+    if invariants["duplicate_archived_wager_cycle_ids"]:
+        problems.append("duplicate archived wager transaction IDs")
+    if invariants["duplicate_archived_teller_cycle_ids"]:
+        problems.append("duplicate archived teller transaction IDs")
+    if invariants["duplicate_archived_admin_bank_cycle_ids"]:
+        problems.append("duplicate archived admin bank transaction IDs")
+    required_sequences = {
+        TransactionSequence.WAGER,
+        TransactionSequence.TELLER,
+        TransactionSequence.ADMIN_BANK,
+    }
+    present_sequences = set(invariants["transaction_sequences"].keys())
+    if required_sequences - present_sequences:
+        problems.append("missing transaction sequence rows")
     if invariants["active_event_count"] > 1:
         problems.append("multiple active events")
     if invariants["fight_status_row_count"] > 1:

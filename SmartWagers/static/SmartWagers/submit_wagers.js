@@ -596,11 +596,14 @@ async function submitValue() {
     resetTotal();
 }
 
-window.onload = function() {
-    document.getElementById('wager_value').value = '';
-    document.getElementById('wager_id').value = '';
+window.addEventListener('load', () => {
+    const wagerValue = document.getElementById('wager_value');
+    const wagerId = document.getElementById('wager_id');
+    if (!wagerValue || !wagerId) return;
+    wagerValue.value = '';
+    wagerId.value = '';
     setClientRequestId('');
-};
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     consumeQueuedAppToast();

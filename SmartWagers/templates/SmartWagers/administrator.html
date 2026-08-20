@@ -57,6 +57,8 @@
       }
 
       #teller-alert-panel.visible { display: block; }
+      #teller-alert-panel.collapsed #tap-body,
+      #teller-alert-panel.collapsed #tap-footer { display: none; }
 
       @keyframes panel-slide-in {
         from { opacity: 0; transform: translateY(16px); }
@@ -943,7 +945,8 @@
 
     function toggleAlertPanel() {
         const panel = document.getElementById('teller-alert-panel');
-        /* toggle is only used when clicking the header to collapse/expand */
+        if (!panel) return;
+        panel.classList.toggle('collapsed');
     }
 
     function dismissAlertPanel(e) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sync only changed SmartWagers files to production.
+"""Sync changed SmartWagers files or build an offline USB release.
 
 Compares the working tree against the last deployed commit (deploy/.deploy-last-sync)
 or an explicit git ref, then copies just those files to the server.
@@ -9,16 +9,20 @@ Usage (from project root):
     python deploy/sync_release.py
     python deploy/sync_release.py --base origin/main
     python deploy/sync_release.py --files SmartWagers/views.py SmartWagers/services.py
+    python deploy/sync_release.py --usb E:\\SmartWagersReleases
 """
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
+import json
 import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
@@ -27,6 +31,17 @@ DEPLOY_DIR = PROJECT_ROOT / "deploy"
 CONFIG_PATH = DEPLOY_DIR / "sync_config.env"
 LAST_SYNC_PATH = DEPLOY_DIR / ".deploy-last-sync"
 MANIFEST_PATH = DEPLOY_DIR / ".last_sync_manifest"
+PACKAGE_APPLY_FILES = (
+    DEPLOY_DIR / "APPLY_RELEASE.bat",
+    DEPLOY_DIR / "apply_usb_release.py",
+    DEPLOY_DIR / "EXPORT_SERVER_INVENTORY.bat",
+    DEPLOY_DIR / "release_inventory.py",
+)
+REQUIRED_PAYLOAD_FILES = (
+    "deploy/11_apply_release.bat",
+    "deploy/13_export_server_inventory.bat",
+    "deploy/release_inventory.py",
+)
 
 # Never push these paths to production.
 EXCLUDE_GLOBS = (
@@ -100,7 +115,10 @@ def run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def normalize_rel_path(path: str) -> str:
     cleaned = path.strip().strip('"').strip("'")
-    return cleaned.replace("\\", "/").lstrip("./")
+    cleaned = cleaned.replace("\\", "/")
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    return cleaned
 
 
 def matches_any(path: str, patterns: tuple[str, ...]) -> bool:
@@ -110,14 +128,26 @@ def matches_any(path: str, patterns: tuple[str, ...]) -> bool:
 
 def is_deployable(path: str, include_tests: bool) -> bool:
     normalized = normalize_rel_path(path)
-    if not normalized or normalized.endswith("/"):
-        return False
-    if matches_any(normalized, EXCLUDE_GLOBS):
-        return False
-    if not include_tests and matches_any(normalized, TEST_GLOBS):
+    if not is_safe_relative_path(normalized, include_tests=include_tests) or normalized.endswith("/"):
         return False
     full_path = PROJECT_ROOT / normalized
     if not full_path.is_file():
+        return False
+    return True
+
+
+def is_safe_relative_path(path: str, include_tests: bool = False) -> bool:
+    normalized = normalize_rel_path(path)
+    pure_path = PurePosixPath(normalized)
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or ":" in normalized
+        or ".." in pure_path.parts
+        or matches_any(normalized, EXCLUDE_GLOBS)
+    ):
+        return False
+    if not include_tests and matches_any(normalized, TEST_GLOBS):
         return False
     return True
 
@@ -173,6 +203,37 @@ def collect_changed_files(base: str | None, include_uncommitted: bool) -> list[s
     return sorted(files)
 
 
+def collect_deleted_files(
+    base: str | None, include_tests: bool, include_uncommitted: bool = True
+) -> list[str]:
+    commands: list[list[str]] = []
+    if base:
+        commands.append(["diff", "--name-status", "--diff-filter=DR", base, "HEAD"])
+    if include_uncommitted:
+        commands.extend(
+            (
+                ["diff", "--name-status", "--diff-filter=DR"],
+                ["diff", "--name-status", "--cached", "--diff-filter=DR"],
+            )
+        )
+
+    deleted: set[str] = set()
+    for command in commands:
+        diff = run_git(command)
+        if diff.returncode != 0:
+            print(diff.stderr.strip() or "ERROR: git deletion diff failed", file=sys.stderr)
+            sys.exit(1)
+        for line in diff.stdout.splitlines():
+            fields = line.split("\t")
+            if not fields:
+                continue
+            status = fields[0]
+            old_path = fields[1] if len(fields) >= 2 and status.startswith(("D", "R")) else ""
+            if old_path and is_safe_relative_path(old_path, include_tests=include_tests):
+                deleted.add(normalize_rel_path(old_path))
+    return sorted(deleted)
+
+
 def filter_deployable(files: list[str], include_tests: bool) -> list[str]:
     deployable = [path for path in files if is_deployable(path, include_tests=include_tests)]
     skipped = sorted(set(files) - set(deployable))
@@ -186,6 +247,139 @@ def filter_deployable(files: list[str], include_tests: bool) -> list[str]:
 
 def write_manifest(files: list[str]) -> None:
     MANIFEST_PATH.write_text("\n".join(files) + ("\n" if files else ""), encoding="utf-8")
+
+
+def git_ref_or_none(ref: str) -> str | None:
+    result = run_git(["rev-parse", ref])
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def unique_package_dir(output_root: Path, head_ref: str | None) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
+    suffix = (head_ref or "working-tree")[:8]
+    candidate = output_root / f"SmartWagers-{stamp}-{suffix}"
+    counter = 2
+    while candidate.exists():
+        candidate = output_root / f"SmartWagers-{stamp}-{suffix}-{counter}"
+        counter += 1
+    return candidate
+
+
+def download_offline_dependencies(package_dir: Path) -> None:
+    wheels_dir = package_dir / "wheels"
+    wheels_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "download",
+        "--dest",
+        str(wheels_dir),
+        "--only-binary=:all:",
+        "--requirement",
+        str(PROJECT_ROOT / "requirements.txt"),
+    ]
+    print("Downloading offline dependencies:")
+    print(" ".join(f'"{part}"' if " " in part else part for part in cmd))
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, check=False)
+    if result.returncode != 0:
+        shutil.rmtree(package_dir, ignore_errors=True)
+        print("ERROR: failed to build the offline dependency wheelhouse.", file=sys.stderr)
+        sys.exit(1)
+
+
+def build_usb_package(
+    output_root: Path,
+    files: list[str],
+    deleted_files: list[str],
+    base_ref: str | None,
+    dry_run: bool,
+) -> Path | None:
+    head_ref = git_ref_or_none("HEAD")
+    package_dir = unique_package_dir(output_root, head_ref)
+    for rel_path in REQUIRED_PAYLOAD_FILES:
+        if not (PROJECT_ROOT / rel_path).is_file():
+            print(f"ERROR: required payload file not found: {rel_path}", file=sys.stderr)
+            sys.exit(1)
+    payload_files = sorted(set(files) | set(REQUIRED_PAYLOAD_FILES))
+    payload_files = [path for path in payload_files if is_deployable(path, include_tests=True)]
+    needs_dependencies = "requirements.txt" in payload_files
+
+    print(f"USB release folder: {package_dir}")
+    for rel_path in payload_files:
+        print(f"  COPY payload/{rel_path}")
+    for rel_path in deleted_files:
+        print(f"  DELETE on server: {rel_path}")
+    if needs_dependencies:
+        print("  DOWNLOAD offline dependencies into wheels/")
+    if dry_run:
+        print("\nDry run complete. No release package created.")
+        return None
+
+    output_root.mkdir(parents=True, exist_ok=True)
+    payload_root = package_dir / "payload"
+    payload_root.mkdir(parents=True)
+
+    checksums: dict[str, str] = {}
+    for rel_path in payload_files:
+        source = PROJECT_ROOT / rel_path
+        destination = payload_root / rel_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+        checksums[rel_path] = sha256_file(destination)
+
+    apply_manifest = sorted(set(payload_files) | set(deleted_files))
+    (package_dir / "manifest.txt").write_text(
+        "\n".join(apply_manifest) + ("\n" if apply_manifest else ""),
+        encoding="utf-8",
+    )
+    (package_dir / "deleted.txt").write_text(
+        "\n".join(deleted_files) + ("\n" if deleted_files else ""),
+        encoding="utf-8",
+    )
+
+    for apply_file in PACKAGE_APPLY_FILES:
+        if not apply_file.is_file():
+            shutil.rmtree(package_dir, ignore_errors=True)
+            print(f"ERROR: required package utility not found: {apply_file}", file=sys.stderr)
+            sys.exit(1)
+        destination = package_dir / apply_file.name
+        shutil.copy2(apply_file, destination)
+        checksums[apply_file.name] = sha256_file(destination)
+
+    if needs_dependencies:
+        download_offline_dependencies(package_dir)
+        for wheel in sorted((package_dir / "wheels").iterdir()):
+            if wheel.is_file():
+                checksums[f"wheels/{wheel.name}"] = sha256_file(wheel)
+
+    metadata = {
+        "package_version": 1,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "base_ref": base_ref,
+        "head_ref": head_ref,
+        "files": payload_files,
+        "deleted_files": deleted_files,
+        "requires_dependencies": needs_dependencies,
+        "checksums": checksums,
+    }
+    (package_dir / "release.json").write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(f"\nUSB release package created: {package_dir}")
+    print(f'On the server, run "{package_dir.name}\\APPLY_RELEASE.bat" from the USB drive.')
+    return package_dir
 
 
 def remote_root_posix(config: dict[str, str]) -> str:
@@ -369,6 +563,11 @@ def parse_args() -> argparse.Namespace:
         help="Deploy explicit file paths instead of using git diffs.",
     )
     parser.add_argument(
+        "--inventory",
+        type=Path,
+        help="Compare against a production inventory instead of a Git baseline.",
+    )
+    parser.add_argument(
         "--include-uncommitted",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -381,9 +580,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--method",
-        choices=("auto", "scp", "rsync", "copy"),
+        choices=("auto", "scp", "rsync", "copy", "package"),
         default="auto",
         help="Transport method (default: auto = use DEPLOY_METHOD from config).",
+    )
+    parser.add_argument(
+        "--usb",
+        metavar="DIRECTORY",
+        help="Build a timestamped offline package under this USB directory.",
+    )
+    parser.add_argument(
+        "--output",
+        metavar="DIRECTORY",
+        help="Output root for --method package (equivalent to --usb).",
     )
     parser.add_argument(
         "--dry-run",
@@ -399,6 +608,11 @@ def parse_args() -> argparse.Namespace:
         "--mark-deployed",
         action="store_true",
         help="Update deploy/.deploy-last-sync to current HEAD after success.",
+    )
+    parser.add_argument(
+        "--mark-only",
+        action="store_true",
+        help="Record the current HEAD as deployed without copying or packaging files.",
     )
     return parser.parse_args()
 
@@ -425,7 +639,7 @@ def choose_method(config: dict[str, str], requested: str) -> str:
     if requested != "auto":
         return requested
     method = config.get("DEPLOY_METHOD", "scp").strip().lower()
-    if method not in {"scp", "rsync", "copy"}:
+    if method not in {"scp", "rsync", "copy", "package"}:
         print(f"ERROR: unknown DEPLOY_METHOD {method!r}.", file=sys.stderr)
         sys.exit(1)
     return method
@@ -433,11 +647,53 @@ def choose_method(config: dict[str, str], requested: str) -> str:
 
 def main() -> int:
     args = parse_args()
-    config = load_config()
-    method = choose_method(config, args.method)
+    if args.mark_only:
+        head_ref = current_head()
+        write_last_sync_ref(head_ref)
+        print(f"Recorded deploy baseline {head_ref} at {LAST_SYNC_PATH.name}.")
+        return 0
+    if args.usb and args.output:
+        print("ERROR: use either --usb or --output, not both.", file=sys.stderr)
+        return 2
+    if args.inventory and (args.files or args.base or args.since_last):
+        print(
+            "ERROR: --inventory cannot be combined with --files, --base, or --since-last.",
+            file=sys.stderr,
+        )
+        return 2
+    package_output = args.usb or args.output
+    requested_method = "package" if package_output else args.method
+    config = {} if requested_method == "package" else load_config()
+    method = choose_method(config, requested_method)
+    if method == "package" and not package_output:
+        package_output = config.get("PACKAGE_OUTPUT_ROOT")
+    if method == "package" and not package_output:
+        print("ERROR: --usb DIRECTORY or --output DIRECTORY is required for package mode.", file=sys.stderr)
+        return 2
 
-    if args.files:
+    base: str | None = None
+    if args.inventory:
+        try:
+            from release_inventory import InventoryError, compare_inventory
+        except ImportError as exc:
+            print(f"ERROR: inventory helper could not be loaded: {exc}", file=sys.stderr)
+            return 1
+        try:
+            added_files, changed_files, deleted_files = compare_inventory(
+                PROJECT_ROOT, args.inventory.expanduser().resolve()
+            )
+        except InventoryError as exc:
+            print(f"ERROR: production inventory comparison failed: {exc}", file=sys.stderr)
+            return 1
+        candidates = added_files + changed_files
+        print(f"Production inventory: {args.inventory}")
+        print(
+            f"Difference: {len(added_files)} add, "
+            f"{len(changed_files)} update, {len(deleted_files)} delete"
+        )
+    elif args.files:
         candidates = [normalize_rel_path(path) for path in args.files]
+        deleted_files: list[str] = []
     else:
         base = resolve_base(args)
         if base:
@@ -445,10 +701,31 @@ def main() -> int:
         else:
             print("Changes since: explicit file list only")
         candidates = collect_changed_files(base, include_uncommitted=args.include_uncommitted)
+        deleted_files = collect_deleted_files(
+            base,
+            include_tests=args.include_tests,
+            include_uncommitted=args.include_uncommitted,
+        )
 
     files = filter_deployable(candidates, include_tests=args.include_tests)
-    if not files:
+    if not files and not deleted_files:
         print("Nothing to deploy.")
+        return 0
+
+    if method == "package":
+        build_usb_package(
+            Path(str(package_output)).expanduser().resolve(),
+            files,
+            deleted_files,
+            base_ref=base,
+            dry_run=args.dry_run,
+        )
+        if args.mark_deployed:
+            print(
+                "WARNING: package creation does not mark the release deployed. "
+                "Run --mark-deployed --no-apply after confirming the server apply.",
+                file=sys.stderr,
+            )
         return 0
 
     print(f"Deploying {len(files)} file(s) via {method}:")

@@ -696,6 +696,7 @@
       <div class="er-card-label">80% of Commission</div>
       <div class="er-card-value blue">₱ {{ commission_80|floatformat:2|intcomma }}</div>
     </div>
+    {% endif %}
     <div class="er-card">
       <div class="er-card-label">Initial Funds Issued</div>
       <div class="er-card-value blue">₱ {{ total_opening_fund_recon|floatformat:2|intcomma }}</div>
@@ -833,7 +834,7 @@
   <hr class="er-divider">
 
   <!-- ── Teller breakdown table ── -->
-  {% if teller_data %}
+  {% if event_closed and final_reconciliation_totals %}
   <div>
     <div class="er-section-header">
       <span class="er-section-label">Final Cash Reconciliation</span>
@@ -961,6 +962,9 @@
           </tr>
           <tr>
             <th>Name</th>
+            <th class="num">Count</th>
+            <th class="num">Meron</th>
+            <th class="num">Wala</th>
             <th class="num">Gross Collected</th>
             <th class="num">Payouts</th>
             <th class="num">Initial Fund</th>
@@ -1094,6 +1098,8 @@
             </td>
             <td></td>
             <td></td>
+            <td class="num">₱ {{ total_reporting_coh_all|floatformat:2|intcomma }}</td>
+            <td class="num">₱ {{ total_initial_fund_all|floatformat:2|intcomma }}</td>
             <td class="num">₱ {{ total_expected_all|floatformat:2|intcomma }}</td>
             <td class="num">₱ {{ total_actual_all|floatformat:2|intcomma }}</td>
             <td class="num {% if total_variance_all > 0 %}c-var-over{% elif total_variance_all < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
@@ -1202,7 +1208,7 @@
       <table id="er-admin-fund-table">
         <thead>
           <tr>
-            <th class="th-group-header" colspan="8">Shared Admin Fund</th>
+            <th class="th-group-header" colspan="12">Shared Admin Fund</th>
           </tr>
           <tr>
             <th class="num">Expected Cash on Hand (Before Teller Counts)</th>
@@ -1251,7 +1257,7 @@
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="8" style="font-size:11px;color:rgba(255,255,255,0.40);padding-top:8px;">
+            <td colspan="12" style="font-size:11px;color:rgba(255,255,255,0.40);padding-top:8px;">
               Cash on Hand = Net Bank Funding + Admin Wagers − Admin Payouts + Teller Remits − Teller Borrows
             </td>
           </tr>
@@ -1265,9 +1271,10 @@
         <thead>
           <tr>
             <th class="th-group-header left" rowspan="1">Admin</th>
-            <th class="th-group-header" colspan="3">Bets Placed</th>
-            <th class="th-group-header" colspan="3">Transactions</th>
+            <th class="th-group-header">Bets Placed</th>
+            <th class="th-group-header" colspan="2">Transactions</th>
             <th class="th-group-header" colspan="2">Unclaimed Wins</th>
+            <th class="th-group-header">Fund Scope</th>
             <th class="th-group-header">Net Activity</th>
           </tr>
           <tr>
@@ -1277,6 +1284,7 @@
             <th class="num">Borrowed from Bank</th>
             <th class="num">Count</th>
             <th class="num">Amount</th>
+            <th class="num">Cash Fund</th>
             <th class="num">Wagers − Payouts</th>
           </tr>
         </thead>
@@ -1302,36 +1310,25 @@
               {% if a.unclaimed_count > 0 %}₱ {{ a.unclaimed_total|floatformat:2|intcomma }}{% else %}—{% endif %}
             </td>
             <td class="num c-balance-zer">Shared</td>
-            <td class="num c-balance-zer">—</td>
+            <td class="num c-total">₱ {{ a.balance|floatformat:2|intcomma }}</td>
           </tr>
           {% endfor %}
         </tbody>
         <tfoot>
           <tr>
             <td>Totals ({{ admin_data|length }} admin{{ admin_data|length|pluralize }})</td>
-            <td class="num c-count">{{ admin_bets_count_all }}</td>
-            <td></td>
-            <td></td>
             <td class="num c-total">₱ {{ admin_fund_summary.admin_wagers|floatformat:2|intcomma }}</td>
             <td class="num c-payout">₱ {{ admin_fund_summary.admin_payouts|floatformat:2|intcomma }}</td>
             <td class="num c-collect">₱ {{ admin_bank_borrowed_all|floatformat:2|intcomma }}</td>
-            <td></td>
+            <td class="num c-count">{{ admin_unclaimed_count_all }}</td>
             <td class="num c-unclaim {% if admin_unclaimed_all == 0 %}zero{% endif %}">
               {% if admin_unclaimed_all > 0 %}₱ {{ admin_unclaimed_all|floatformat:2|intcomma }}{% else %}—{% endif %}
             </td>
-            <td class="num {% if admin_fund_summary.expected_cash_on_hand > 0 %}c-balance-pos{% elif admin_fund_summary.expected_cash_on_hand == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
-              ₱ {{ admin_fund_summary.expected_cash_on_hand|floatformat:2|intcomma }}
-            </td>
-            <td class="num {% if admin_fund_summary.variance > 0 %}c-balance-pos{% elif admin_fund_summary.variance == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
-              {% if admin_fund_summary.actual_cash_counted is not None %}
-                ₱ {{ admin_fund_summary.actual_cash_counted|floatformat:2|intcomma }}
-              {% else %}
-                Not recorded
-              {% endif %}
-            </td>
+            <td class="num c-balance-zer">Shared</td>
+            <td class="num c-total">₱ {{ admin_net_activity_all|floatformat:2|intcomma }}</td>
           </tr>
           <tr>
-            <td colspan="10" style="font-size:11px;color:rgba(255,255,255,0.40);">
+            <td colspan="8" style="font-size:11px;color:rgba(255,255,255,0.40);">
               Per-admin Net Activity is wagers minus fund payouts only. Borrowed from Bank is explicit bank borrows by each admin (opening fund is in Shared Admin Fund above). Cash on Hand (right) is the shared fund total including bank funding and teller remits.
             </td>
           </tr>

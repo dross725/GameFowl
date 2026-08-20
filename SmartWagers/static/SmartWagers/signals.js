@@ -1,4 +1,4 @@
-const pageType = window.location.pathname.split("/").pop(); // Get page type from URL
+const pageType = window.location.pathname.split("/").filter(Boolean).pop() || "index";
 const signalsWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
 const socket = new WebSocket(`${signalsWebsocketProtocol}://${window.location.host}/ws/${pageType}/`); // Open correct WebSocket
 
@@ -104,6 +104,48 @@ function update_side_status(side, side_status) {
         wala_betting_status.style.fontSize = "30px";
         wala_betting_status.style.fontWeight = "bold";
     }
+}
+
+async function update_trends() {
+    const response = await fetch('/get_fight_results_view/');
+    if (!response.ok) {
+        throw new Error(`Fight results request failed with HTTP ${response.status}`);
+    }
+    const trendData = await response.json();
+    const trendsList = document.getElementById('trends');
+    if (!trendsList) return;
+    trendsList.innerHTML = '';
+
+    trendData.forEach((match) => {
+        const row = document.createElement('li');
+        row.className = 'sidebar-row';
+
+        const fightDiv = document.createElement('div');
+        fightDiv.className = 'fightnum';
+        fightDiv.textContent = match.fightnum;
+
+        const oddsDiv = document.createElement('div');
+        oddsDiv.className = 'odds';
+        oddsDiv.textContent = match.side === 'DRAW'
+            ? 'DRAW'
+            : match.odds === 'Llamado'
+                ? 'L'
+                : match.odds === 'Dehado'
+                    ? 'D'
+                    : '----';
+        const colors = {
+            MERON: 'linear-gradient(to bottom, red, black)',
+            WALA: 'linear-gradient(to bottom, blue, black)',
+            DRAW: 'linear-gradient(to bottom, #c8a800, black)',
+        };
+        oddsDiv.style.background = colors[match.side]
+            || 'linear-gradient(to bottom, gray, black)';
+        oddsDiv.style.color = 'white';
+
+        row.appendChild(fightDiv);
+        row.appendChild(oddsDiv);
+        trendsList.appendChild(row);
+    });
 }
 
 async function get_fightstatus(){

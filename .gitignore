@@ -44,6 +44,8 @@ htmlcov/
 # Packaging/build output
 build/
 dist/
+releases/
+deploy/release_staging/
 *.egg-info/
 
 # Node/frontend dependencies and builds
