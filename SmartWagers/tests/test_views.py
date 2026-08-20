@@ -278,12 +278,27 @@ class TestAdminActionGuards:
     def test_end_event_post_ends_active_event(self, admin_user, active_event):
         client = Client()
         client.force_login(admin_user)
-        response = client.post('/administrator/end-event/')
+        response = client.post('/administrator/end-event/', {
+            'actual_admin_cash': '99,950.25',
+        })
         assert response.status_code == 200
         data = json.loads(response.content)
         assert data.get('ok') is True
         active_event.refresh_from_db()
         assert active_event.is_active is False
+        assert active_event.actual_admin_cash_counted == 99950.25
+        assert active_event.admin_cash_counted_by == admin_user
+
+    def test_end_event_requires_valid_admin_cash(self, admin_user, active_event):
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/end-event/')
+
+        assert response.status_code == 400
+        assert response.json()['error'] == 'invalid_actual_admin_cash'
+        active_event.refresh_from_db()
+        assert active_event.is_active is True
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +327,26 @@ class TestReprintWager:
         assert response.status_code == 200
         data = json.loads(response.content)
         assert data['ok'] is False
+
+    def test_test_keyword_returns_printer_test_receipt(self, teller_user, active_event):
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=250,
+            cashier=teller_user.username, registered=True,
+        )
+        client = Client()
+        client.force_login(teller_user)
+
+        response = client.post('/reprint_wager/', {'transaction_id': 'TEST'})
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['receipt_type'] == 'test'
+        assert data['receipt']['receipt_type'] == 'wager'
+        assert data['receipt']['test_print'] is True
+        assert data['receipt']['transaction_id'] == 'test'
+        assert data['receipt']['cashier'] == teller_user.username
+        assert data['receipt']['amount'] == 250
 
     def test_valid_transaction_returns_receipt(self, teller_user, active_event):
         w = Wagers.objects.create(
@@ -726,17 +761,25 @@ class TestAdminFundViews:
             'amount': '25000',
         })
         assert borrow.status_code == 200
-        assert borrow.json()['balance'] == 125000
+        borrow_data = borrow.json()
+        assert borrow_data['balance'] == 125000
+        assert borrow_data['created_transaction']['transaction_type'] == 'BORROW'
+        assert borrow_data['created_transaction']['transaction_id'].startswith('B')
+        assert borrow_data['created_transaction']['amount'] == 25000
+        assert borrow_data['print_required'] is True
 
         remit = client.post('/administrator/fund/bank-transaction/', {
             'transaction_type': 'REMIT',
             'amount': '5000',
         })
         assert remit.status_code == 200
-        assert remit.json()['balance'] == 120000
-        assert remit.json()['bank_borrowed'] == 125000
-        assert remit.json()['bank_remitted'] == 5000
-        assert remit.json()['net_bank_funding'] == 120000
+        remit_data = remit.json()
+        assert remit_data['balance'] == 120000
+        assert remit_data['bank_borrowed'] == 125000
+        assert remit_data['bank_remitted'] == 5000
+        assert remit_data['net_bank_funding'] == 120000
+        assert remit_data['created_transaction']['transaction_type'] == 'REMIT'
+        assert remit_data['created_transaction']['amount'] == 5000
 
     def test_bank_remit_cannot_exceed_shared_balance(
             self, admin_user, active_event):

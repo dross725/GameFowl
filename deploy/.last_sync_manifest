@@ -1,0 +1,14 @@
+SmartWagers/services.py
+SmartWagers/static/SmartWagers/user.js
+SmartWagers/templates/SmartWagers/admin_tellers.html
+SmartWagers/templates/SmartWagers/event_report.html
+SmartWagers/views.py
+deploy/11_apply_release.bat
+deploy/11_sync_release.bat
+deploy/README.md
+deploy/sync_config.example.env
+deploy/sync_release.py
+deploy/sync_release.sh
+local_print_agent/print_agent.py
+local_print_agent/run_print_agent_debug.bat
+local_print_agent/start_print_agent_silent.vbs

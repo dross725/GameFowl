@@ -2,7 +2,7 @@
 {% load static %}
 {% load humanize %}
 
-{% block title %}Event Report — SmartWagers{% endblock title %}
+{% block title %}{% if event_closed %}Final Report{% else %}Event Report{% endif %} — SmartWagers{% endblock title %}
 
 {% block nav %}
     <header id="main-navigation">
@@ -168,6 +168,47 @@
     padding: 3px 10px;
   }
 
+  .er-section-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .er-teller-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: rgba(255,255,255,0.60);
+    cursor: pointer;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .er-teller-filter input {
+    accent-color: #f1c40f;
+    cursor: pointer;
+  }
+
+  .er-export-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    color: rgba(255,255,255,0.70);
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 5px 12px;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+  .er-export-btn:hover {
+    background: rgba(241,196,15,0.12);
+    border-color: rgba(241,196,15,0.35);
+    color: #f1c40f;
+  }
+
   /* ── Generic scrollable table wrap ── */
   .er-table-wrap {
     border-radius: 8px;
@@ -177,14 +218,20 @@
   }
 
   /* ── Teller table ── */
-  #er-teller-table {
+  #er-teller-table,
+  #er-admin-table,
+  #er-admin-fund-table,
+  #er-final-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 12px;
     min-width: 780px;
   }
 
-  #er-teller-table thead th {
+  #er-teller-table thead th,
+  #er-admin-table thead th,
+  #er-admin-fund-table thead th,
+  #er-final-table thead th {
     background: #12151c;
     color: rgba(255,255,255,0.40);
     font-size: 10px;
@@ -208,24 +255,44 @@
   }
   .th-group-header.left { text-align: left !important; }
 
-  #er-teller-table thead th.num { text-align: right; }
+  #er-teller-table thead th.num,
+  #er-admin-table thead th.num,
+  #er-admin-fund-table thead th.num,
+  #er-final-table thead th.num { text-align: right; }
 
-  #er-teller-table tbody tr {
+  #er-teller-table tbody tr,
+  #er-admin-table tbody tr,
+  #er-admin-fund-table tbody tr,
+  #er-final-table tbody tr {
     border-bottom: 1px solid rgba(255,255,255,0.04);
     transition: background 0.10s;
   }
-  #er-teller-table tbody tr:last-child { border-bottom: none; }
-  #er-teller-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+  #er-teller-table tbody tr:last-child,
+  #er-admin-table tbody tr:last-child,
+  #er-admin-fund-table tbody tr:last-child,
+  #er-final-table tbody tr:last-child { border-bottom: none; }
+  #er-teller-table tbody tr:hover,
+  #er-admin-table tbody tr:hover,
+  #er-admin-fund-table tbody tr:hover,
+  #er-final-table tbody tr:hover { background: rgba(255,255,255,0.03); }
 
-  #er-teller-table td {
+  #er-teller-table td,
+  #er-admin-table td,
+  #er-admin-fund-table td,
+  #er-final-table td {
     padding: 8px 12px;
     color: rgba(255,255,255,0.75);
     vertical-align: middle;
     white-space: nowrap;
   }
-  #er-teller-table td.num { text-align: right; }
+  #er-teller-table td.num,
+  #er-admin-table td.num,
+  #er-admin-fund-table td.num,
+  #er-final-table td.num { text-align: right; }
 
-  #er-teller-table tfoot td {
+  #er-teller-table tfoot td,
+  #er-admin-table tfoot td,
+  #er-final-table tfoot td {
     padding: 8px 12px;
     background: #12151c;
     border-top: 2px solid rgba(255,255,255,0.10);
@@ -236,7 +303,9 @@
     bottom: 0;
     white-space: nowrap;
   }
-  #er-teller-table tfoot td.num { text-align: right; }
+  #er-teller-table tfoot td.num,
+  #er-admin-table tfoot td.num,
+  #er-final-table tfoot td.num { text-align: right; }
 
   /* cell colours */
   .c-name     { font-weight: 700; color: white !important; }
@@ -554,7 +623,7 @@
   <!-- Top bar: title + event switcher -->
   <div id="er-topbar">
     <div>
-      <div id="er-title">Event Report</div>
+      <div id="er-title">{% if event_closed %}Final Report{% else %}Event Report{% endif %}</div>
       {% if event %}
         <div id="er-event-name">
           {{ event.name }}
@@ -593,12 +662,17 @@
   <div id="er-summary">
     <div class="er-card">
       <div class="er-card-label">Tellers</div>
-      <div class="er-card-value white">{{ teller_data|length }}</div>
-      <div class="er-card-sub">{{ total_bets_count_all }} total bets</div>
+      <div class="er-card-value white">{{ teller_station_count|default:teller_data|length }}</div>
+      <div class="er-card-sub">{{ total_bets_count_all }} total bets{% if admin_bets_station_count %} · {{ admin_bets_station_count }} admin{% endif %}</div>
     </div>
     <div class="er-card">
       <div class="er-card-label">Total Bets Collected</div>
-      <div class="er-card-value">₱ {{ grand_total_all|floatformat:2|intcomma }}</div>
+      <div class="er-card-value">₱ {{ total_bets_collected_all|floatformat:2|intcomma }}</div>
+      {% if admin_bets_in_teller_section > 0 %}
+      <div class="er-card-sub">Tellers ₱ {{ teller_grand_total_all|floatformat:2|intcomma }} · Admins ₱ {{ admin_bets_in_teller_section|floatformat:2|intcomma }}</div>
+      {% else %}
+      <div class="er-card-sub">{{ total_bets_count_all }} teller bets</div>
+      {% endif %}
     </div>
     <div class="er-card">
       <div class="er-card-label">Total Pot ({{ fight_commissions|length }} fights)</div>
@@ -609,31 +683,282 @@
       <div class="er-card-value green">₱ {{ total_commission|floatformat:2|intcomma }}</div>
     </div>
     <div class="er-card">
-      <div class="er-card-label">Unclaimed Winning Bets</div>
-      <div class="er-card-value red">₱ {{ total_unclaimed_all|floatformat:2|intcomma }}</div>
-      <div class="er-card-sub">Not yet paid out to bettors</div>
+      <div class="er-card-label">Outstanding Payouts</div>
+      <div class="er-card-value red">₱ {{ outstanding_payout_total_all|floatformat:2|intcomma }}</div>
+      <div class="er-card-sub">Winning tickets and fight refunds not yet paid</div>
+    </div>
+    {% if event_closed %}
+    <div class="er-card">
+      <div class="er-card-label">20% of Commission</div>
+      <div class="er-card-value">₱ {{ commission_20|floatformat:2|intcomma }}</div>
+    </div>
+    <div class="er-card">
+      <div class="er-card-label">80% of Commission</div>
+      <div class="er-card-value blue">₱ {{ commission_80|floatformat:2|intcomma }}</div>
+    </div>
+    {% endif %}
+    <div class="er-card">
+      <div class="er-card-label">Initial Funds Issued</div>
+      <div class="er-card-value blue">₱ {{ total_opening_fund_recon|floatformat:2|intcomma }}</div>
+      <div class="er-card-sub">₱ {{ teller_initial_fund|floatformat:0|intcomma }} per funded teller</div>
+    </div>
+    {% if cash_reconciliation %}
+    <div class="er-card">
+      <div class="er-card-label">Total Cash on Hand</div>
+      <div class="er-card-value white">₱ {{ cash_reconciliation.total_cash_on_hand|floatformat:2|intcomma }}</div>
+      <div class="er-card-sub">Tellers ₱ {{ cash_reconciliation.teller_cash_on_hand|floatformat:2|intcomma }} · Admin ₱ {{ cash_reconciliation.admin_cash_on_hand|floatformat:2|intcomma }}</div>
+    </div>
+    <div class="er-card">
+      <div class="er-card-label">Net Event Earnings</div>
+      <div class="er-card-value {% if cash_reconciliation.earnings_vs_commission == 0 %}green{% else %}white{% endif %}">₱ {{ cash_reconciliation.net_earnings|floatformat:2|intcomma }}</div>
+      <div class="er-card-sub">Should match commission (₱ {{ cash_reconciliation.expected_commission|floatformat:2|intcomma }})</div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if cash_reconciliation %}
+  <hr class="er-divider">
+
+  <!-- ── Cash vs commission reconciliation ── -->
+  <div>
+    <div class="er-section-header">
+      <span class="er-section-label">Cash vs Commission Reconciliation</span>
+      <div class="er-section-actions">
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-recon-table', '{{ event.name|escapejs }} — Cash Reconciliation')">
+          Export to Excel
+        </button>
+      </div>
+    </div>
+    <div class="er-table-wrap">
+      <table id="er-recon-table">
+        <thead>
+          <tr>
+            <th class="th-group-header" colspan="2">Physical Cash in System</th>
+          </tr>
+          <tr>
+            <th>Item</th>
+            <th class="num">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Teller cash on hand (all stations)</td>
+            <td class="num c-total">₱ {{ cash_reconciliation.teller_cash_on_hand|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td>Admin shared fund cash on hand</td>
+            <td class="num c-total">₱ {{ cash_reconciliation.admin_cash_on_hand|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td><strong>Total physical cash</strong></td>
+            <td class="num c-total"><strong>₱ {{ cash_reconciliation.total_cash_on_hand|floatformat:2|intcomma }}</strong></td>
+          </tr>
+          <tr><td colspan="2" style="height:8px;border:none;"></td></tr>
+          <tr>
+            <td>Less: Opening float issued (house capital at tellers)</td>
+            <td class="num c-collect">(₱ {{ cash_reconciliation.opening_fund_total|floatformat:2|intcomma }})</td>
+          </tr>
+          <tr>
+            <td>Less: Net bank funding (house capital at admin)</td>
+            <td class="num c-collect">(₱ {{ cash_reconciliation.net_bank_funding|floatformat:2|intcomma }})</td>
+          </tr>
+          <tr>
+            <td>Plus: Teller remits not in admin fund</td>
+            <td class="num c-remit">₱ {{ cash_reconciliation.remits_not_in_admin|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td><strong>Net earnings (from cash position)</strong></td>
+            <td class="num c-total"><strong>₱ {{ cash_reconciliation.net_earnings|floatformat:2|intcomma }}</strong></td>
+          </tr>
+          <tr><td colspan="2" style="height:8px;border:none;"></td></tr>
+          <tr>
+            <th class="th-group-header" colspan="2">Betting Ledger Check (should ~zero out)</th>
+          </tr>
+          <tr>
+            <td>Expected commission ({{ plasada_pct|floatformat:1 }}% of pot)</td>
+            <td class="num comm-val">₱ {{ cash_reconciliation.expected_commission|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td>Betting surplus (total wagers − total payouts)</td>
+            <td class="num comm-val">₱ {{ cash_reconciliation.betting_surplus|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td><strong>Ledger variance (surplus − commission)</strong></td>
+            <td class="num {% if cash_reconciliation.surplus_vs_commission > 0 %}c-var-over{% elif cash_reconciliation.surplus_vs_commission < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
+              {% if cash_reconciliation.surplus_vs_commission > 0 %}+{% endif %}₱ {{ cash_reconciliation.surplus_vs_commission|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          <tr><td colspan="2" style="height:8px;border:none;"></td></tr>
+          <tr>
+            <th class="th-group-header" colspan="2">Physical Cash Check</th>
+          </tr>
+          <tr>
+            <td>Cash vs ledger (net earnings − betting surplus)</td>
+            <td class="num {% if cash_reconciliation.earnings_vs_betting_surplus > 0 %}c-var-over{% elif cash_reconciliation.earnings_vs_betting_surplus < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
+              {% if cash_reconciliation.earnings_vs_betting_surplus > 0 %}+{% endif %}₱ {{ cash_reconciliation.earnings_vs_betting_surplus|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          {% if cash_reconciliation.close_out_variance_total != 0 %}
+          <tr>
+            <td>Station close-out variance (short/over)</td>
+            <td class="num {% if cash_reconciliation.close_out_variance_total > 0 %}c-var-over{% elif cash_reconciliation.close_out_variance_total < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
+              {% if cash_reconciliation.close_out_variance_total > 0 %}+{% endif %}₱ {{ cash_reconciliation.close_out_variance_total|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Physical net earnings (after close-out variance)</strong></td>
+            <td class="num c-total"><strong>₱ {{ cash_reconciliation.physical_net_earnings|floatformat:2|intcomma }}</strong></td>
+          </tr>
+          <tr>
+            <td><strong>Physical vs commission</strong></td>
+            <td class="num {% if cash_reconciliation.physical_vs_commission > 0 %}c-var-over{% elif cash_reconciliation.physical_vs_commission < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
+              {% if cash_reconciliation.physical_vs_commission > 0 %}+{% endif %}₱ {{ cash_reconciliation.physical_vs_commission|floatformat:2|intcomma }}
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2" style="font-size:11px;color:rgba(255,255,255,0.40);padding-top:8px;">
+              Net earnings = Total cash + Remits not in admin fund − Opening float − Net bank funding.
+              Ledger variance (surplus − commission) confirms betting math. Station close-out variance explains physical shortages like missing teller cash.
+            </td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   </div>
+  {% endif %}
 
   <hr class="er-divider">
 
   <!-- ── Teller breakdown table ── -->
-  {% if teller_data %}
+  {% if event_closed and final_reconciliation_totals %}
   <div>
     <div class="er-section-header">
-      <span class="er-section-label">Teller Performance Breakdown</span>
-      <span class="er-section-badge">{{ teller_data|length }} teller{{ teller_data|length|pluralize }}</span>
+      <span class="er-section-label">Final Cash Reconciliation</span>
+      <div class="er-section-actions">
+        <span class="er-section-badge">
+          {{ teller_station_count }} teller{{ teller_station_count|pluralize }}{% if admin_bets_station_count %} · {{ admin_bets_station_count }} admin{{ admin_bets_station_count|pluralize }}{% endif %}
+        </span>
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-final-table', '{{ event.name|escapejs }} — Final Cash Reconciliation')">
+          Export to Excel
+        </button>
+      </div>
     </div>
+    <div class="er-table-wrap">
+      <table id="er-final-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th class="num">COH</th>
+            <th class="num">Petty</th>
+            <th class="num">Expected</th>
+            <th class="num">Actual</th>
+            <th class="num">Variance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in final_reconciliation_rows %}
+          <tr>
+            <td class="c-name">{{ row.name }}</td>
+            <td class="num c-balance-pos">
+              {% if row.coh is not None %}₱ {{ row.coh|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num c-collect">₱ {{ row.petty|floatformat:2|intcomma }}</td>
+            <td class="num">
+              {% if row.expected is not None %}₱ {{ row.expected|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num">
+              {% if row.actual is not None %}₱ {{ row.actual|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num">
+              {% if row.variance is not None %}
+                {% if row.variance > 0 %}
+                  <span class="c-var-over">+₱ {{ row.variance|floatformat:2|intcomma }}</span>
+                {% elif row.variance < 0 %}
+                  <span class="c-var-short">-₱ {{ row.variance|floatformat:2|cut:"-" }}</span>
+                {% else %}
+                  <span class="c-var-zero">Balanced</span>
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Totals</td>
+            <td class="num c-balance-pos">
+              {% if final_reconciliation_totals.coh is not None %}₱ {{ final_reconciliation_totals.coh|floatformat:2|intcomma }}{% else %}Not recorded{% endif %}
+            </td>
+            <td class="num c-collect">₱ {{ final_reconciliation_totals.petty|floatformat:2|intcomma }}</td>
+            <td class="num">
+              {% if final_reconciliation_totals.expected is not None %}₱ {{ final_reconciliation_totals.expected|floatformat:2|intcomma }}{% else %}Not recorded{% endif %}
+            </td>
+            <td class="num">
+              {% if final_reconciliation_totals.actual is not None %}₱ {{ final_reconciliation_totals.actual|floatformat:2|intcomma }}{% else %}Not recorded{% endif %}
+            </td>
+            <td class="num">
+              {% if final_reconciliation_totals.variance is not None %}
+                {% if final_reconciliation_totals.variance > 0 %}
+                  <span class="c-var-over">+₱ {{ final_reconciliation_totals.variance|floatformat:2|intcomma }}</span>
+                {% elif final_reconciliation_totals.variance < 0 %}
+                  <span class="c-var-short">-₱ {{ final_reconciliation_totals.variance|floatformat:2|cut:"-" }}</span>
+                {% else %}
+                  <span class="c-var-zero">Balanced</span>
+                {% endif %}
+              {% else %}Not recorded{% endif %}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <hr class="er-divider">
+
+  <!-- ── Teller breakdown table ── -->
+  <div class="er-section-header">
+    <span class="er-section-label">Teller Performance Breakdown</span>
+    <div class="er-section-actions">
+      <form method="get" action="{% url 'admin-event-report' %}">
+        <input type="hidden" name="event_id" value="{{ event.id }}">
+        <label class="er-teller-filter">
+          <input type="checkbox" name="show_all_tellers" value="1"
+                 {% if show_all_tellers %}checked{% endif %}
+                 onchange="this.form.submit()">
+          Show all tellers
+        </label>
+      </form>
+      <span class="er-section-badge">
+        {{ teller_data|length }} teller{{ teller_data|length|pluralize }}
+        {% if not show_all_tellers %}with bets{% endif %}
+      </span>
+      {% if teller_data %}
+      <button type="button" class="er-export-btn"
+              onclick="exportTableToExcel('er-teller-table', '{{ event.name|escapejs }} — Teller Performance')">
+        Export to Excel
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if teller_data %}
+  <div>
     <div class="er-table-wrap">
       <table id="er-teller-table">
         <thead>
           <tr>
             <th class="th-group-header left" rowspan="1">Teller</th>
             <th class="th-group-header" colspan="3">Bets Placed</th>
-            <th class="th-group-header" colspan="3">Transactions</th>
+            <th class="th-group-header" colspan="4">Transactions</th>
             <th class="th-group-header" colspan="2">Unclaimed Wins</th>
             <th class="th-group-header">Balance</th>
-            <th class="th-group-header" colspan="5">Station Close-Out</th>
+            <th class="th-group-header" colspan="7">Station Close-Out</th>
           </tr>
           <tr>
             <th>Name</th>
@@ -642,12 +967,15 @@
             <th class="num">Wala</th>
             <th class="num">Gross Collected</th>
             <th class="num">Payouts</th>
+            <th class="num">Initial Fund</th>
             <th class="num">Remitted</th>
             <th class="num">Count</th>
             <th class="num">Amount</th>
             <th class="num">On-Hand</th>
             <th class="num">Status</th>
             <th class="num">Fight #</th>
+            <th class="num">COH</th>
+            <th class="num">Petty</th>
             <th class="num">Expected</th>
             <th class="num">Actual</th>
             <th class="num">Variance</th>
@@ -656,7 +984,12 @@
         <tbody>
           {% for t in teller_data %}
           <tr>
-            <td class="c-name">{{ t.display_name }}</td>
+            <td class="c-name">
+              {{ t.display_name }}
+              {% if t.is_admin_account %}
+                <span style="font-size:10px;color:rgba(255,255,255,0.45);margin-left:4px;">(Admin)</span>
+              {% endif %}
+            </td>
             <td class="num c-count">{{ t.bet_count }}</td>
             <td class="num c-meron">
               {% if t.meron_count > 0 %}
@@ -673,6 +1006,9 @@
             <td class="num c-total">₱ {{ t.grand_total|floatformat:2|intcomma }}</td>
             <td class="num c-payout">
               {% if t.payout_total > 0 %}₱ {{ t.payout_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num c-collect">
+              {% if t.opening_fund_total > 0 %}₱ {{ t.opening_fund_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
             </td>
             <td class="num c-remit">
               {% if t.remit_total > 0 %}₱ {{ t.remit_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
@@ -713,6 +1049,12 @@
             <td class="num">
               {% if t.close_out %}{{ t.close_out.fightnum }}{% else %}—{% endif %}
             </td>
+            <td class="num c-balance-pos" title="Expected cash plus initial bank fund">
+              {% if t.reporting_coh is not None %}₱ {{ t.reporting_coh|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num c-collect" title="Initial teller fund from bank">
+              ₱ {{ t.initial_fund|floatformat:2|intcomma }}
+            </td>
             <td class="num">
               {% if t.close_out %}₱ {{ t.close_out.expected_cash_on_hand|floatformat:2|intcomma }}{% else %}—{% endif %}
             </td>
@@ -737,22 +1079,29 @@
         </tbody>
         <tfoot>
           <tr>
-            <td>Totals ({{ teller_data|length }} tellers)</td>
+            <td>
+              Totals ({{ teller_station_count }} teller{{ teller_station_count|pluralize }}{% if admin_bets_station_count %}, {{ admin_bets_station_count }} admin{{ admin_bets_station_count|pluralize }}{% endif %})
+            </td>
             <td class="num c-count">{{ total_bets_count_all }}</td>
             <td></td>
             <td></td>
             <td class="num c-total">₱ {{ grand_total_all|floatformat:2|intcomma }}</td>
             <td></td>
+            <td class="num c-collect">₱ {{ total_opening_fund_all|floatformat:2|intcomma }}</td>
             <td></td>
             <td></td>
             <td class="num c-unclaim {% if total_unclaimed_all == 0 %}zero{% endif %}">
               {% if total_unclaimed_all > 0 %}₱ {{ total_unclaimed_all|floatformat:2|intcomma }}{% else %}—{% endif %}
             </td>
+            <td class="num {% if total_on_hand_all > 0 %}c-balance-pos{% elif total_on_hand_all == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
+              ₱ {{ total_on_hand_all|floatformat:2|intcomma }}
+            </td>
             <td></td>
             <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+            <td class="num">₱ {{ total_reporting_coh_all|floatformat:2|intcomma }}</td>
+            <td class="num">₱ {{ total_initial_fund_all|floatformat:2|intcomma }}</td>
+            <td class="num">₱ {{ total_expected_all|floatformat:2|intcomma }}</td>
+            <td class="num">₱ {{ total_actual_all|floatformat:2|intcomma }}</td>
             <td class="num {% if total_variance_all > 0 %}c-var-over{% elif total_variance_all < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
               {% if total_variance_all != 0 %}
                 {% if total_variance_all > 0 %}+{% endif %}₱ {{ total_variance_all|floatformat:2|intcomma }}
@@ -768,13 +1117,19 @@
   {% if unclaimed_detail_list %}
   <div>
     <div class="er-section-header" style="margin-bottom:8px;">
-      <span class="er-section-label" style="color:#e74c3c;">Unclaimed Winning Tickets</span>
-      <span class="er-section-badge" style="border-color:rgba(231,76,60,0.25);color:#e74c3c;">
-        {{ unclaimed_detail_list|length }} ticket{{ unclaimed_detail_list|length|pluralize }} · ₱ {{ total_unclaimed_all|floatformat:2|intcomma }}
-      </span>
+      <span class="er-section-label" style="color:#e74c3c;">Outstanding Payout Tickets</span>
+      <div class="er-section-actions">
+        <span class="er-section-badge" style="border-color:rgba(231,76,60,0.25);color:#e74c3c;">
+          {{ outstanding_payout_count_all }} ticket{{ outstanding_payout_count_all|pluralize }} · ₱ {{ outstanding_payout_total_all|floatformat:2|intcomma }}
+        </span>
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-unclaimed-table', '{{ event.name|escapejs }} — Unclaimed Tickets')">
+          Export to Excel
+        </button>
+      </div>
     </div>
     <div style="background:rgba(231,76,60,0.05);border:1px solid rgba(231,76,60,0.18);border-radius:8px;padding:8px 14px;font-size:11px;color:rgba(255,255,255,0.50);margin-bottom:8px;">
-      These winning tickets have not been presented for payout and remain outstanding.
+      These winning tickets or full-refund tickets have not been paid and remain outstanding.
     </div>
     <div class="er-table-wrap">
       <table id="er-unclaimed-table">
@@ -783,7 +1138,7 @@
             <th>Transaction ID</th>
             <th>Teller</th>
             <th class="num">Fight #</th>
-            <th>Side</th>
+            <th>Payable Outcome</th>
             <th class="num">Bet Amount</th>
             <th>Date &amp; Time</th>
           </tr>
@@ -795,8 +1150,10 @@
             <td class="c-tname">{{ w.cashier }}</td>
             <td class="num c-fight">{{ w.fightnum }}</td>
             <td>
-              {% if w.side == 'MERON' %}<span class="comm-side-meron">MERON</span>
-              {% elif w.side == 'WALA' %}<span class="comm-side-wala">WALA</span>
+              {% if w.result_side == 'CANCELLED' %}<span class="comm-side-cancelled">CANCELLED REFUND</span>
+              {% elif w.result_side == 'DRAW' %}<span class="comm-side-draw">DRAW REFUND</span>
+              {% elif w.side == 'MERON' %}<span class="comm-side-meron">MERON WIN</span>
+              {% elif w.side == 'WALA' %}<span class="comm-side-wala">WALA WIN</span>
               {% else %}<span style="color:rgba(255,255,255,0.40);">{{ w.side }}</span>{% endif %}
             </td>
             <td class="num c-unclaim">₱ {{ w.wager|floatformat:2|intcomma }}</td>
@@ -806,8 +1163,8 @@
         </tbody>
         <tfoot>
           <tr>
-            <td colspan="4">Total Unclaimed ({{ unclaimed_detail_list|length }} ticket{{ unclaimed_detail_list|length|pluralize }})</td>
-            <td class="num c-unclaim">₱ {{ total_unclaimed_all|floatformat:2|intcomma }}</td>
+            <td colspan="4">Total Outstanding ({{ outstanding_payout_count_all }} ticket{{ outstanding_payout_count_all|pluralize }})</td>
+            <td class="num c-unclaim">₱ {{ outstanding_payout_total_all|floatformat:2|intcomma }}</td>
             <td></td>
           </tr>
         </tfoot>
@@ -822,6 +1179,175 @@
   </div>
   {% endif %}
 
+  {% if event_closed and admin_fund_summary %}
+  <hr class="er-divider">
+
+  <!-- ── Admin breakdown (closed events only) ── -->
+  <div>
+    <div class="er-section-header">
+      <span class="er-section-label">Admin Performance Breakdown</span>
+      <div class="er-section-actions">
+        {% if admin_data %}
+        <span class="er-section-badge">{{ admin_data|length }} admin{{ admin_data|length|pluralize }}</span>
+        {% endif %}
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-admin-fund-table', '{{ event.name|escapejs }} — Shared Admin Fund')">
+          Export Fund Summary
+        </button>
+        {% if admin_data %}
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-admin-table', '{{ event.name|escapejs }} — Admin Performance')">
+          Export Activity
+        </button>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Shared admin fund summary -->
+    <div class="er-table-wrap" style="margin-bottom:12px;">
+      <table id="er-admin-fund-table">
+        <thead>
+          <tr>
+            <th class="th-group-header" colspan="12">Shared Admin Fund</th>
+          </tr>
+          <tr>
+            <th class="num">Expected Cash on Hand (Before Teller Counts)</th>
+            <th class="num">Actual Cash Counted</th>
+            <th class="num">Variance</th>
+            <th class="num">Initial Funds from Bank</th>
+            <th class="num">Additional Funds from Bank</th>
+            <th class="num">Total from Bank</th>
+            <th class="num">Advanced to Bank</th>
+            <th class="num">Net Bank Funding</th>
+            <th class="num">Admin Wagers</th>
+            <th class="num">Admin Payouts</th>
+            <th class="num">Teller Remits</th>
+            <th class="num">Teller Borrows</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num {% if admin_fund_summary.expected_cash_on_hand > 0 %}c-balance-pos{% elif admin_fund_summary.expected_cash_on_hand == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
+              ₱ {{ admin_fund_summary.expected_cash_on_hand|floatformat:2|intcomma }}
+            </td>
+            <td class="num c-total">
+              {% if admin_fund_summary.actual_cash_counted is not None %}
+                ₱ {{ admin_fund_summary.actual_cash_counted|floatformat:2|intcomma }}
+              {% else %}
+                <span class="c-balance-zer">Not recorded</span>
+              {% endif %}
+            </td>
+            <td class="num {% if admin_fund_summary.variance > 0 %}c-balance-pos{% elif admin_fund_summary.variance == 0 %}c-balance-zer{% else %}c-balance-neg{% endif %}">
+              {% if admin_fund_summary.variance is not None %}
+                ₱ {{ admin_fund_summary.variance|floatformat:2|intcomma }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="num c-collect">₱ {{ admin_fund_summary.opening_fund|floatformat:2|intcomma }}</td>
+            <td class="num c-collect">₱ {{ admin_fund_summary.additional_bank_borrowed|floatformat:2|intcomma }}</td>
+            <td class="num c-collect">₱ {{ admin_fund_summary.bank_borrowed|floatformat:2|intcomma }}</td>
+            <td class="num c-remit">₱ {{ admin_fund_summary.bank_remitted|floatformat:2|intcomma }}</td>
+            <td class="num c-total">₱ {{ admin_fund_summary.net_bank_funding|floatformat:2|intcomma }}</td>
+            <td class="num c-total">₱ {{ admin_fund_summary.admin_wagers|floatformat:2|intcomma }}</td>
+            <td class="num c-payout">₱ {{ admin_fund_summary.admin_payouts|floatformat:2|intcomma }}</td>
+            <td class="num c-remit">₱ {{ admin_fund_summary.teller_remits|floatformat:2|intcomma }}</td>
+            <td class="num c-collect">₱ {{ admin_fund_summary.teller_borrows|floatformat:2|intcomma }}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="12" style="font-size:11px;color:rgba(255,255,255,0.40);padding-top:8px;">
+              Cash on Hand = Net Bank Funding + Admin Wagers − Admin Payouts + Teller Remits − Teller Borrows
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    {% if admin_data %}
+    <div class="er-table-wrap">
+      <table id="er-admin-table">
+        <thead>
+          <tr>
+            <th class="th-group-header left" rowspan="1">Admin</th>
+            <th class="th-group-header">Bets Placed</th>
+            <th class="th-group-header" colspan="2">Transactions</th>
+            <th class="th-group-header" colspan="2">Unclaimed Wins</th>
+            <th class="th-group-header">Fund Scope</th>
+            <th class="th-group-header">Net Activity</th>
+          </tr>
+          <tr>
+            <th>Name</th>
+            <th class="num">Gross Collected</th>
+            <th class="num">Payouts</th>
+            <th class="num">Borrowed from Bank</th>
+            <th class="num">Count</th>
+            <th class="num">Amount</th>
+            <th class="num">Cash Fund</th>
+            <th class="num">Wagers − Payouts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in admin_data %}
+          <tr>
+            <td class="c-name">{{ a.display_name }}</td>
+            <td class="num c-total">₱ {{ a.grand_total|floatformat:2|intcomma }}</td>
+            <td class="num c-payout">
+              {% if a.payout_total > 0 %}₱ {{ a.payout_total|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num c-collect">
+              {% if a.bank_borrowed > 0 %}₱ {{ a.bank_borrowed|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num">
+              {% if a.unclaimed_count > 0 %}
+                {{ a.unclaimed_count }} ticket{{ a.unclaimed_count|pluralize }}
+              {% else %}
+                <span style="color:rgba(255,255,255,0.20);">—</span>
+              {% endif %}
+            </td>
+            <td class="num {% if a.unclaimed_count > 0 %}c-unclaim{% else %}c-unclaim zero{% endif %}">
+              {% if a.unclaimed_count > 0 %}₱ {{ a.unclaimed_total|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num c-balance-zer">Shared</td>
+            <td class="num c-total">₱ {{ a.balance|floatformat:2|intcomma }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>Totals ({{ admin_data|length }} admin{{ admin_data|length|pluralize }})</td>
+            <td class="num c-total">₱ {{ admin_fund_summary.admin_wagers|floatformat:2|intcomma }}</td>
+            <td class="num c-payout">₱ {{ admin_fund_summary.admin_payouts|floatformat:2|intcomma }}</td>
+            <td class="num c-collect">₱ {{ admin_bank_borrowed_all|floatformat:2|intcomma }}</td>
+            <td class="num c-count">{{ admin_unclaimed_count_all }}</td>
+            <td class="num c-unclaim {% if admin_unclaimed_all == 0 %}zero{% endif %}">
+              {% if admin_unclaimed_all > 0 %}₱ {{ admin_unclaimed_all|floatformat:2|intcomma }}{% else %}—{% endif %}
+            </td>
+            <td class="num c-balance-zer">Shared</td>
+            <td class="num c-total">₱ {{ admin_net_activity_all|floatformat:2|intcomma }}</td>
+          </tr>
+          <tr>
+            <td colspan="8" style="font-size:11px;color:rgba(255,255,255,0.40);">
+              Per-admin Net Activity is wagers minus fund payouts only. Borrowed from Bank is explicit bank borrows by each admin (opening fund is in Shared Admin Fund above). Cash on Hand (right) is the shared fund total including bank funding and teller remits.
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    {% endif %}
+    <div class="er-card-sub" style="margin-top:6px;">
+      Admin cash is shared. Expected cash excludes teller close-out cash counts.
+      {% if admin_fund_summary.counted_by %}
+        Counted by {{ admin_fund_summary.counted_by_name }}
+        {% if admin_fund_summary.counted_at %}on {{ admin_fund_summary.counted_at|date:"M j, Y g:i A" }}{% endif %}.
+      {% elif admin_fund_summary.actual_cash_counted is None %}
+        This historical event has no physical admin cash count.
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <hr class="er-divider">
 
   <!-- ── Commission / fight results breakdown ── -->
@@ -829,7 +1355,13 @@
   <div>
     <div class="er-section-header">
       <span class="er-section-label">Commission Breakdown by Fight</span>
-      <span class="er-section-badge">Plasada {{ plasada_pct|floatformat:1 }}% · {{ fight_commissions|length }} fight{{ fight_commissions|length|pluralize }}</span>
+      <div class="er-section-actions">
+        <span class="er-section-badge">Plasada {{ plasada_pct|floatformat:1 }}% · {{ fight_commissions|length }} fight{{ fight_commissions|length|pluralize }}</span>
+        <button type="button" class="er-export-btn"
+                onclick="exportTableToExcel('er-comm-table', '{{ event.name|escapejs }} — Commission Breakdown')">
+          Export to Excel
+        </button>
+      </div>
     </div>
     <div class="er-table-wrap">
       <table id="er-comm-table">
@@ -939,6 +1471,37 @@
 <script>
 function navigateToEvent(eventId) {
     window.location.href = "{% url 'admin-event-report' %}?event_id=" + eventId;
+}
+
+function exportTableToExcel(tableId, filename) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+
+    const rows = [];
+    table.querySelectorAll('tr').forEach((row) => {
+        const cells = [];
+        row.querySelectorAll('th, td').forEach((cell) => {
+            let text = (cell.innerText || cell.textContent || '').replace(/\s+/g, ' ').trim();
+            text = text.replace(/₱\s*/g, '').replace(/,/g, '');
+            if (/[",\n]/.test(text)) {
+                text = '"' + text.replace(/"/g, '""') + '"';
+            }
+            cells.push(text);
+        });
+        if (cells.length) rows.push(cells.join(','));
+    });
+
+    const blob = new Blob(['\ufeff' + rows.join('\n')], {
+        type: 'text/csv;charset=utf-8;',
+    });
+    const link = document.createElement('a');
+    const safeName = (filename || tableId).replace(/[\\/:*?"<>|]+/g, '-');
+    link.href = URL.createObjectURL(blob);
+    link.download = safeName + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
 }
 
 // ── Old-ticket claim modal ──────────────────────────────────────────────

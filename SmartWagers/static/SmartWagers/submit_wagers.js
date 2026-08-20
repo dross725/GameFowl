@@ -3,6 +3,7 @@ let wager_value = 0;
 let wager_id = '';
 let clientRequestId = '';
 let isSubmitting = false;
+let tellerEnterAction = null;
 
 function formatNumber(n) {
     return Number(n).toLocaleString('en-US');
@@ -396,7 +397,7 @@ async function printRemitReceipt(receipt) {
 
         return {
             ok: true,
-            message: result.message || "Remit receipt sent to local printer.",
+            message: result.message || "Advance receipt sent to local printer.",
         };
     } catch (error) {
         return {
@@ -519,7 +520,29 @@ async function submitValue() {
                 "X-Requested-With": "XMLHttpRequest",
             },
         });
-        const result = await response.json();
+
+        const contentType = response.headers.get("content-type") || "";
+        let result = {};
+        if (contentType.includes("application/json")) {
+            result = await response.json();
+        } else {
+            const snippet = (await response.text()).slice(0, 200);
+            console.error("Non-JSON wager response:", response.status, snippet);
+            if (response.status === 403) {
+                alert(
+                    "Bet blocked (403). If the page loaded but bets fail, check "
+                    + "DJANGO_CSRF_TRUSTED_ORIGINS in .env — it must match this "
+                    + "browser URL exactly (include :8080)."
+                );
+            } else {
+                alert(
+                    "Unable to submit wager (HTTP " + response.status + "). "
+                    + "On the server run: python manage.py migrate "
+                    + "then check C:\\SmartWagers\\logs\\app.log"
+                );
+            }
+            return;
+        }
 
         if (!response.ok || !result.ok) {
             if (result.error === "betting_closed") {
@@ -555,7 +578,12 @@ async function submitValue() {
         submissionSucceeded = true;
         window.location.reload();
     } catch (error) {
-        alert("Unable to submit wager. Please check the connection and try again.");
+        console.error("Wager submit failed:", error);
+        alert(
+            "Unable to submit wager: "
+            + (error && error.message ? error.message : "request failed")
+            + ". Press F12 → Console for details, or check C:\\SmartWagers\\logs\\app.log on the server."
+        );
     } finally {
         if (!submissionSucceeded) {
             /* Only release the lock on failure/cancellation — the page is about
@@ -568,16 +596,25 @@ async function submitValue() {
     resetTotal();
 }
 
-window.onload = function() {
-    document.getElementById('wager_value').value = '';
-    document.getElementById('wager_id').value = '';
+window.addEventListener('load', () => {
+    const wagerValue = document.getElementById('wager_value');
+    const wagerId = document.getElementById('wager_id');
+    if (!wagerValue || !wagerId) return;
+    wagerValue.value = '';
+    wagerId.value = '';
     setClientRequestId('');
-};
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     consumeQueuedAppToast();
     // Do not await — printing must never block the bet UI.
     consumePendingPrints();
+
+    document.addEventListener('click', (event) => {
+        const actionButton = event.target.closest('.button');
+        if (!actionButton) return;
+        tellerEnterAction = actionButton.id === 'payout_button' ? 'payout' : null;
+    });
 
     const textarea = document.getElementById('bet_textinput');
     if (!textarea) return;
@@ -699,6 +736,13 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
             action();
         }
-        break; /* Only the topmost visible modal gets the keystroke */
+        return; /* Only the topmost visible modal gets the keystroke */
+    }
+
+    if (e.key === 'Enter' && !e.repeat && tellerEnterAction === 'payout') {
+        e.preventDefault();
+        if (typeof openmodal === 'function') {
+            openmodal('payoutmodal');
+        }
     }
 });

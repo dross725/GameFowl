@@ -467,6 +467,23 @@
     white-space: nowrap;
   }
 
+  .reopen-station-btn {
+    background: linear-gradient(135deg, #2471a3, #3498db);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .reopen-station-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
   .teller-closeout-strip {
     display: flex;
     align-items: center;
@@ -795,7 +812,7 @@
       <div id="tellers-title">Teller Balances</div>
       <div id="tellers-subtitle">
         {% if active_event %}
-          Manage remit / borrow &amp; view transaction history
+          Manage advance / borrow &amp; view transaction history
         {% else %}
           Select the tellers who will receive opening funds for the next event
         {% endif %}
@@ -871,6 +888,12 @@
                         onclick="openCountCashModalFromButton(event, this)">
                   Count Cash
                 </button>
+                <button type="button" class="reopen-station-btn"
+                        data-close-out-id="{{ td.close_out.pk }}"
+                        data-teller-name="{{ td.display_name|escapejs }}"
+                        onclick="reopenTellerStation(event, this)">
+                  Reopen Station
+                </button>
               {% else %}
                 · Counted ₱ {{ td.close_out.actual_cash_counted|floatformat:2|intcomma }}
               {% endif %}
@@ -937,7 +960,7 @@
                   <td class="td-txid-h">{{ txn.transaction_id }}</td>
                   <td>
                     <span class="type-badge {{ txn.transaction_type|lower }}">
-                      {% if txn.transaction_type == 'COLLECT' %}BORROW{% else %}{{ txn.transaction_type }}{% endif %}
+                      {% if txn.transaction_type == 'COLLECT' %}BORROW{% elif txn.transaction_type == 'REMIT' %}ADVANCE{% else %}{{ txn.transaction_type }}{% endif %}
                     </span>
                   </td>
                   <td class="td-ts">{{ txn.created_at|date:"Y-m-d" }} {{ txn.created_at|time:"H:i:s" }}</td>
@@ -1042,6 +1065,7 @@
 const TELLER_TXN_URL      = "{% url 'admin-teller-txn' %}";
 const TELLER_ONLINE_URL   = "{% url 'admin-teller-online-toggle' %}";
 const COUNT_CASH_URL      = "{% url 'admin-teller-closeout-count' %}";
+const REOPEN_STATION_URL  = "{% url 'admin-teller-closeout-reopen' %}";
 const PRINT_AGENT_URL     = "http://127.0.0.1:8765/print-remit";
 const CSRF_TOKEN          = "{{ csrf_token }}";
 const TELLER_MAX_BALANCE  = {{ teller_max_balance|floatformat:2 }};
@@ -1098,11 +1122,11 @@ function openTxnModal(event, tellerId, tellerName, txnType) {
   document.getElementById('modal-teller-id').value  = tellerId;
   document.getElementById('modal-txn-type').value   = txnType;
   document.getElementById('modal-teller-name').textContent = tellerName;
-  document.getElementById('modal-title').textContent = isRemit ? 'Issue Remit' : 'Issue Borrow';
+  document.getElementById('modal-title').textContent = isRemit ? 'Issue Advance' : 'Issue Borrow';
   document.getElementById('collect-amount').value   = '';
 
   const confirmBtn = document.getElementById('btn-collect-confirm');
-  confirmBtn.textContent = isRemit ? 'Confirm Remit' : 'Confirm Borrow';
+  confirmBtn.textContent = isRemit ? 'Confirm Advance' : 'Confirm Borrow';
   confirmBtn.classList.toggle('is-remit', isRemit);
 
   setStatus('', '');
@@ -1138,7 +1162,7 @@ async function submitTxn() {
   if (txnType === 'REMIT') {
     const cashOnHand = Number(TELLER_BALANCES[tellerId]?.balance ?? 0);
     if (amount > cashOnHand + 0.001) {
-      setStatus('error', 'Remit amount cannot exceed cash on hand.');
+      setStatus('error', 'Advance amount cannot exceed cash on hand.');
       return;
     }
   }
@@ -1159,7 +1183,7 @@ async function submitTxn() {
 
     if (!data.ok) {
       const msg = data.error === 'exceeds_cash_on_hand'
-        ? 'Remit amount cannot exceed cash on hand.'
+        ? 'Advance amount cannot exceed cash on hand.'
         : data.error === 'exceeds_admin_fund'
           ? `Shared admin fund only has ₱ ${fmtNum(data.admin_fund_balance)} available. Borrow from the bank first.`
           : data.error === 'no_active_event'
@@ -1353,9 +1377,6 @@ document.addEventListener('keydown', e => {
 
 function openCountCashModalFromButton(event, button) {
   event.stopPropagation();
-  // #region agent log
-  fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1',location:'admin_tellers.html:openCountCashModalFromButton',message:'opening count cash modal',data:{closeOutId:button.dataset.closeOutId,tellerName:button.dataset.tellerName,expected:button.dataset.expected,fightnum:button.dataset.fightnum},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
   openCountCashModal(
     event,
     button.dataset.closeOutId,
@@ -1406,22 +1427,15 @@ async function submitCountCash() {
   fd.append('actual_amount', amountRaw);
   fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
 
-  // #region agent log
-  fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1-H2',location:'admin_tellers.html:submitCountCash',message:'submitting cash count',data:{closeOutId,amountRaw,amount,csrfPresent:!!CSRF_TOKEN,countCashUrl:COUNT_CASH_URL},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-
   try {
     const res = await fetch(COUNT_CASH_URL, { method: 'POST', body: fd });
     const data = await res.json();
-    // #region agent log
-    fetch('http://127.0.0.1:7881/ingest/3bb64aae-398e-4840-956a-f71cba16d372',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'752381'},body:JSON.stringify({sessionId:'752381',hypothesisId:'H1-H4',location:'admin_tellers.html:submitCountCash:response',message:'cash count response',data:{status:res.status,ok:data.ok,error:data.error},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     if (!data.ok) {
       const messages = {
         close_out_not_found: 'Close-out record not found.',
         already_counted: 'Cash has already been counted for this teller.',
         invalid_amount: 'Invalid amount.',
-        transaction_id_exhausted: 'Cannot create remit — transaction ID limit reached. Contact support.',
+        transaction_id_exhausted: 'Cannot create advance — transaction ID limit reached. Contact support.',
         invalid_params: 'Invalid cash count submission. Check amount and try again.',
       };
       statusEl.textContent = messages[data.error] || 'Failed to register count.';
@@ -1434,6 +1448,44 @@ async function submitCountCash() {
     statusEl.textContent = 'Network error. Please try again.';
     statusEl.style.color = '#e74c3c';
     btn.disabled = false;
+  }
+}
+
+async function reopenTellerStation(event, button) {
+  event.stopPropagation();
+
+  const tellerName = button.dataset.tellerName;
+  if (!confirm(`Reopen ${tellerName}'s station? They will be able to accept wagers again.`)) {
+    return;
+  }
+
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = 'Reopening…';
+
+  const fd = new FormData();
+  fd.append('close_out_id', button.dataset.closeOutId);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(REOPEN_STATION_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) {
+      const messages = {
+        close_out_not_found: 'Close-out record not found.',
+        already_counted: 'A reconciled close-out cannot be reopened.',
+        invalid_close_out_id: 'Invalid close-out record.',
+      };
+      alert(data.message || messages[data.error] || 'Failed to reopen station.');
+      button.disabled = false;
+      button.textContent = originalText;
+      return;
+    }
+    window.location.reload();
+  } catch {
+    alert('Network error. Please try again.');
+    button.disabled = false;
+    button.textContent = originalText;
   }
 }
 
@@ -1464,6 +1516,14 @@ async function handleOnlineToggle(checkbox) {
     } else {
       if (TELLER_BALANCES[tid] !== undefined) {
         TELLER_BALANCES[tid].is_online = isOnline;
+        if (typeof data.balance === 'number') {
+          TELLER_BALANCES[tid].balance = data.balance;
+          updateTellerCard({
+            teller_id: Number(tid),
+            balance: data.balance,
+            grand_total: data.grand_total ?? TELLER_BALANCES[tid].balance,
+          });
+        }
       }
       updatePreEventFunding();
       refreshWarningBanner();
@@ -1574,7 +1634,7 @@ function refreshWarningBanner() {
           ₱ ${fmtNum(Math.abs(a.balance))}${isRemit ? '' : ' (low)'}
         </span>
         <span class="bw-item-tag ${isRemit ? 'remit-tag' : 'borrow-tag'}">
-          ${isRemit ? 'Needs to Remit' : 'Low On-Hand'}
+          ${isRemit ? 'Needs Advance' : 'Low On-Hand'}
         </span>
       `;
     }
@@ -1618,5 +1678,20 @@ async function markTellerOnlineFromBanner(tid) {
 /* run on page load */
 attachModalAmountFormatters();
 refreshWarningBanner();
+
+(function () {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${window.location.host}/ws/administrator/`);
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.fight_status === 'event_changed') {
+        window.location.reload();
+      }
+    } catch (_) {
+      // Ignore malformed websocket payloads.
+    }
+  };
+})();
 </script>
 {% endblock content %}

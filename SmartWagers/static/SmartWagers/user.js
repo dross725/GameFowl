@@ -73,6 +73,8 @@ function connectUserSocket() {
         console.log("Initial data request sent.");
         updateStatus("Connected");
         get_fightstatus();
+        fetchTellerBalance();
+        fetchFightTotals();
     };
 
     socket.onerror = (error) => {
@@ -118,12 +120,16 @@ async function handleUserSocketMessage(event) {
         }
         if (status === "CLOSED") {
             bettingReopenedUser = false;
-            setBettingDisabledModalCopy(side);
-            openbettingdisabledModal();
+            const sideLabel = side === "BOTH" ? "Both sides" : side;
+            showAppToast(
+                sideLabel + " betting has been closed by the administrator.",
+                "error",
+                6000
+            );
         } else if (status === "OPEN") {
             bettingReopenedUser = true;
             update_disp_FightStatus("OPEN");
-            closebettingdisabledModal();
+            closebettingdisabledModal(null, true);
             closemodalIfOpen('matchclosedmodal');
         }
     } else if ("meron_status" in data && "wala_status" in data && !("fight_status" in data)) {
@@ -294,8 +300,12 @@ function handleFightStatusBroadcast(data) {
         closemodalIfOpen('matchclosedmodal');
         update_trends();
         fetchPendingPayouts();
-    } else if (fightAction === "event_changed" && !("overall_status" in data)) {
-        get_fightstatus();
+    } else if (fightAction === "event_changed") {
+        fetchTellerBalance();
+        fetchFightTotals();
+        if (!("overall_status" in data)) {
+            get_fightstatus();
+        }
     }
 }
 
@@ -383,7 +393,6 @@ function updateUserBettingStatus(status, side) {
         if (side === "WALA" || side === "BOTH") {
             closeWalaUser();
         }
-        resetTotal();
         return;
     }
 
@@ -394,7 +403,6 @@ function updateUserBettingStatus(status, side) {
         if (side === "WALA" || side === "BOTH") {
             openWalaUser();
         }
-        resetTotal();
     }
 }
 
@@ -480,7 +488,7 @@ function openbettingdisabledModal() {
     resetTotal();
 };
 
-function closebettingdisabledModal(event) {
+function closebettingdisabledModal(event, preserveBet) {
     if (event) {
         event.preventDefault();
         event.stopPropagation();
@@ -491,7 +499,9 @@ function closebettingdisabledModal(event) {
         bettingDisabledModal.style.display = 'none';
         bettingDisabledModal.removeAttribute('style');
     }
-    resetTotal();  // Reset totals when modal is closed
+    if (!preserveBet) {
+        resetTotal();
+    }
 };
 
 function openMeronUser() {
@@ -753,7 +763,7 @@ async function submitTellerTransaction(type) {
     const balanceDisplay = document.getElementById('balance_display');
     const cashOnHand = parseFloat(balanceDisplay?.dataset?.balance ?? '0');
     if (!isNaN(cashOnHand) && amount > cashOnHand + 0.001) {
-        statusMsg.innerText = 'Remit amount cannot exceed cash on hand.';
+        statusMsg.innerText = 'Advance amount cannot exceed cash on hand.';
         return;
     }
 
@@ -777,7 +787,7 @@ async function submitTellerTransaction(type) {
 
         if (!data.ok) {
             if (data.error === 'exceeds_cash_on_hand') {
-                statusMsg.innerText = 'Remit amount cannot exceed cash on hand.';
+                statusMsg.innerText = 'Advance amount cannot exceed cash on hand.';
                 if (data.balance !== undefined) {
                     updateBalanceModal(data.balance, data.grand_total ?? 0);
                 }
@@ -798,7 +808,7 @@ async function submitTellerTransaction(type) {
             hour: '2-digit', minute: '2-digit', second: '2-digit',
             hour12: false,
         });
-        const label = 'Remit';
+        const label = 'Advance';
 
         // Show the shared print-result modal while the job is in-flight
         document.getElementById('payout_success_header').innerText = `${label} Receipt`;

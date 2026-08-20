@@ -9,53 +9,18 @@ import uuid
 class TransactionSequence(models.Model):
     WAGER = 'WAGER'
     TELLER = 'TELLER'
+    ADMIN_BANK = 'ADMIN_BANK'
     key = models.CharField(max_length=20, primary_key=True)
     value = models.BigIntegerField(default=0)
-
-    @classmethod
-    def _resync_teller_sequence(cls, sequence):
-        """Reset an inflated TELLER counter using current 6-digit transaction IDs.
-
-        Legacy rows may use year-prefixed IDs (e.g. R2026000047) from an older
-        format. Those must not block new R000001-style IDs.
-        """
-        teller_max = 0
-        for transaction_id in TellerTransaction.objects.values_list(
-            'transaction_id', flat=True,
-        ).iterator():
-            if not transaction_id or not transaction_id.startswith('R'):
-                continue
-            suffix = transaction_id[1:]
-            if not suffix.isdigit():
-                continue
-            number = int(suffix)
-            if number <= 999999:
-                teller_max = max(teller_max, number)
-        if teller_max < sequence.value:
-            sequence.value = teller_max
-            sequence.save(update_fields=['value'])
-
-    @classmethod
-    def next_value(cls, key):
-        with db_transaction.atomic():
-            sequence, _ = cls.objects.select_for_update().get_or_create(
-                key=key,
-                defaults={'value': 0},
-            )
-            if key == cls.TELLER and sequence.value >= 999999:
-                cls._resync_teller_sequence(sequence)
-            if sequence.value >= 999999:
-                raise ValueError(f"{key} transaction ID sequence is exhausted.")
-            sequence.value += 1
-            sequence.save(update_fields=['value'])
-            return sequence.value
+    cycle = models.PositiveBigIntegerField(default=0)
 
     def __str__(self):
-        return f"{self.key}: {self.value}"
+        return f"{self.key}: {self.value} (cycle {self.cycle})"
 
 
 class Wagers (models.Model):
     transactionid = models.CharField(max_length=10, unique=True, editable=False, default='000000')
+    sequence_cycle = models.PositiveBigIntegerField(null=True, blank=True, editable=False)
     fightnum = models.IntegerField(default=0)
     side = models.CharField(max_length=20)
     wager = models.FloatField()
@@ -74,16 +39,19 @@ class Wagers (models.Model):
     )
 
     def save(self, *args, **kwargs):
-        if self.pk is None and self.cashier == 'System':
+        if self.pk is not None:
+            return super().save(*args, **kwargs)
+        if self.cashier == 'System':
             # System wagers get a unique prefixed ID so they never collide with
             # the sequential teller IDs (000001–999999).
             self.transactionid = 'S' + uuid.uuid4().hex[:9].upper()
-            super().save(*args, **kwargs)
-            return
-        if self.pk is None and self.cashier != 'System':
-            number = TransactionSequence.next_value(TransactionSequence.WAGER)
-            self.transactionid = str(number).zfill(6)
-        super().save(*args, **kwargs)
+            self.sequence_cycle = None
+            return super().save(*args, **kwargs)
+        from SmartWagers import transaction_ids
+
+        with db_transaction.atomic():
+            transaction_ids.assign_wager_identity(self)
+            return super().save(*args, **kwargs)
 
     def formatted_time(self):
         return (self.created_at).strftime("%Y-%m-%d %H:%M:%S")
@@ -106,7 +74,7 @@ class Totals (models.Model):
 
 
 class Settings (models.Model):
-    plasada = models.FloatField(default=0.5, null=False, blank=False)
+    plasada = models.FloatField(default=0.05, null=False, blank=False)
     M_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False) 
     W_control_status = models.CharField(max_length=10, default="OPEN", null=False, blank=False)
     admin_initial_fund = models.FloatField(default=100000.0, null=False, blank=False)
@@ -169,12 +137,13 @@ class TellerTransaction(models.Model):
     COLLECT = 'COLLECT'
     PAYOUT = 'PAYOUT'
     TRANSACTION_TYPES = [
-        (REMIT, 'Remit'),
+        (REMIT, 'Advance'),
         (COLLECT, 'Borrow'),
         (PAYOUT, 'Payout'),
     ]
 
     transaction_id = models.CharField(max_length=12, unique=True, editable=False, default='R000000')
+    sequence_cycle = models.PositiveBigIntegerField(default=0, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='teller_transactions')
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.FloatField()
@@ -189,13 +158,19 @@ class TellerTransaction(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        if self.pk is None:
-            number = TransactionSequence.next_value(TransactionSequence.TELLER)
-            self.transaction_id = f"R{str(number).zfill(6)}"
-        super().save(*args, **kwargs)
+        if self.pk is not None:
+            return super().save(*args, **kwargs)
+        from SmartWagers import transaction_ids
+
+        with db_transaction.atomic():
+            transaction_ids.assign_teller_identity(self)
+            return super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.transaction_id} | {self.user} | {self.transaction_type} | {self.amount} | {self.created_at}"
+        return (
+            f"{self.transaction_id} | {self.user} | "
+            f"{self.get_transaction_type_display()} | {self.amount} | {self.created_at}"
+        )
 
 
 class TellerStatus(models.Model):
@@ -257,6 +232,17 @@ class Event(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
     admin_opening_fund = models.FloatField(default=100000.0)
+    expected_admin_cash_on_hand = models.FloatField(null=True, blank=True)
+    actual_admin_cash_counted = models.FloatField(null=True, blank=True)
+    admin_cash_variance = models.FloatField(null=True, blank=True)
+    admin_cash_counted_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='admin_cash_counts',
+    )
+    admin_cash_counted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-started_at']
@@ -278,9 +264,11 @@ class AdminBankTransaction(models.Model):
     REMIT = 'REMIT'
     TRANSACTION_TYPES = [
         (BORROW, 'Borrow'),
-        (REMIT, 'Remit'),
+        (REMIT, 'Advance'),
     ]
 
+    transaction_id = models.CharField(max_length=12, unique=True, editable=False)
+    sequence_cycle = models.PositiveBigIntegerField(default=0, editable=False)
     event = models.ForeignKey(
         Event,
         on_delete=models.CASCADE,
@@ -307,8 +295,115 @@ class AdminBankTransaction(models.Model):
             ),
         ]
 
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            return super().save(*args, **kwargs)
+        from SmartWagers import transaction_ids
+
+        with db_transaction.atomic():
+            transaction_ids.assign_admin_bank_identity(self)
+            return super().save(*args, **kwargs)
+
     def __str__(self):
         return (
-            f"{self.event} | {self.admin} | "
-            f"{self.transaction_type} | {self.amount}"
+            f"{self.transaction_id} | {self.event} | {self.admin} | "
+            f"{self.get_transaction_type_display()} | {self.amount}"
         )
+
+
+class ArchivedWager(models.Model):
+    source_pk = models.BigIntegerField(unique=True, editable=False)
+    sequence_cycle = models.PositiveBigIntegerField(editable=False)
+    transactionid = models.CharField(max_length=10, editable=False)
+    fightnum = models.IntegerField()
+    side = models.CharField(max_length=20)
+    wager = models.FloatField()
+    cashier = models.CharField(max_length=100)
+    created_at = models.DateTimeField()
+    cashed_out = models.BooleanField(default=False)
+    registered = models.BooleanField(default=True)
+    cancelled = models.BooleanField(default=False)
+    client_request_id = models.CharField(max_length=36, null=True, blank=True)
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='archived_wagers')
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-archived_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['sequence_cycle', 'transactionid'],
+                name='archived_wager_cycle_transactionid_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['event', 'cashier']),
+            models.Index(fields=['event', 'fightnum']),
+        ]
+
+    def __str__(self):
+        return f"archived {self.transactionid} fight={self.fightnum}"
+
+
+class ArchivedTellerTransaction(models.Model):
+    source_pk = models.BigIntegerField(unique=True, editable=False)
+    sequence_cycle = models.PositiveBigIntegerField(editable=False)
+    transaction_id = models.CharField(max_length=12, editable=False)
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='archived_teller_transactions')
+    transaction_type = models.CharField(max_length=10, choices=TellerTransaction.TRANSACTION_TYPES)
+    amount = models.FloatField()
+    received = models.BooleanField(null=True, blank=True, default=None)
+    affects_admin_fund = models.BooleanField(default=True)
+    created_at = models.DateTimeField()
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='archived_teller_transactions')
+    close_out = models.OneToOneField(
+        TellerCloseOut,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='archived_remit_transaction',
+    )
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-archived_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['sequence_cycle', 'transaction_id'],
+                name='archived_teller_cycle_transaction_id_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['event', 'user']),
+            models.Index(fields=['event', 'transaction_type']),
+        ]
+
+    def __str__(self):
+        return f"archived {self.transaction_id} {self.user}"
+
+
+class ArchivedAdminBankTransaction(models.Model):
+    source_pk = models.BigIntegerField(unique=True, editable=False)
+    sequence_cycle = models.PositiveBigIntegerField(editable=False)
+    transaction_id = models.CharField(max_length=12, editable=False)
+    event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='archived_admin_bank_transactions')
+    admin = models.ForeignKey(User, on_delete=models.PROTECT, related_name='archived_admin_bank_transactions')
+    transaction_type = models.CharField(max_length=10, choices=AdminBankTransaction.TRANSACTION_TYPES)
+    amount = models.FloatField()
+    created_at = models.DateTimeField()
+    archived_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-archived_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['sequence_cycle', 'transaction_id'],
+                name='archived_admin_bank_cycle_transaction_id_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['event', 'admin']),
+            models.Index(fields=['event', 'transaction_type']),
+        ]
+
+    def __str__(self):
+        return f"archived {self.transaction_id} {self.event}"

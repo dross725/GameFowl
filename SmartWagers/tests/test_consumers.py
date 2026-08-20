@@ -116,6 +116,41 @@ async def test_teller_rejected_from_administrator_endpoint(teller_user, settings
     await communicator.disconnect()
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_malformed_json_returns_error_without_disconnect(admin_user, settings):
+    settings.CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    }
+    communicator = WebsocketCommunicator(application, '/ws/administrator/')
+    communicator.scope['user'] = admin_user
+    connected, _ = await communicator.connect()
+    assert connected
+
+    await communicator.send_to(text_data='{not valid json')
+    assert await communicator.receive_json_from(timeout=3) == {'error': 'invalid_json'}
+
+    await communicator.send_json_to({'fight_status': 'END'})
+    assert await communicator.receive_json_from(timeout=3) == {'error': 'missing_winner'}
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_side_status_requires_valid_side(admin_user, settings):
+    settings.CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    }
+    communicator = WebsocketCommunicator(application, '/ws/administrator/')
+    communicator.scope['user'] = admin_user
+    connected, _ = await communicator.connect()
+    assert connected
+
+    await communicator.send_json_to({'side_status': 'OPEN'})
+    assert await communicator.receive_json_from(timeout=3) == {'error': 'invalid_side'}
+    await communicator.disconnect()
+
+
 # ---------------------------------------------------------------------------
 # fight_status message (admin only)
 # ---------------------------------------------------------------------------

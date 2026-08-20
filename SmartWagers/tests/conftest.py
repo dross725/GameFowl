@@ -9,8 +9,21 @@ using pytest-django's @pytest.mark.django_db decorator).
 import pytest
 from django.contrib.auth.models import User, Group
 from SmartWagers.models import (
-    Event, Fight_Status, Settings, TellerStatus, Totals, Wagers,
+    Event, Fight_Status, Settings, TellerStatus, Totals, TransactionSequence, Wagers,
 )
+
+
+@pytest.fixture(autouse=True)
+def seed_transaction_sequences(db):
+    """Ensure generation-aware sequence rows exist for every test database."""
+    for key in (
+        TransactionSequence.WAGER,
+        TransactionSequence.TELLER,
+        TransactionSequence.ADMIN_BANK,
+    ):
+        TransactionSequence.objects.get_or_create(
+            key=key, defaults={'value': 0, 'cycle': 0},
+        )
 
 
 # ---------------------------------------------------------------------------
