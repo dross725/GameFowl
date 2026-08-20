@@ -1,5 +1,5 @@
 {% extends 'base.html'%}
-{% load static %}
+{% load static humanize %}
 
 {% block css_files %}
     <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=22">
@@ -345,7 +345,7 @@
             </a>
             <div class='button' id='received_button' onclick='openreceivedmodal()'>Received</div>
             <div class='button' id='admin-fund-button' onclick='openAdminFundModal()'>
-              Fund ₱ {{ admin_fund.balance|floatformat:0 }}
+              Fund ₱ {{ admin_fund.balance|floatformat:0|intcomma }}
             </div>
         </section>
     </section>
@@ -624,6 +624,16 @@
             minimumFractionDigits: 0,
             maximumFractionDigits: 2,
         })}`;
+    }
+
+    function attachAdminFundAmountFormatter() {
+        const input = document.getElementById('admin-bank-amount');
+        if (!input || input._fmtAttached) return;
+        input._fmtAttached = true;
+        input.addEventListener('input', () => {
+            const digits = String(input.value).replace(/,/g, '').replace(/\D/g, '');
+            input.value = digits === '' ? '' : Number(digits).toLocaleString('en-US');
+        });
     }
 
     function renderAdminFund(data) {
@@ -1023,6 +1033,7 @@
     /* Poll every 30 seconds; run immediately on load */
     fetchTellerAlerts();
     setInterval(fetchTellerAlerts, 30000);
+    attachAdminFundAmountFormatter();
     refreshAdminFund();
     setInterval(refreshAdminFund, 5000);
     </script>

@@ -119,10 +119,12 @@ textarea {
 #wala-betting-status,
 #meron-betting-status h1,
 #wala-betting-status h1 {
-  font-size: 19.2px;
-  font-weight: 400;
+  font-size: 30px;
+  font-weight: bold;
+  text-align: center;
   color: rgba(255, 255, 255, 0.5);
   margin-top: 3px;
+  border-radius: 8px;
 }
 
 /* ── Wager input section ─────────────────────────────────── */
