@@ -73,7 +73,7 @@ socket.onclose = () => {
 };
 
 function updateStatus(status) {
-    document.getElementById("ws_status").innerText = "Fight Status: " + status;
+    document.getElementById("ws_status").innerText = "Status: " + status;
 };
 
 function updateFightnum(fightnum){

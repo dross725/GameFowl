@@ -181,14 +181,22 @@ def notify_teller_online_status(teller_id, is_online):
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return
-    async_to_sync(channel_layer.group_send)(
-        'user',
-        {
-            'type': 'send_data',
-            'teller_online': is_online,
-            'teller_id': teller_id,
-        },
-    )
+    try:
+        async_to_sync(channel_layer.group_send)(
+            'user',
+            {
+                'type': 'send_data',
+                'teller_online': is_online,
+                'teller_id': teller_id,
+            },
+        )
+    except Exception:
+        logger.exception(
+            "notify_teller_online_status: broadcast failed for teller_id=%s is_online=%s "
+            "— status was still saved",
+            teller_id,
+            is_online,
+        )
 
 
 class RoleBasedLoginView(LoginView):
@@ -654,6 +662,8 @@ def Teller(request):
     current_fn = services.get_fightnum()
     is_online = teller_is_online(request.user)
     station_closed = services.teller_station_is_closed(request.user)
+    if is_online:
+        services.issue_teller_opening_fund_if_needed(request.user)
 
     def user_page_context(**extra):
         ctx = {
@@ -717,11 +727,14 @@ def Teller(request):
 
 @group_required('teller')
 def teller_report(request):
-    active_event = services.get_active_event()
+    from SmartWagers import reporting
+
+    event_scope, apply_end_bound = services.get_event_scope()
 
     wager_qs = Wagers.objects.filter(cashier=str(request.user), registered=True)
-    if active_event is not None:
-        wager_qs = wager_qs.filter(created_at__gte=active_event.started_at)
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, request.user, event_scope, apply_end_bound,
+    )
 
     wagers = wager_qs.order_by('-created_at')
     active_wagers = wagers.filter(cancelled=False)
@@ -731,6 +744,7 @@ def teller_report(request):
     # Build the set of fight numbers that have a recorded result so the
     # template can disable the reprint button for completed fights.
     result_qs = Fight_Results.objects.all()
+    active_event = services.get_active_event()
     if active_event is not None:
         result_qs = result_qs.filter(event=active_event)
     completed_fights = set(result_qs.values_list('fightnum', flat=True))
@@ -743,17 +757,17 @@ def teller_report(request):
     )
     allowed_reprint = set(recent_completed) | {current_fightnum}
 
-    close_out = services.get_teller_close_out(request.user, event=active_event)
+    close_out = services.get_teller_close_out(request.user, event=event_scope)
     balance_breakdown = services.compute_teller_balance_breakdown(
-        request.user, event=active_event, apply_end_bound=True,
-    ) if active_event else None
+        request.user, event=event_scope, apply_end_bound=apply_end_bound,
+    ) if event_scope else None
 
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
         'total_amount': total_amount,
         'total_count': total_count,
         'teller_name': str(request.user),
-        'active_event': active_event,
+        'active_event': event_scope,
         'completed_fights': completed_fights,
         'allowed_reprint': allowed_reprint,
         'station_closed': close_out is not None,
@@ -822,27 +836,25 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True, include_arch
     txn_qs = TellerTransaction.objects.filter(user=user)
     archived_txn_qs = None
 
-    if event is not None:
-        wager_qs = reporting.filter_active_wagers_by_event(wager_qs, event)
-        txn_qs = reporting.filter_active_teller_transactions_by_event(txn_qs, event)
-        if include_archived:
-            archived_wager_qs = reporting.archived_wagers_for_event(event).filter(
-                cashier=username, registered=True, cancelled=False,
-            )
-            archived_txn_qs = reporting.archived_teller_transactions_for_event(
-                event,
-            ).filter(user=user)
-        if apply_end_bound and event.ended_at:
-            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
-            if archived_wager_qs is not None:
-                archived_wager_qs = archived_wager_qs.filter(
-                    created_at__lte=event.ended_at,
-                )
-            if archived_txn_qs is not None:
-                archived_txn_qs = archived_txn_qs.filter(
-                    created_at__lte=event.ended_at,
-                )
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound,
+    )
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound,
+    )
+    if event is not None and include_archived:
+        archived_wager_qs = reporting.archived_wagers_for_event(event).filter(
+            cashier=username, registered=True, cancelled=False,
+        )
+        archived_wager_qs = reporting.filter_wagers_for_teller(
+            archived_wager_qs, user, event, apply_end_bound,
+        )
+        archived_txn_qs = reporting.archived_teller_transactions_for_event(
+            event,
+        ).filter(user=user)
+        archived_txn_qs = reporting.filter_transactions_for_teller(
+            archived_txn_qs, user, event, apply_end_bound,
+        )
 
     grand_total = reporting.sum_wagers(wager_qs, archived_wager_qs)
     remit_total = reporting.sum_teller_amounts(
@@ -1029,6 +1041,8 @@ def get_teller_balance(request):
 @group_required('teller')
 def get_pending_payouts(request):
     """Return the count and total amount of this teller's unclaimed winning/refund tickets."""
+    from SmartWagers import reporting
+
     username = str(request.user)
     active_event = services.get_active_event()
 
@@ -1036,10 +1050,9 @@ def get_pending_payouts(request):
     pending_qs = Wagers.objects.filter(
         cashier=username, registered=True, cashed_out=False, cancelled=False,
     )
-    if active_event is not None:
-        pending_qs = pending_qs.filter(created_at__gte=active_event.started_at)
-        if active_event.ended_at:
-            pending_qs = pending_qs.filter(created_at__lte=active_event.ended_at)
+    pending_qs = reporting.filter_wagers_for_teller(
+        pending_qs, request.user, active_event, apply_end_bound=True,
+    )
 
     # Collect fight results within the event so we know which fights are decided
     results_qs = Fight_Results.objects.all()
@@ -1072,6 +1085,8 @@ def get_pending_payouts(request):
 @group_required('teller')
 def get_teller_fight_totals(request):
     """Return this teller's MERON and WALA bet totals for the current active fight only."""
+    from SmartWagers import reporting
+
     username = str(request.user)
     _, _, _, fightnum = services.get_fight_status()
 
@@ -1085,13 +1100,12 @@ def get_teller_fight_totals(request):
         cancelled=False,
     )
 
-    # Scope to the active event's time window so bets from a previous event
-    # with the same fight number are never counted.
+    # Scope to the active event and this account so recycled usernames and
+    # prior events with the same fight number are never counted.
     active_event = services.get_active_event()
-    if active_event is not None:
-        base_qs = base_qs.filter(created_at__gte=active_event.started_at)
-        if active_event.ended_at:
-            base_qs = base_qs.filter(created_at__lte=active_event.ended_at)
+    base_qs = reporting.filter_wagers_for_teller(
+        base_qs, request.user, active_event, apply_end_bound=True,
+    )
 
     meron_total = base_qs.filter(side='MERON').aggregate(total=Sum('wager'))['total'] or 0
     wala_total  = base_qs.filter(side='WALA').aggregate(total=Sum('wager'))['total'] or 0
@@ -1173,6 +1187,8 @@ def teller_transaction(request):
 @group_required('admin')
 def admin_tellers(request):
     """Admin view: shows all tellers with balances and TellerTransaction history."""
+    from SmartWagers import reporting
+
     try:
         teller_group = Group.objects.get(name='teller')
         admin_ids = User.objects.filter(
@@ -1189,6 +1205,12 @@ def admin_tellers(request):
 
     teller_data = []
     for teller in tellers:
+        ts, _ = TellerStatus.objects.get_or_create(user=teller)
+        is_online = ts.is_online
+
+        if active_event is not None and is_online:
+            services.issue_teller_opening_fund_if_needed(teller, event=active_event)
+
         balance, grand_total = _compute_teller_balance(teller, event=event_scope, apply_end_bound=apply_end_bound)
         txn_qs = TellerTransaction.objects.filter(user=teller)
         if event_scope is not None:
@@ -1199,14 +1221,10 @@ def admin_tellers(request):
             transaction_type=TellerTransaction.PAYOUT,
         ).order_by('-created_at')
 
-        ts, _ = TellerStatus.objects.get_or_create(user=teller)
-        is_online = ts.is_online
-
         wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
-        if event_scope is not None:
-            wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
-            if apply_end_bound and event_scope.ended_at:
-                wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+        wager_qs = reporting.filter_wagers_for_teller(
+            wager_qs, teller, event_scope, apply_end_bound,
+        )
         has_activity = not is_online and wager_qs.exists()
 
         close_out = services.get_teller_close_out(teller, event=event_scope)
@@ -1958,6 +1976,8 @@ def admin_commission(request):
 @group_required('admin')
 def admin_teller_alerts(request):
     """Lightweight JSON endpoint: returns tellers whose balance is out of range."""
+    from SmartWagers import reporting
+
     try:
         teller_group = Group.objects.get(name='teller')
         admin_ids = User.objects.filter(
@@ -1967,7 +1987,6 @@ def admin_teller_alerts(request):
     except Group.DoesNotExist:
         tellers = []
 
-    active_event = services.get_active_event()
     event_scope, apply_end_bound = services.get_event_scope()
     setting = Settings.objects.order_by('-id').first()
     threshold   = setting.teller_max_balance  if setting else 0.0
@@ -1981,10 +2000,9 @@ def admin_teller_alerts(request):
         if not ts.is_online:
             # Check if this offline teller has any wager activity in the current scope
             wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
-            if event_scope is not None:
-                wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
-                if apply_end_bound and event_scope.ended_at:
-                    wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+            wager_qs = reporting.filter_wagers_for_teller(
+                wager_qs, teller, event_scope, apply_end_bound,
+            )
             if wager_qs.exists():
                 alerts.append({
                     'name': name,
@@ -1994,7 +2012,9 @@ def admin_teller_alerts(request):
                 })
             continue
 
-        balance, _ = _compute_teller_balance(teller, event=active_event)
+        balance, _ = _compute_teller_balance(
+            teller, event=event_scope, apply_end_bound=apply_end_bound,
+        )
         if threshold > 0 and balance > threshold:
             alerts.append({'name': name, 'teller_id': teller.pk, 'balance': round(balance, 2), 'alert': 'remit'})
         elif balance < min_balance:
@@ -2043,26 +2063,13 @@ def toggle_teller_online(request):
         }, status=409)
 
     ts, _ = TellerStatus.objects.get_or_create(user=teller)
-    was_online = ts.is_online
     ts.is_online = is_online
     ts.save(update_fields=['is_online'])
 
-    # When a previously-offline teller is brought online mid-event, issue their
-    # initial fund as a COLLECT (borrow) so their ledger starts correctly.
+    # Issue opening float whenever an online teller lacks it for the active event.
     fund_issued = False
-    if is_online and not was_online:
-        active_event = services.get_active_event()
-        if active_event is not None and not services.teller_has_opening_fund_for_event(teller, active_event):
-            setting = Settings.objects.order_by('-id').first()
-            initial_fund = setting.teller_initial_fund if setting else 10000.0
-            if initial_fund > 0:
-                TellerTransaction.objects.create(
-                    user=teller,
-                    transaction_type=TellerTransaction.COLLECT,
-                    amount=round(initial_fund, 2),
-                    affects_admin_fund=False,
-                )
-                fund_issued = True
+    if is_online:
+        fund_issued = services.issue_teller_opening_fund_if_needed(teller)
 
     notify_teller_online_status(teller_id, is_online)
 

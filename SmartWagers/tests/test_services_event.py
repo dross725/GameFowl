@@ -228,7 +228,7 @@ class TestGetTellerOutstandingBalance:
 class TestIssueInitialTellerFunds:
 
     def test_issues_collect_transaction_for_online_teller(
-            self, default_settings, teller_user, teller_status_online):
+            self, default_settings, teller_user, teller_status_online, active_event):
         services._issue_initial_teller_funds()
         txns = TellerTransaction.objects.filter(
             user=teller_user, transaction_type=TellerTransaction.COLLECT
@@ -238,13 +238,14 @@ class TestIssueInitialTellerFunds:
         assert txns.first().affects_admin_fund is False
 
     def test_skips_offline_teller(
-            self, default_settings, teller_user, teller_status_offline):
+            self, default_settings, teller_user, teller_status_offline, active_event):
         services._issue_initial_teller_funds()
         assert not TellerTransaction.objects.filter(
             user=teller_user, transaction_type=TellerTransaction.COLLECT
         ).exists()
 
-    def test_skips_when_initial_fund_is_zero(self, teller_user, teller_status_online):
+    def test_skips_when_initial_fund_is_zero(
+            self, teller_user, teller_status_online, active_event):
         from SmartWagers.models import Settings
         Settings.objects.create(
             teller_initial_fund=0.0,
@@ -255,18 +256,111 @@ class TestIssueInitialTellerFunds:
         assert not TellerTransaction.objects.filter(user=teller_user).exists()
 
     def test_does_not_issue_individual_fund_for_admin(
-            self, default_settings, admin_user):
+            self, default_settings, admin_user, active_event):
         services._issue_initial_teller_funds()
         assert not TellerTransaction.objects.filter(user=admin_user).exists()
 
     def test_dual_role_admin_does_not_receive_teller_opening_fund(
-            self, default_settings, admin_user, teller_group):
+            self, default_settings, admin_user, teller_group, active_event):
         admin_user.groups.add(teller_group)
         TellerStatus.objects.create(user=admin_user, is_online=True)
 
         services._issue_initial_teller_funds()
 
         assert not TellerTransaction.objects.filter(user=admin_user).exists()
+
+
+@pytest.mark.django_db
+class TestIssueTellerOpeningFundIfNeeded:
+
+    def test_issues_fund_for_new_teller_during_active_event(
+            self, default_settings, teller_group):
+        from django.contrib.auth.models import User
+
+        event = services.start_event('Event A')
+        new_teller = User.objects.create_user(username='newteller')
+        new_teller.groups.add(teller_group)
+
+        issued = services.issue_teller_opening_fund_if_needed(new_teller, event=event)
+
+        assert issued is True
+        assert TellerTransaction.objects.filter(
+            user=new_teller,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        ).count() == 1
+        balance = services._get_teller_outstanding_balance(new_teller, event=event)
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_skips_when_no_active_event(self, default_settings, teller_user):
+        assert services.issue_teller_opening_fund_if_needed(teller_user) is False
+        assert not TellerTransaction.objects.filter(user=teller_user).exists()
+
+    def test_skips_offline_teller(
+            self, default_settings, teller_user, teller_status_offline, active_event):
+        assert services.issue_teller_opening_fund_if_needed(
+            teller_user, event=active_event,
+        ) is False
+        assert not TellerTransaction.objects.filter(user=teller_user).exists()
+
+    def test_is_idempotent(
+            self, default_settings, teller_user, teller_status_online, active_event):
+        assert services.issue_teller_opening_fund_if_needed(
+            teller_user, event=active_event,
+        ) is True
+        assert services.issue_teller_opening_fund_if_needed(
+            teller_user, event=active_event,
+        ) is False
+        assert TellerTransaction.objects.filter(
+            user=teller_user, transaction_type=TellerTransaction.COLLECT,
+        ).count() == 1
+
+
+@pytest.mark.django_db
+class TestTellerActivityScope:
+
+    def test_recycled_username_does_not_inherit_prior_event_wagers(
+            self, default_settings, teller_group, admin_user):
+        from django.contrib.auth.models import User
+
+        services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=8000,
+            cashier='cashier1', registered=True,
+        )
+        services.end_event(0, admin_user)
+
+        new_teller = User.objects.create_user(username='cashier1')
+        new_teller.groups.add(teller_group)
+        TellerStatus.objects.create(user=new_teller, is_online=True)
+
+        event_b = services.start_event('Event B')
+        balance = services._get_teller_outstanding_balance(new_teller, event=event_b)
+        breakdown = services.compute_teller_balance_breakdown(new_teller, event=event_b)
+
+        assert breakdown['grand_total'] == 0.0
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_recycled_username_excluded_between_events(
+            self, default_settings, teller_group, admin_user):
+        from django.contrib.auth.models import User
+        from SmartWagers import views
+
+        event_a = services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000,
+            cashier='cashier2', registered=True,
+        )
+        services.end_event(0, admin_user)
+
+        new_teller = User.objects.create_user(username='cashier2')
+        new_teller.groups.add(teller_group)
+
+        _, grand_total = views._compute_teller_balance(
+            new_teller, event=event_a, apply_end_bound=False,
+        )
+        assert grand_total == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +690,20 @@ class TestEventCashReconciliation:
 
         assert recon['total_cash_on_hand'] == pytest.approx(
             teller_balance + admin_summary['balance'],
+        )
+        assert recon['bank_borrowed'] == pytest.approx(admin_summary['bank_borrowed'])
+        assert recon['admin_opening_fund'] == pytest.approx(admin_summary['opening_fund'])
+        assert recon['additional_bank_borrowed'] == pytest.approx(
+            admin_summary['additional_bank_borrowed'],
+        )
+        assert recon['bank_remitted'] == pytest.approx(admin_summary['bank_remitted'])
+        assert recon['net_earnings'] == pytest.approx(
+            recon['total_cash_on_hand']
+            - recon['opening_fund_total']
+            - recon['admin_opening_fund']
+            - recon['additional_bank_borrowed']
+            + recon['bank_remitted']
+            + recon['remits_not_in_admin'],
         )
         assert recon['net_earnings'] == pytest.approx(recon['betting_surplus'])
         assert recon['betting_surplus'] == pytest.approx(3000.0)
