@@ -1,0 +1,688 @@
+{
+  "created_at": "2026-08-22T12:40:14.323035+00:00",
+  "file_count": 170,
+  "files": {
+    "C\uf03a\uf05cSmartWagers\uf05cdata\uf05cmaster_lock.state": {
+      "sha256": "6bc7be2199747d616ba049a55dd5dabb0833c541319e677679341cd4fd51e789",
+      "size": 307
+    },
+    "C\uf03a\uf05cSmartWagers\uf05cdata\uf05cmaster_lock.state.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "GameFowl/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "GameFowl/asgi.py": {
+      "sha256": "6dd3cf40d246c0608d931edf727b594ea3360a9438e8eeacf33ba7a3de0e9d63",
+      "size": 757
+    },
+    "GameFowl/settings.py": {
+      "sha256": "75470f3580df83835ac0be47e1ecbb04aa3932e84ec36958a408397f62b84ffb",
+      "size": 13410
+    },
+    "GameFowl/urls.py": {
+      "sha256": "117d02ae9477fb0ff197800eb87cb2281a6e4d61d94e9bb1db123041de4971fe",
+      "size": 816
+    },
+    "GameFowl/wsgi.py": {
+      "sha256": "3da9e3761abddd9da98fe115027c174f637042cf3b12652c47bf1a1147848269",
+      "size": 393
+    },
+    "README.md": {
+      "sha256": "3d781f1a0a35359defa5db702c0b7b06566a5e2d92602b878bae9fb9172214c1",
+      "size": 12451
+    },
+    "SmartWagers/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "SmartWagers/admin.py": {
+      "sha256": "b51615c6174c26a3e66eb2d8c48b6dba8ed2822244cecc74378f25d196b968b7",
+      "size": 392
+    },
+    "SmartWagers/apps.py": {
+      "sha256": "c0e94c1278bcb0430be64ba3c5348cc9378d53fefe69162f7cd43e34d0a147c3",
+      "size": 220
+    },
+    "SmartWagers/consumers.py": {
+      "sha256": "6329fd7c6db0fe2599a7b4deaf0927db51e54d63e48081aad4e265a38f216e0d",
+      "size": 13812
+    },
+    "SmartWagers/consumers1.py": {
+      "sha256": "c632b7ce22157f15fd6af1f3c35e60e38f193849881082f99d16e123dca27e94",
+      "size": 1832
+    },
+    "SmartWagers/management/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "SmartWagers/management/commands/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "SmartWagers/management/commands/add_cashiers_to_tellers.py": {
+      "sha256": "491c5b36c75916f5fd84a9a47ed4f82830e8933cec2ddb64b5bf164912b07eda",
+      "size": 1009
+    },
+    "SmartWagers/management/commands/check_database.py": {
+      "sha256": "8e41debfa0688d57dace18da03f42419c12405c675ad82f9ce9b4832438a7a2f",
+      "size": 860
+    },
+    "SmartWagers/management/commands/hash_master_lock_key.py": {
+      "sha256": "a892ed3b4f922ddbbf021bdf850714cd84cfcfffbd52a142cadb424a6720b68c",
+      "size": 1688
+    },
+    "SmartWagers/management/commands/init_master_lock.py": {
+      "sha256": "ea8b7c37be8a4291acae49294a3a157856d5a14caa235c0c20add23822656181",
+      "size": 998
+    },
+    "SmartWagers/management/commands/repair_fight_status.py": {
+      "sha256": "50a88b2ede637c36ca7b9e01244160bd99bf0f72778648498b2e9e5f4f078591",
+      "size": 1791
+    },
+    "SmartWagers/management/commands/reset_sequences.py": {
+      "sha256": "c6f59f58ae1ce89bd478cae01eb31bdf4806e0885011522dc1a975315485d32a",
+      "size": 1108
+    },
+    "SmartWagers/management/commands/verify_database.py": {
+      "sha256": "94ac8452d9b417788188dc89d20ee680dc8953671882fb7029859b64646937c8",
+      "size": 8214
+    },
+    "SmartWagers/masterlock.py": {
+      "sha256": "dadde3786b1d2b9e87d4cba8cb06859bf1e7586939b1125f0b913fd6e4e6cd15",
+      "size": 16043
+    },
+    "SmartWagers/middleware.py": {
+      "sha256": "c8380e85f4432ff84394afe7e0bfb9a07b1d0051aa7cea1bad8e5bdeb1531ba8",
+      "size": 2290
+    },
+    "SmartWagers/migrations/0001_initial.py": {
+      "sha256": "fea3e01491db22fe179abf0c63d6e28fdeb4404a79f6dd7ccc99f4287e78d096",
+      "size": 1315
+    },
+    "SmartWagers/migrations/0002_settings.py": {
+      "sha256": "5e0d3866c966701f388cf82fa6ba0c4fe3d92b8783edac652db8b9489f44112b",
+      "size": 511
+    },
+    "SmartWagers/migrations/0003_rename_m_payout_totals_mpayout_and_more.py": {
+      "sha256": "a64f1633e3c528e08a6b32ec973b877ef6358a720382991a804b51b4d2e4ef10",
+      "size": 1088
+    },
+    "SmartWagers/migrations/0004_fight_results_alter_wagers_cashier.py": {
+      "sha256": "dd768e37869f3dfcf1de4af5673b9a6b5b0489b6d0c3738b1ade6ffc139e50b8",
+      "size": 939
+    },
+    "SmartWagers/migrations/0005_settings_m_control_status_settings_w_control_status.py": {
+      "sha256": "57629d301e0abb1a0447a91caa23a7b536e8744cc2a79e6ce0ca3cf9478adcf4",
+      "size": 609
+    },
+    "SmartWagers/migrations/0006_fight_results_mpayout_fight_results_mtotal_and_more.py": {
+      "sha256": "df71b41757ea27f8825a7a5b4dbd6d64fce05cbca784007f32912ab011b58483",
+      "size": 1047
+    },
+    "SmartWagers/migrations/0007_fight_status.py": {
+      "sha256": "d79722fd89c358b365271809b251c9a3ef8c8f3baea3dad09ae7fa53ae685213",
+      "size": 903
+    },
+    "SmartWagers/migrations/0008_alter_fight_status_meron_status_and_more.py": {
+      "sha256": "3fcf198a6a1b062696d32ca3f1790cf820c8ef0e1e0a5de698067c3557129c62",
+      "size": 1135
+    },
+    "SmartWagers/migrations/0009_wagers_date.py": {
+      "sha256": "e98d80c235c50205bb612b39152a0782ca3a89213974ce489835476d42f84a5a",
+      "size": 410
+    },
+    "SmartWagers/migrations/0010_rename_date_wagers_create_at.py": {
+      "sha256": "0b15a8e184919085d8b70add083765b75f69a885f84210c4f7318811c80cc12c",
+      "size": 359
+    },
+    "SmartWagers/migrations/0011_rename_create_at_wagers_created_at.py": {
+      "sha256": "036f33c5e08a0b0fd3e17cbfbdfec142eb0a555987356e42d3e22d38a8b13428",
+      "size": 382
+    },
+    "SmartWagers/migrations/0012_alter_wagers_side.py": {
+      "sha256": "4e7724b9a37dd250d256dc377b891ade88a70b6fbe344321bbe3bb4912b33f81",
+      "size": 402
+    },
+    "SmartWagers/migrations/0013_alter_wagers_created_at.py": {
+      "sha256": "3edc3600ce02875a4364489a8eb9a2a6715e28c7a6f21e3a443c3acbf05d077a",
+      "size": 444
+    },
+    "SmartWagers/migrations/0014_wagers_cashed_out.py": {
+      "sha256": "402c0e5b100a2485abf50d001a6804fec0e6cb3be076df4682e8dfdb05fd877a",
+      "size": 398
+    },
+    "SmartWagers/migrations/0015_sessionlog.py": {
+      "sha256": "2f4b4f28256e7e0cb02af3f551952ecd4ba7a5dd89426660c8028ea2157cdbfd",
+      "size": 865
+    },
+    "SmartWagers/migrations/0016_wagers_registered.py": {
+      "sha256": "10abefead572b5687db0384308169cfd03412d3d7abe4f5d4c9a8ad00b8b996f",
+      "size": 337
+    },
+    "SmartWagers/migrations/0017_tellertransaction_alter_sessionlog_options_and_more.py": {
+      "sha256": "9859cce70a8a2bb5cf078b401cd04489b5a61a0c99ca8ae4925ac1b138ecfa9f",
+      "size": 2137
+    },
+    "SmartWagers/migrations/0018_tellertransaction_transaction_id.py": {
+      "sha256": "170166f57f885e474551941b97072be55efc6550a118e5114d8d56a701a28c0b",
+      "size": 519
+    },
+    "SmartWagers/migrations/0019_add_received_to_tellertransaction.py": {
+      "sha256": "8c21ae1053aefc03e74bc7b4a18f7df85b57bd1fe711319e66b3bbad7d52c18b",
+      "size": 438
+    },
+    "SmartWagers/migrations/0020_event.py": {
+      "sha256": "31b2c9324e8de6289d0039c24d351865818a6decd81083c052753536acb8add6",
+      "size": 1052
+    },
+    "SmartWagers/migrations/0021_fight_results_event.py": {
+      "sha256": "2bf46000402276450a588a8ecb02deca07a1471656fe3f534fc259f86bd23bb2",
+      "size": 616
+    },
+    "SmartWagers/migrations/0022_remove_unique_transaction_ids.py": {
+      "sha256": "e8c2f61239ee516b480179014dd98652103d47c34e79139ffb10867f1108b9d4",
+      "size": 1013
+    },
+    "SmartWagers/migrations/0023_restore_unique_transaction_ids.py": {
+      "sha256": "f0396d921788af1a0da39ebf93f9cda4e2c0cbfc80bbbea8a59316afeec3637c",
+      "size": 2422
+    },
+    "SmartWagers/migrations/0024_add_teller_max_balance_to_settings.py": {
+      "sha256": "80f15d51749933c17c08e3579e05198d6786ef88aa43cb2cc70e503d2c39ef51",
+      "size": 786
+    },
+    "SmartWagers/migrations/0025_add_teller_fund_settings.py": {
+      "sha256": "8fb713bb2da6e9da150554b02b1b7d42da2d63040f5375294823c8e3cc2b97f8",
+      "size": 537
+    },
+    "SmartWagers/migrations/0026_tellerstatus.py": {
+      "sha256": "f6ba76c9bba1f013401b511dca06f2334f497ee8b9bbbca2b511d351f3a19d2d",
+      "size": 854
+    },
+    "SmartWagers/migrations/0027_wagers_cancelled.py": {
+      "sha256": "293fb8b62ce1ec7f67d1e1975aed9748d0b488b69cb91f0230d7230494bfc54c",
+      "size": 386
+    },
+    "SmartWagers/migrations/0028_settings_admin_initial_fund.py": {
+      "sha256": "a5e0ffe54971945946d409badfbc619bd97058a450762d4623dc1079c931f3ae",
+      "size": 355
+    },
+    "SmartWagers/migrations/0029_event_admin_opening_fund_adminbanktransaction.py": {
+      "sha256": "a3e01b3eeeaf9685cf310c9383349148699c281ce6d5e80467de701ee2260cd9",
+      "size": 2866
+    },
+    "SmartWagers/migrations/0030_exclude_legacy_transactions_from_admin_fund.py": {
+      "sha256": "d944f5382a7c0187abc2ff95ab6427ea66c1cea8e0b0ab9cda344f4a44a953c6",
+      "size": 1060
+    },
+    "SmartWagers/migrations/0031_alter_fight_results_side_alter_wagers_side.py": {
+      "sha256": "ecfa0d4181cb78e2c33af63974f918c446841d11a15690710a684099c0095507",
+      "size": 569
+    },
+    "SmartWagers/migrations/0032_event_one_active_event.py": {
+      "sha256": "f63b2db51b513f8fead32bfa8d6b357b3f45fa75335ce823d46ebfb6c1cf6069",
+      "size": 1089
+    },
+    "SmartWagers/migrations/0033_transactionsequence.py": {
+      "sha256": "0b4e3e71b60549caebe3eb47f37a88bf74d293b59bb2f5a6f038686398a3bda2",
+      "size": 1729
+    },
+    "SmartWagers/migrations/0034_tellercloseout.py": {
+      "sha256": "47d4f08a22cb2ef0a5dd4ae194f200b0d89b5e8b2b5f0585a92ec5bef761e470",
+      "size": 2273
+    },
+    "SmartWagers/migrations/0035_wagers_client_request_id.py": {
+      "sha256": "a4319fbbe3348c6a15e95d8eaed36b2a47feb4e2532b893c076065eaa08a968e",
+      "size": 575
+    },
+    "SmartWagers/migrations/0036_event_admin_cash_count.py": {
+      "sha256": "1f81d8cb27e1ad0afa996ed421e7c28599038acf9b011a5adabdd6ba464f0722",
+      "size": 1412
+    },
+    "SmartWagers/migrations/0037_alter_adminbanktransaction_transaction_type_and_more.py": {
+      "sha256": "2cc378e054c834f3c109c855fd4083b88ab91d8b87bbc0d6c9482b546380ce5c",
+      "size": 877
+    },
+    "SmartWagers/migrations/__init__.py": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    "SmartWagers/models.py": {
+      "sha256": "7fb7ced382a47c64e47f5b23db7c0a7b4fc1557db7656aa5008ab0ced0f4789c",
+      "size": 12563
+    },
+    "SmartWagers/routing.py": {
+      "sha256": "cf6baede5abd93b12ef0efce49e06c9eff57cbf454abf5da9a0f1f45097989a5",
+      "size": 474
+    },
+    "SmartWagers/services.py": {
+      "sha256": "a6d35c12cec1fc8b9bbb29689905a89b8ca8d5afa774c16cab6b0c1cb4a62a1c",
+      "size": 75269
+    },
+    "SmartWagers/signals.py": {
+      "sha256": "e6d821cbc1017cb2ea1481ee776f4f9a14e38b895c0c95f496bc7c0bde11db1a",
+      "size": 500
+    },
+    "SmartWagers/static/SmartWagers/admin.css": {
+      "sha256": "1118e89dc947a7c45f3a281ca1b8687deec1810539c519252df4e0647e8207b9",
+      "size": 17265
+    },
+    "SmartWagers/static/SmartWagers/admin.js": {
+      "sha256": "8f635340d6911d39063bad94541697a4957db7f05b7f9f70c09abd9a68258c62",
+      "size": 23538
+    },
+    "SmartWagers/static/SmartWagers/admin_old.css": {
+      "sha256": "0f401482385b52d10e8144eeec6701bcc8684cd6c88c5268d5e4b39a6ed9cea0",
+      "size": 4004
+    },
+    "SmartWagers/static/SmartWagers/administrator.js": {
+      "sha256": "add4c894a3108203f37dfe781729d4cdd79dc4f5902d41f5123cf6c220e939fe",
+      "size": 40843
+    },
+    "SmartWagers/static/SmartWagers/bet_control1.js": {
+      "sha256": "e29045da05c62db800beae2a5b9e03a49260bd9279726f6026751e37fcb9e457",
+      "size": 3735
+    },
+    "SmartWagers/static/SmartWagers/images/cockpit.png": {
+      "sha256": "53a7d59700889d998ce28f9720add9d0c0237143c73a9f04634a616effd6ffe1",
+      "size": 1999581
+    },
+    "SmartWagers/static/SmartWagers/images/image.png": {
+      "sha256": "230820e594afaab8ad34bbcb62a3923d9daed82445afb3a7154431498d01caa8",
+      "size": 3163261
+    },
+    "SmartWagers/static/SmartWagers/images/image1.png": {
+      "sha256": "ff5de7b55abaccd40741da61b2d95b2ab9cd08e3a2932dbcff436fa56b58e1e2",
+      "size": 233304
+    },
+    "SmartWagers/static/SmartWagers/images/image3.png": {
+      "sha256": "d7557c2a75dfa25ce5d631c7fbdb7cc2c4c29212bd7222d69d5d2a043416d771",
+      "size": 1423025
+    },
+    "SmartWagers/static/SmartWagers/images/login smartwagers.jpg\uf03aZone.Identifier": {
+      "sha256": "0bb7cd3b3ad3748f438432d873af4d5c4a4c672c5513e183bbbb41690a07d8a3",
+      "size": 169
+    },
+    "SmartWagers/static/SmartWagers/images/login-img.jpg": {
+      "sha256": "4d886aaa7219ba66c1b3c889d4bc6b11e1bc78f53bb8bf737a40225409b720d8",
+      "size": 104672
+    },
+    "SmartWagers/static/SmartWagers/images/logo.jpg": {
+      "sha256": "9bbb60a6452262bf3cf55ee7843840a69037bc3c018bba43663bec521d1fec5e",
+      "size": 70345
+    },
+    "SmartWagers/static/SmartWagers/images/rooster.png": {
+      "sha256": "f6df31fbdced0222d97aa02abddb2a7b4b45695e89ff022499c74dbc03af40a4",
+      "size": 111294
+    },
+    "SmartWagers/static/SmartWagers/images/rooster2.png": {
+      "sha256": "eefb338a458d4010a24a533265374075111129ea451199e33ab4e412ab06ec5c",
+      "size": 178926
+    },
+    "SmartWagers/static/SmartWagers/images/sabong.png": {
+      "sha256": "7d580083b61190fcf0368c0bb72677120a832ae1a47834aefb93411b266eec8b",
+      "size": 154730
+    },
+    "SmartWagers/static/SmartWagers/images/talisayin.png": {
+      "sha256": "09fe44e2de0193422e0fecb32e6f32b6eab2da80ab38ce26f1b81f3403b590b9",
+      "size": 154927
+    },
+    "SmartWagers/static/SmartWagers/index.css": {
+      "sha256": "4787c81bcb0308e5cbc503e4d6a79c0bc3b1f8b601035521a5d2995f8fd33438",
+      "size": 4273
+    },
+    "SmartWagers/static/SmartWagers/index_old.css": {
+      "sha256": "e0d70435d317567e05434dda2c80b682fa089559160ab9d36a67988b3d075341",
+      "size": 2249
+    },
+    "SmartWagers/static/SmartWagers/login.css": {
+      "sha256": "730d815b2b848a89c0e4f0c52092d6c79743afb126f70386e94e76fe662e39d3",
+      "size": 2479
+    },
+    "SmartWagers/static/SmartWagers/modal.css": {
+      "sha256": "583ad36c3ae31b351f33954955076b0386d3fc14037e5a18ec33bc9efdef1fb4",
+      "size": 5709
+    },
+    "SmartWagers/static/SmartWagers/signals.js": {
+      "sha256": "9b55c4c2d91b719283c4f725c973656554a3dda1621c8e50a17d96f36556cb46",
+      "size": 5537
+    },
+    "SmartWagers/static/SmartWagers/submit_wagers.js": {
+      "sha256": "17f871c56043e1d28e9ddccda35513e8d144bf93932ab6fb114501ef29a05b10",
+      "size": 26583
+    },
+    "SmartWagers/static/SmartWagers/teller_report.js": {
+      "sha256": "01e19cd052fb2c3795403f07979faf43cdcf689496fd6b3dd7866a98cf04e913",
+      "size": 6209
+    },
+    "SmartWagers/static/SmartWagers/user.css": {
+      "sha256": "86a20b23158ee1c4b42b76b341e9521a5a6f8307a45475ac3ea5bb73312603ce",
+      "size": 17812
+    },
+    "SmartWagers/static/SmartWagers/user.js": {
+      "sha256": "2512a966dd749e26c3c44571eb0b225924382468197b22dea16535a553510e11",
+      "size": 31518
+    },
+    "SmartWagers/static/SmartWagers/user_old.css": {
+      "sha256": "5851994043588d0d5af9bcee5faf8509d4cb9261e10092635254414a5f9041e9",
+      "size": 2696
+    },
+    "SmartWagers/templates/SmartWagers/admin_commission.html": {
+      "sha256": "a9dc6619997f928f805685a71238110effc706aba55fb70dc23b017ce2201ea8",
+      "size": 9771
+    },
+    "SmartWagers/templates/SmartWagers/admin_settings.html": {
+      "sha256": "ac335c7db21bc9957c6e6ed3fe197b806af93d13e4b06fe47b0e91d5951553e6",
+      "size": 32888
+    },
+    "SmartWagers/templates/SmartWagers/admin_teller_transactions.html": {
+      "sha256": "9c4c2f2474253499946bad57d26f4b688921d7a502706223a02b6b3ab4dac2b2",
+      "size": 10292
+    },
+    "SmartWagers/templates/SmartWagers/admin_tellers.html": {
+      "sha256": "d305eb4c2e1c4938b3a6e8f4609bf546690ed7b7acb442ac177bba6f639717c1",
+      "size": 53382
+    },
+    "SmartWagers/templates/SmartWagers/administrator.html": {
+      "sha256": "28ebe86cb0c17f706ab1b457d75119711490054c6974a41b6477827c4d92492d",
+      "size": 41294
+    },
+    "SmartWagers/templates/SmartWagers/event_report.html": {
+      "sha256": "9b0669311076bff2ac987668ab4393efdd931ce48268d43ee7f421e1b91086a6",
+      "size": 64826
+    },
+    "SmartWagers/templates/SmartWagers/index.html": {
+      "sha256": "dffbd4db89d21edf6c9c5c7c730079857bdb0e9ce307a5f4042e56963156a0c4",
+      "size": 508
+    },
+    "SmartWagers/templates/SmartWagers/index_old.html": {
+      "sha256": "0429be564671b27a4cedc75390c11244d22a13c511d6ec9eabe129415e31edfc",
+      "size": 1069
+    },
+    "SmartWagers/templates/SmartWagers/local_password_reset.html": {
+      "sha256": "1cd11a0f82c522d6406496bfaaa99d0167d3bd40954750b6cffe113af68869b2",
+      "size": 522
+    },
+    "SmartWagers/templates/SmartWagers/login.html": {
+      "sha256": "a9fee131c2f9c6bc1a550fe2d6f61c7e8a14995fcae360df6f150b125ed9b504",
+      "size": 2710
+    },
+    "SmartWagers/templates/SmartWagers/master_lock.html": {
+      "sha256": "67fde0cf6ad28fb7fdb7639f2a912d47d563a1d26034cb68da073fb10ad0b092",
+      "size": 3902
+    },
+    "SmartWagers/templates/SmartWagers/registration.html": {
+      "sha256": "8a4d7f7eb25530599e3c452b70f39f5e70695a71aea4c076c3579939ead88716",
+      "size": 108
+    },
+    "SmartWagers/templates/SmartWagers/teller_report.html": {
+      "sha256": "0d296cab2af954de81bb60b21f92ea1d6e3b826103a08da591d7555349c7cebc",
+      "size": 20882
+    },
+    "SmartWagers/templates/SmartWagers/user.html": {
+      "sha256": "14c6653868df0c7cd606b61d8647f2951d5f9cda00f0fddf8f68ef6e3bb8b54b",
+      "size": 14095
+    },
+    "SmartWagers/urls.py": {
+      "sha256": "586bf26d37258b7b9f2993204b25e90455dfe1f104bf6281b296d0de62e6668e",
+      "size": 3585
+    },
+    "SmartWagers/utils.py": {
+      "sha256": "c77ecf479c5776af974e6a616bd6f9d1e9710a125c0bb5f9955972755163e575",
+      "size": 916
+    },
+    "SmartWagers/views.py": {
+      "sha256": "206da43c7e17d443c5c39a43289c10b33d971bf9a07ec675ea6dc7f8da77634e",
+      "size": 90754
+    },
+    "deploy/10_migrate_users_to_postgres.bat": {
+      "sha256": "cb5711efc6308d9031dd3f0fe5dea4cc3119541e9951ff722bcde72bbb4ee20c",
+      "size": 1644
+    },
+    "deploy/11_apply_release.bat": {
+      "sha256": "fa90ccea5028f82c1aa7d3c8389067418025b7488a871a1dc078fbc6c4bf132e",
+      "size": 3697
+    },
+    "deploy/11_sync_release.bat": {
+      "sha256": "e7855eb5675453dfa3b85134b4ba2790faf59b8e6bee28f40983c095eb880754",
+      "size": 594
+    },
+    "deploy/13_export_server_inventory.bat": {
+      "sha256": "c557887101a8bb5175a73243c31c5e56e14b261ab136a643ec9391349a110c44",
+      "size": 791
+    },
+    "deploy/1_setup_env.bat": {
+      "sha256": "077dac484540c2e24852098743453fcc51391a312f697b2d0c483b75bd1567fc",
+      "size": 1557
+    },
+    "deploy/2_install_deps.bat": {
+      "sha256": "6ee24df65a8a7dc7aeb83f98c38d0adc4ecd5cda0040f57e386e7b85c236057c",
+      "size": 1800
+    },
+    "deploy/3_init_database.bat": {
+      "sha256": "bcb9ce8d2c9b48b7abb5c08b0104489292c93b05737b354c2921c930e5f907d3",
+      "size": 1317
+    },
+    "deploy/4_install_service.bat": {
+      "sha256": "c96e0cc4f1a9f570c33c390f6c4d6c71a2da6ece8e2cc12e6e61fea9d31713fe",
+      "size": 8099
+    },
+    "deploy/5_firewall.bat": {
+      "sha256": "8cd4a4b49d2deb71d8093858aa15a29af743c0a547de2c4b5211a664af50b4e8",
+      "size": 1004
+    },
+    "deploy/6_init_master_lock.bat": {
+      "sha256": "23555169c8c7a24233cb689608737df346801b4897e4dd3adf3d340f2406ea9a",
+      "size": 1280
+    },
+    "deploy/7_backup_postgres.bat": {
+      "sha256": "92144bdbb57ee073284e8238833989dbf54af5af2f6176e79700fc13fda5af6f",
+      "size": 367
+    },
+    "deploy/8_restore_postgres.bat": {
+      "sha256": "6bfbac2870566bae027823a20e18c957332e5175884e01698bf944109ef6d39a",
+      "size": 602
+    },
+    "deploy/9_migrate_sqlite_to_postgres.bat": {
+      "sha256": "ea11443a1b42c429e04be80163e61b1330d02aa9c9c92d673ed016295dc2f85b",
+      "size": 1139
+    },
+    "deploy/APPLY_RELEASE.bat": {
+      "sha256": "e40565d4157945240782f23638b8fd500e5cd17f5d61946abda3bbc2bae7914b",
+      "size": 609
+    },
+    "deploy/EXPORT_SERVER_INVENTORY.bat": {
+      "sha256": "3399c068f1402f3fd45e86d477495fbcebb0deb7076695616cc02540bfecb4fe",
+      "size": 678
+    },
+    "deploy/POSTGRESQL_CUTOVER.md": {
+      "sha256": "4e9bd23f4ca02699d6123eedf98d92b1c8b62d39d0d7caeb7cb1d2c9a3af9d09",
+      "size": 4576
+    },
+    "deploy/README.md": {
+      "sha256": "5e8e63f3a29c46c41f01d7962889217b96e2b3ff79132c64df80234f3c34f6f6",
+      "size": 20932
+    },
+    "deploy/apply_usb_release.py": {
+      "sha256": "093ecb9a99038202aa4dc28a7368b61452c8e37ab0a096e8a75b3c43a7e8d451",
+      "size": 10234
+    },
+    "deploy/check_admin_groups.py": {
+      "sha256": "fc4090552d719c6225519fca3f3560d6bf2a52e026872b87d86a69574b796dcd",
+      "size": 684
+    },
+    "deploy/create_server_shortcut.bat": {
+      "sha256": "06694ec643080363fa468d43adb58b7e0c009a4d11d74c184a2d964faea347c5",
+      "size": 1371
+    },
+    "deploy/diagnose_admin_groups.bat": {
+      "sha256": "032d01ac9a86f9b7e79c0774cf53adea97922fe3f2000d41e36c27b3522f2bb7",
+      "size": 990
+    },
+    "deploy/diagnose_service.bat": {
+      "sha256": "79f08a1dcae228bf5a8cfc0ddffa5937f9258b5b2b70527a10dce6ff30d3b2ff",
+      "size": 3078
+    },
+    "deploy/migrate_sqlite_to_postgres.py": {
+      "sha256": "dbc2f19751e95003ee7dad9e067b8bac4516dfc55eb19aa557b26ab67c04a83a",
+      "size": 6642
+    },
+    "deploy/migrate_users_to_postgres.py": {
+      "sha256": "2d85f670c9fc4b0a451d8b92534c3afa5520cfcfd3f98e9d01f1756ed963a389",
+      "size": 7836
+    },
+    "deploy/postgres_tools.py": {
+      "sha256": "18e944d91d1b628d0e5291b4114ebc06c216248061f7e76dda75ae1a74d4c438",
+      "size": 4129
+    },
+    "deploy/release_inventory.py": {
+      "sha256": "342a78351b82437885d04a13c1f311819d92dde4591838769ffe049c5b784e52",
+      "size": 6783
+    },
+    "deploy/run_daphne.bat": {
+      "sha256": "a3ca64889982cd00b18ab3593cdebedf8b9b8653a5ef3a529ad5bc66a8a500ac",
+      "size": 4046
+    },
+    "deploy/server_inventory.json": {
+      "sha256": "8097bed3d15632d1ae46a7dffff18849c5065547d8910674f9b6159022fbc05e",
+      "size": 27841
+    },
+    "deploy/service_control.bat": {
+      "sha256": "48c643d2161ffb26a6d7350b69cae79190eb9b116967b9b5296ddd933d2ee514",
+      "size": 1692
+    },
+    "deploy/smartwagers.ico": {
+      "sha256": "a5792a2d32782f2b14b351d72bf10777d61bd268e76c906b39bf0debfb58eb27",
+      "size": 168121
+    },
+    "deploy/start_server.bat": {
+      "sha256": "993bae06c5481441402aa29a0882616f2807750268b60b94e2f78db924a741b7",
+      "size": 9133
+    },
+    "deploy/start_server_silent.vbs": {
+      "sha256": "95bf5d7cae9d05e17a2202ff4d45172486e955724c441e2693d709423dbfda92",
+      "size": 1716
+    },
+    "deploy/sync_config.example.env": {
+      "sha256": "513e5a188ebffa2721a9ffb7863bdbfcc44df982e89dd5e50e0ea280d2f59991",
+      "size": 1193
+    },
+    "deploy/sync_release.py": {
+      "sha256": "5d9d61fca6c10c72e4389c9ca2b66c26093bbf5861026fcaedebd900b5d350ae",
+      "size": 25629
+    },
+    "deploy/sync_release.sh": {
+      "sha256": "0f210a1993ae04701d1cba431baa516f4935f84e3726996bfecca6dee2aa3e9c",
+      "size": 355
+    },
+    "deploy/write_env.py": {
+      "sha256": "fe86563b68467f3079f9a046e30c008db529b1f229cf683db550188e58f35983",
+      "size": 2253
+    },
+    "local_print_agent/.config..swp": {
+      "sha256": "f7701ddaf4f3e1cd82ee8435b90da67d4f124070f99c20f33723ee01cc311e1c",
+      "size": 4096
+    },
+    "local_print_agent/README.md": {
+      "sha256": "f72232448b392acf1304499bd936d147f682d31856757ff7d02e29b8ab0c227a",
+      "size": 2527
+    },
+    "local_print_agent/config.example.json": {
+      "sha256": "33fb6ef2b22c18d2922960eb14c3dfba79dfcec32b38618709d606ab66b39b52",
+      "size": 240
+    },
+    "local_print_agent/config.json": {
+      "sha256": "45f1255cb2e5f0203f8886cc5b8b8cfdb44f2c24b7a00c9526e0fb4c6d6d586c",
+      "size": 248
+    },
+    "local_print_agent/create_teller_shortcut.bat": {
+      "sha256": "25d7849e3c9148212449d61b63664f6de641c00f9e5a2dd4808fd0e6e6da96a5",
+      "size": 1536
+    },
+    "local_print_agent/install_print_agent.bat": {
+      "sha256": "e5e4f61e52e306dd485f3e2635246f4c32c1720b6f55be5ac792e304113e2b34",
+      "size": 4314
+    },
+    "local_print_agent/print_agent.py": {
+      "sha256": "7780705e8134855749e7d1f7befcd666d59c8d131333f6635834fc4ed8f9a6af",
+      "size": 33984
+    },
+    "local_print_agent/run_print_agent.bat": {
+      "sha256": "e4c8ccf849a1a88132a18f3442c140828c3eac5eb7ff0512988c019dc2ac0612",
+      "size": 438
+    },
+    "local_print_agent/run_print_agent_debug.bat": {
+      "sha256": "e16072f57efee3d5d2277068d20fae2cb4b47f18b22bf1155164e6256d6e911a",
+      "size": 658
+    },
+    "local_print_agent/server.env.example": {
+      "sha256": "da9cb93377b8ba35380e5b1659f7f8314bef52fd6293a56a692c16de0eb2b1f5",
+      "size": 172
+    },
+    "local_print_agent/smartwagers.ico": {
+      "sha256": "a5792a2d32782f2b14b351d72bf10777d61bd268e76c906b39bf0debfb58eb27",
+      "size": 168121
+    },
+    "local_print_agent/start_print_agent_silent.vbs": {
+      "sha256": "cfe5866958163c4e6a74941d21c410385895e62b8dbcf90453d56375a6079c64",
+      "size": 2139
+    },
+    "local_print_agent/start_teller.bat": {
+      "sha256": "03ef5d697d0dbd75652cf3ef8248664ddfd53edf8504037d353eda3bfda32d30",
+      "size": 4080
+    },
+    "local_print_agent/start_teller_silent.vbs": {
+      "sha256": "02a0a795623fd93abedebc020afad0fb3ba576bcd9d1eda081bda55af6f9b6b9",
+      "size": 481
+    },
+    "manage.py": {
+      "sha256": "390fb0571922880c421e75118f20fd8b3b32355068d2cc3313b1fc4bbe87fbe0",
+      "size": 664
+    },
+    "payout_receipt.pdf": {
+      "sha256": "40d14d2866896a37cd93ce23ccd9b7dba9fd9638229a442b38f454fe4507be55",
+      "size": 1968
+    },
+    "payout_receipt_with_barcode.pdf": {
+      "sha256": "8e26bf925124df18df48aac852575012f1f9b3dc7a890d2a60cc1ac5eb2d4ec5",
+      "size": 1935
+    },
+    "pytest.ini": {
+      "sha256": "d177f41db7dff7575d342bcff670a2096121f8a6ff499ba58ea0335fdb707489",
+      "size": 146
+    },
+    "receipt_with_barcode.pdf": {
+      "sha256": "83841faffabf73e713bebcd9be69853b50f909d721cacb7339e87fa4cf2776ea",
+      "size": 1899
+    },
+    "requirements.txt": {
+      "sha256": "47ecb6e77c750f4701dbc4995e8ef0dbdbc19aa9178c2f460788aaaf9723d456",
+      "size": 444
+    },
+    "server_inventory.json": {
+      "sha256": "49117bd832c94630d608bb4bb1ccf4fbcbd1c063946e7d72503d2ebbfb6d7e64",
+      "size": 27848
+    },
+    "static/app copy.css": {
+      "sha256": "214787d336bd00ba413a1c3bf0ac21fe29774d7101cac75809df95b467a8378c",
+      "size": 3629
+    },
+    "static/app.css": {
+      "sha256": "151a487675db6ec3ef17e5e9008a1e810d4d217b97587941879ef0c839cb7bd2",
+      "size": 13470
+    },
+    "templates/403.html": {
+      "sha256": "1936b322ea34606bf8abbfea567a777c4455ecf5e40b68c9eff66dec45356205",
+      "size": 3786
+    },
+    "templates/base.html": {
+      "sha256": "ede450047e5dc8e04f8a04e4f9e90c5f86e6781d9caf4d00a16629c95148bdaa",
+      "size": 4695
+    }
+  },
+  "inventory_version": 1,
+  "source_root": "C:\\SmartWagers\\GameFowl"
+}

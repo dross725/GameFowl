@@ -572,8 +572,9 @@ def get_event_cash_reconciliation(
       1. Betting surplus vs expected commission — same house take measured two
          ways (wagers−payouts vs pot×plasada); variance should be ~0.
       2. Net earnings (from cash position) vs betting surplus — physical cash
-         after stripping house capital; variance should be ~0 unless stations
-         were short/over at close-out (see close_out_variance_total).
+         after stripping house capital and adding back bank remits that already
+         left the drawers; variance should be ~0 unless stations were short/over
+         at close-out (see close_out_variance_total).
     """
     from django.db.models import Sum
 
@@ -637,12 +638,20 @@ def get_event_cash_reconciliation(
 
     admin_cash = admin_fund_summary['balance']
     total_cash = teller_cash_on_hand + admin_cash
+    admin_opening_fund = float(admin_fund_summary['opening_fund'])
+    additional_bank_borrowed = float(admin_fund_summary['additional_bank_borrowed'])
+    bank_borrowed = float(admin_fund_summary['bank_borrowed'])
+    bank_remitted = float(admin_fund_summary['bank_remitted'])
     net_bank = admin_fund_summary['net_bank_funding']
+    # Same math as − net_bank, but shown as admin petty / borrows vs remits
+    # added back so drawer cash can be traced up to commission.
     net_earnings = (
         total_cash
         + float(remits_not_in_admin)
         - float(total_opening_fund)
-        - float(net_bank)
+        - admin_opening_fund
+        - additional_bank_borrowed
+        + bank_remitted
     )
     betting_surplus = float(total_bets_collected) - float(total_payouts)
     surplus_vs_commission = betting_surplus - float(expected_commission)
@@ -654,6 +663,10 @@ def get_event_cash_reconciliation(
         'admin_cash_on_hand': round(float(admin_cash), 2),
         'total_cash_on_hand': round(float(total_cash), 2),
         'opening_fund_total': round(float(total_opening_fund), 2),
+        'admin_opening_fund': round(admin_opening_fund, 2),
+        'additional_bank_borrowed': round(additional_bank_borrowed, 2),
+        'bank_borrowed': round(bank_borrowed, 2),
+        'bank_remitted': round(bank_remitted, 2),
         'net_bank_funding': round(float(net_bank), 2),
         'teller_remits_all': round(float(teller_remits_all), 2),
         'remits_not_in_admin': round(float(remits_not_in_admin), 2),
@@ -679,15 +692,17 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     post-event settlement transactions are still counted.
     """
     from django.db.models import Sum
+    from SmartWagers import reporting
+
     wager_qs = Wagers.objects.filter(cashier=str(user), registered=True, cancelled=False)
     txn_qs   = TellerTransaction.objects.filter(user=user)
 
-    if event is not None:
-        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
-        txn_qs   = txn_qs.filter(created_at__gte=event.started_at)
-        if apply_end_bound and event.ended_at:
-            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-            txn_qs   = txn_qs.filter(created_at__lte=event.ended_at)
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound,
+    )
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound,
+    )
 
     grand_total   = wager_qs.aggregate(t=Sum('wager'))['t']  or 0.0
     remit_total   = txn_qs.filter(transaction_type=TellerTransaction.REMIT  ).aggregate(t=Sum('amount'))['t'] or 0.0
@@ -700,17 +715,18 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
 def compute_teller_balance_breakdown(user, event=None, apply_end_bound=True):
     """Return balance components for a teller, optionally scoped to an event."""
     from django.db.models import Sum
+    from SmartWagers import reporting
 
     username = str(user)
     wager_qs = Wagers.objects.filter(cashier=username, registered=True, cancelled=False)
     txn_qs = TellerTransaction.objects.filter(user=user)
 
-    if event is not None:
-        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
-        txn_qs = txn_qs.filter(created_at__gte=event.started_at)
-        if apply_end_bound and event.ended_at:
-            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound,
+    )
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound,
+    )
 
     grand_total = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
     remit_total = txn_qs.filter(
@@ -996,6 +1012,49 @@ def _reset_teller_balances():
         Event.objects.filter(pk=closing_event.pk).update(ended_at=now())
 
 
+def issue_teller_opening_fund_if_needed(teller, event=None, *, require_online=True):
+    """Issue opening float to *teller* for *event* when eligible.
+
+    Returns True when a COLLECT row is created.  Offline tellers are skipped
+    when *require_online* is True (the default).  Idempotent: callers may
+    invoke this whenever an online teller should have opening funds, including
+    for tellers created after the current event already started.
+    """
+    if event is None:
+        event = get_active_event()
+    if event is None:
+        return False
+
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    if teller.pk in admin_ids or not teller.groups.filter(name='teller').exists():
+        return False
+
+    if require_online:
+        status, _ = TellerStatus.objects.get_or_create(
+            user=teller, defaults={'is_online': True},
+        )
+        if not status.is_online:
+            return False
+
+    if teller_has_opening_fund_for_event(teller, event):
+        return False
+
+    setting = Settings.objects.order_by('-id').first()
+    initial_fund = setting.teller_initial_fund if setting else 10000.0
+    if initial_fund <= 0:
+        return False
+
+    TellerTransaction.objects.create(
+        user=teller,
+        transaction_type=TellerTransaction.COLLECT,
+        amount=round(initial_fund, 2),
+        affects_admin_fund=False,
+    )
+    return True
+
+
 def _issue_initial_teller_funds():
     """Issue bank-sourced opening funds to online tellers.
 
@@ -1006,33 +1065,20 @@ def _issue_initial_teller_funds():
     amount on top of any bets they collect during the event).
 
     Offline/absent tellers are intentionally skipped — they receive no opening
-    float.  If they are later marked online mid-event, toggle_teller_online
+    float.  If they are later marked online mid-event, issue_teller_opening_fund_if_needed
     issues a matching COLLECT at that point.  If they register bets while still
     marked offline, that is an admin-visible alert (by design: we notify rather
     than block, since the physical teller may be present but just forgotten to
     be toggled on).
     """
-    setting = Settings.objects.order_by('-id').first()
-    initial_fund = setting.teller_initial_fund if setting else 10000.0
-    if initial_fund > 0:
-        admin_ids = User.objects.filter(
-            groups__name='admin',
-        ).values_list('pk', flat=True)
-        tellers = User.objects.filter(groups__name='teller').exclude(
-            pk__in=admin_ids,
-        )
-        for teller in tellers:
-            status, _ = TellerStatus.objects.get_or_create(user=teller)
-            if not status.is_online:
-                continue
-            if teller_has_opening_fund_for_event(teller, get_active_event()):
-                continue
-            TellerTransaction.objects.create(
-                user=teller,
-                transaction_type=TellerTransaction.COLLECT,
-                amount=round(initial_fund, 2),
-                affects_admin_fund=False,
-            )
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    tellers = User.objects.filter(groups__name='teller').exclude(
+        pk__in=admin_ids,
+    )
+    for teller in tellers:
+        issue_teller_opening_fund_if_needed(teller)
 
 
 def start_event(name):

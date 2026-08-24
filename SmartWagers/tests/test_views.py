@@ -8,6 +8,7 @@ admin action POST guards, and teller transaction view.
 import json
 import pytest
 from django.test import Client
+from SmartWagers import services
 from SmartWagers.models import (
     Event, Fight_Status, Settings, TellerStatus, TellerTransaction, Totals,
     Wagers,
@@ -887,3 +888,46 @@ class TestPreEventTellerPreparation:
         status.refresh_from_db()
         assert status.is_online is True
         assert not TellerTransaction.objects.filter(user=teller_user).exists()
+
+    def test_toggle_online_issues_fund_during_active_event(
+            self, admin_user, teller_user, default_settings, active_event):
+        TellerStatus.objects.create(user=teller_user, is_online=False)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post(
+            '/administrator/teller-online-toggle/',
+            {'teller_id': teller_user.pk, 'is_online': 'true'},
+        )
+
+        assert response.status_code == 200
+        assert response.json()['fund_issued'] is True
+        assert TellerTransaction.objects.filter(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+        ).exists()
+
+    def test_admin_tellers_page_issues_fund_for_new_teller_mid_event(
+            self, admin_user, teller_group, default_settings):
+        from django.contrib.auth.models import User
+
+        services.start_event('Event A')
+        new_teller = User.objects.create_user(username='newteller')
+        new_teller.groups.add(teller_group)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.get('/administrator/tellers/')
+
+        assert response.status_code == 200
+        assert TellerTransaction.objects.filter(
+            user=new_teller,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+        ).exists()
+        teller_row = next(
+            item for item in response.context['teller_data']
+            if item['user'].pk == new_teller.pk
+        )
+        assert teller_row['balance'] == pytest.approx(default_settings.teller_initial_fund)
