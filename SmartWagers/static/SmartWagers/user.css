@@ -19,10 +19,10 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: url("images/logo.jpg") center / clamp(260px, 34vw, 520px) no-repeat;
-  filter: grayscale(1) contrast(1.35);
+  background: url("images/logo.jpg") center / clamp(420px, 48vw, 780px) no-repeat;
+  filter: grayscale(1) contrast(1.45);
   mix-blend-mode: multiply;
-  opacity: 0.36;
+  opacity: 0.50;
   pointer-events: none;
 }
 
@@ -183,22 +183,6 @@ textarea {
   50%       { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.10); }
 }
 
-/* Hint text — hidden by default, visible when no side chosen */
-#side-hint {
-  display: none;
-  margin: 2px 0 0;
-  font-size: 10px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.38);
-  text-align: center;
-  flex-shrink: 0;
-}
-
-#unified-wagers:has(#radio_none:checked) #side-hint {
-  display: block;
-}
-
 .radio-label {
   flex: 1;
   display: flex;
@@ -287,17 +271,18 @@ textarea {
 
 #bet_textinput {
   width: 100%;
-  max-width: 294px;
-  height: 34px;
+  max-width: 420px;
+  height: 56px;
   resize: none;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  font-size: 20px;
+  border-radius: 10px;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 32px;
   font-weight: 700;
   text-align: right;
   background: rgba(0, 0, 0, 0.48);
   color: white;
-  padding: 0 10px;
+  padding: 0 14px;
   outline: none;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
@@ -570,8 +555,9 @@ textarea {
     font-size: 15px;
   }
   #bet_textinput {
-    height: 28px;
-    font-size: 17px;
+    height: 48px;
+    font-size: 28px;
+    max-width: 360px;
   }
   .bet-buttons {
     gap: 4px;
@@ -631,8 +617,8 @@ textarea {
 
   #bet_textinput {
     max-width: none;
-    height: 48px;
-    font-size: 22px;
+    height: 52px;
+    font-size: 28px;
   }
 
   .button {

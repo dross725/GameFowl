@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+import math
 import sys
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -78,10 +79,13 @@ def load_config():
 
 
 def money(value):
+    """Format a monetary amount with centavos, truncating beyond 2 decimals (no rounding)."""
     try:
-        return f"{int(round(float(str(value).replace(',', '')))):,}"
+        num = float(str(value).replace(",", ""))
+        truncated = math.trunc(num * 100) / 100
+        return f"{truncated:,.2f}"
     except (TypeError, ValueError):
-        return str(value or "0")
+        return str(value or "0.00")
 
 
 def text_line(value="", code_page="cp437"):

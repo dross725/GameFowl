@@ -20,10 +20,10 @@
   position: absolute;
   inset: 0;
   z-index: 1;
-  background: url("images/logo.jpg") center / clamp(260px, 34vw, 520px) no-repeat;
-  filter: grayscale(1) contrast(1.35);
+  background: url("images/logo.jpg") center / clamp(420px, 48vw, 780px) no-repeat;
+  filter: grayscale(1) contrast(1.45);
   mix-blend-mode: multiply;
-  opacity: 0.36;
+  opacity: 0.50;
   pointer-events: none;
 }
 

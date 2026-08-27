@@ -571,6 +571,11 @@
 <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=advance-labels-1"></script>
 <script src="{% static 'SmartWagers/teller_report.js' %}?v=advance-labels-1"></script>
 <script>
+function reportTxnMessage(message, transactionId) {
+    const txn = String(transactionId || "").trim();
+    return txn ? `Transaction ID: ${txn} — ${message}` : message;
+}
+
 async function reprintFromReport(btn, transactionId) {
     btn.disabled = true;
     const originalText = btn.innerText;
@@ -593,28 +598,36 @@ async function reprintFromReport(btn, transactionId) {
 
         if (!data.ok) {
             const msg = data.error === 'notfound'
-                ? 'Transaction not found.'
+                ? reportTxnMessage('Transaction not found.', data.transaction_id || transactionId)
                 : data.error === 'station_closed'
-                    ? 'Station is closed. Reprint is disabled.'
-                    : 'Reprint failed. Please try again.';
+                    ? reportTxnMessage('Station is closed. Reprint is disabled.', transactionId)
+                    : reportTxnMessage('Reprint failed. Please try again.', data.transaction_id || transactionId);
             showReprintToast(msg, 'error');
             return;
         }
 
         if (data.print_required === false || !data.receipt) {
-            showReprintToast('Reprint recorded; receipt printing is disabled.', 'success');
+            showReprintToast(
+                reportTxnMessage('Reprint recorded; receipt printing is disabled.', transactionId),
+                'success',
+            );
             return;
         }
 
         const printResult = await printWagerReceipt(data.receipt);
         showReprintToast(
-            printResult.ok ? 'Receipt sent to printer.' : 'Print failed: ' + printResult.message,
-            printResult.ok ? 'success' : 'error'
+            printResult.ok
+                ? reportTxnMessage('Receipt sent to printer.', transactionId)
+                : reportTxnMessage('Print failed: ' + printResult.message, transactionId),
+            printResult.ok ? 'success' : 'error',
         );
 
     } catch (err) {
         console.error('Reprint error:', err);
-        showReprintToast('Network error. Please try again.', 'error');
+        showReprintToast(
+            reportTxnMessage('Network error. Please try again.', transactionId),
+            'error',
+        );
     } finally {
         btn.disabled = false;
         btn.innerText = originalText;

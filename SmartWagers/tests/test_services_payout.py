@@ -84,8 +84,18 @@ class TestPayoutRequestSuccess:
         _make_fight_result(1, 'MERON', event=active_event,
                            mtotal=500, wtotal=300, mpayout=95.0, wpayout=158.0)
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
-        expected = round(100 * round(95.0 / 100, 4), 2)  # = 95.0
+        expected = services.truncate_payout_to_pesos(100 * round(95.0 / 100, 4))  # = 95
         assert float(result['Total_Payout']) == pytest.approx(expected, rel=1e-3)
+
+    def test_payout_drops_centavos_without_rounding(self, teller_user, default_settings, active_event):
+        w = _make_registered_wager(1, 'MERON', 200, teller_user.username)
+        # 200 * 0.8275 = 165.50 -> truncate to 165 (not round to 166)
+        _make_fight_result(1, 'MERON', event=active_event,
+                           mtotal=500, wtotal=300, mpayout=82.75, wpayout=158.0)
+        result = services.payout_request(w.transactionid, requesting_cashier=teller_user.username)
+        assert result.get('error') is None
+        assert float(result['Total_Payout']) == 165.0
+        assert result['Total_Payout'] == '165'
 
     def test_live_and_old_ticket_payout_agree(self, teller_user, default_settings):
         from datetime import timedelta
@@ -156,6 +166,20 @@ class TestPayoutRequestErrors:
         # teller_user2 tries to pay it out
         result = services.payout_request(w.transactionid, requesting_cashier=teller_user2.username)
         assert result.get('error') == 'wrong_teller'
+
+    def test_cross_teller_cannot_reprint_already_paid_payout(
+        self, teller_user, teller_user2, default_settings, active_event,
+    ):
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        w.cashed_out = True
+        w.save()
+        _make_fight_result(1, 'MERON', event=active_event)
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user2.username,
+        )
+        assert result.get('error') == 'wrong_teller'
+        assert result.get('reprint_available') is not True
+        assert 'receipt' not in result
 
     def test_nonexistent_transaction_returns_notfound(self, teller_user, active_event):
         result = services.payout_request('999999')

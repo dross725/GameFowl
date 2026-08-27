@@ -167,11 +167,25 @@ def teller_station_closed_response():
     return JsonResponse({'ok': False, 'error': 'station_closed'}, status=403)
 
 
-def teller_action_blocked_response(user):
+def teller_action_blocked_response(user, *, action=None, transaction_id=None):
     """Return the appropriate 403 when a teller action is blocked."""
     if services.teller_station_is_closed(user):
+        services.log_teller_action(
+            action or 'action',
+            user,
+            transaction_id=transaction_id,
+            outcome='station_closed',
+            level='warning',
+        )
         return teller_station_closed_response()
     if not teller_is_online(user):
+        services.log_teller_action(
+            action or 'action',
+            user,
+            transaction_id=transaction_id,
+            outcome='teller_offline',
+            level='warning',
+        )
         return teller_offline_response()
     return None
 
@@ -316,22 +330,38 @@ def reprint_wager(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
-    if request.user.groups.filter(name='teller').exists():
-        blocked = teller_action_blocked_response(request.user)
-        if blocked is not None:
-            return blocked
-
     transaction_id = request.POST.get('transaction_id', '').strip()
     if not transaction_id:
         return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
 
+    normalized_txn = services.normalize_logged_transaction_id(transaction_id)
+
+    if request.user.groups.filter(name='teller').exists():
+        blocked = teller_action_blocked_response(
+            request.user,
+            action='reprint',
+            transaction_id=normalized_txn,
+        )
+        if blocked is not None:
+            return blocked
+
+    is_admin = request.user.groups.filter(name='admin').exists()
+    is_teller = request.user.groups.filter(name='teller').exists()
+    if not is_admin and not is_teller:
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id=normalized_txn,
+            outcome='forbidden',
+            level='warning',
+        )
+        return JsonResponse({'ok': False, 'error': 'Forbidden'}, status=403)
+
     # Tellers may only reprint their own tickets; admins may reprint any.
     cashier_filter = None
     remit_user_filter = None
-    is_admin = request.user.groups.filter(name='admin').exists()
-    is_teller = request.user.groups.filter(name='teller').exists()
     if is_teller and not is_admin:
-        cashier_filter = str(request.user)
+        cashier_filter = request.user.username
         remit_user_filter = request.user
 
     print_required = services.is_wager_receipt_printing_enabled()
@@ -349,6 +379,12 @@ def reprint_wager(request):
                 event=event_scope,
                 apply_end_bound=apply_end_bound,
             )
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id='test',
+            outcome='test_ok',
+        )
         return JsonResponse({
             'ok': True,
             'receipt_type': 'test',
@@ -371,6 +407,13 @@ def reprint_wager(request):
         transaction_id, cashier=cashier_filter,
     )
     if receipt is not None:
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id=receipt.get('transaction_id') or normalized_txn,
+            outcome='wager_ok',
+            receipt_type='wager',
+        )
         return JsonResponse({
             'ok': True,
             'receipt_type': 'wager',
@@ -382,6 +425,13 @@ def reprint_wager(request):
         transaction_id, user=remit_user_filter,
     )
     if remit_receipt is not None:
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id=remit_receipt.get('transaction_id') or normalized_txn,
+            outcome='remit_ok',
+            receipt_type='remit',
+        )
         return JsonResponse({
             'ok': True,
             'receipt_type': 'remit',
@@ -389,7 +439,18 @@ def reprint_wager(request):
             'receipt': remit_receipt,
         })
 
-    return JsonResponse({'ok': False, 'error': 'notfound'})
+    services.log_teller_action(
+        'reprint',
+        request.user,
+        transaction_id=normalized_txn,
+        outcome='notfound',
+        level='warning',
+    )
+    return JsonResponse({
+        'ok': False,
+        'error': 'notfound',
+        'transaction_id': services.normalize_wager_transaction_id(transaction_id),
+    })
 
 def notify_bet_updates():
     """Broadcast current pot values to all live UI groups after a wager changes."""
@@ -889,21 +950,20 @@ def _build_event_user_stats(
     )
     username = str(user)
 
-    wager_qs = reporting.active_wagers_for_event(event).filter(
+    wager_qs = Wagers.objects.filter(
         cashier=username, registered=True, cancelled=False,
     )
-    archived_wager_qs = (
-        reporting.archived_wagers_for_event(event).filter(
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound=True,
+    )
+    archived_wager_qs = None
+    if include_archived:
+        archived_wager_qs = reporting.archived_wagers_for_event(event).filter(
             cashier=username, registered=True, cancelled=False,
         )
-        if include_archived else None
-    )
-    if event.ended_at:
-        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-        if archived_wager_qs is not None:
-            archived_wager_qs = archived_wager_qs.filter(
-                created_at__lte=event.ended_at,
-            )
+        archived_wager_qs = reporting.filter_wagers_for_teller(
+            archived_wager_qs, user, event, apply_end_bound=True,
+        )
 
     bet_stats = {
         'bet_count': reporting._count_rows(wager_qs, archived_wager_qs),
@@ -925,15 +985,18 @@ def _build_event_user_stats(
         ),
     }
 
-    txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=user)
-    archived_txn_qs = (
-        reporting.archived_teller_transactions_for_event(event).filter(user=user)
-        if include_archived else None
+    txn_qs = TellerTransaction.objects.filter(user=user)
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound=True,
     )
-    if event.ended_at:
-        txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
-        if archived_txn_qs is not None:
-            archived_txn_qs = archived_txn_qs.filter(created_at__lte=event.ended_at)
+    archived_txn_qs = None
+    if include_archived:
+        archived_txn_qs = reporting.archived_teller_transactions_for_event(
+            event,
+        ).filter(user=user)
+        archived_txn_qs = reporting.filter_transactions_for_teller(
+            archived_txn_qs, user, event, apply_end_bound=True,
+        )
 
     payout_filter = {'transaction_type': TellerTransaction.PAYOUT}
     if admin_fund_mode:
@@ -1152,6 +1215,14 @@ def teller_transaction(request):
                 "REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s",
                 amount, balance, request.user.username,
             )
+            services.log_teller_action(
+                'remit',
+                request.user,
+                outcome='exceeds_cash_on_hand',
+                level='warning',
+                amount=f"{amount:.2f}",
+                balance=f"{balance:.2f}",
+            )
             return JsonResponse({
                 'ok': False,
                 'error': 'exceeds_cash_on_hand',
@@ -1168,6 +1239,13 @@ def teller_transaction(request):
         "TELLER TXN: txn_id=%s type=%s amount=%.2f teller=%s",
         txn.transaction_id, transaction_type, amount, request.user.username,
     )
+    services.log_teller_action(
+        'remit',
+        request.user,
+        transaction_id=txn.transaction_id,
+        outcome='created',
+        amount=f"{amount:.2f}",
+    )
 
     balance, grand_total = _compute_teller_balance(
         request.user, event=event_scope, apply_end_bound=apply_end_bound,
@@ -1181,6 +1259,7 @@ def teller_transaction(request):
         'transaction_type': transaction_type,
         'amount': amount,
         'transaction_id': txn.transaction_id,
+        'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
     })
 
 

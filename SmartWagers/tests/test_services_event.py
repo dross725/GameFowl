@@ -593,6 +593,50 @@ class TestOnlineTellerFreshBalanceOnEventStart:
         )
         assert balance == pytest.approx(default_settings.teller_initial_fund)
 
+    def test_new_event_grand_total_resets_after_prior_activity(
+            self, default_settings, teller_user, teller_status_online):
+        """Bet totals and settlement rows must not carry into the next event."""
+        from SmartWagers import views
+
+        services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000,
+            cashier=teller_user.username, registered=True,
+        )
+        event_b = services.start_event('Event B')
+
+        balance, grand_total = views._compute_teller_balance(
+            teller_user, event=event_b,
+        )
+        breakdown = services.compute_teller_balance_breakdown(
+            teller_user, event=event_b,
+        )
+
+        assert grand_total == pytest.approx(0.0)
+        assert breakdown['grand_total'] == pytest.approx(0.0)
+        assert breakdown['remit_total'] == pytest.approx(0.0)
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_new_teller_mid_prior_event_starts_clean(
+            self, default_settings, teller_group, teller_status_online):
+        """A teller created during a prior event must not inherit old bet totals."""
+        from django.contrib.auth.models import User
+        from SmartWagers import views
+
+        services.start_event('Event A')
+        new_teller = User.objects.create_user(username='freshcashier')
+        new_teller.groups.add(teller_group)
+        TellerStatus.objects.create(user=new_teller, is_online=True)
+
+        event_b = services.start_event('Event B')
+        services.issue_teller_opening_fund_if_needed(new_teller, event=event_b)
+
+        balance, grand_total = views._compute_teller_balance(
+            new_teller, event=event_b,
+        )
+        assert grand_total == pytest.approx(0.0)
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
     def test_online_teller_balance_after_end_then_start(
             self, default_settings, teller_user, teller_status_online, admin_user):
         services.start_event('Event A')
