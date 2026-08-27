@@ -156,11 +156,10 @@ async function handleUserSocketMessage(event) {
         console.log("[user.js] cancel_bet message received:", data);
         if ("error" in data) {
             if (data.error === 'wrong_teller') {
-                document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
-                document.getElementById('wrong_teller_modal').style.display = 'flex';
+                showWrongTellerModal(data);
             } else {
                 document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
-                openmodal('payout_error_modal', data.error);
+                openmodal('payout_error_modal', data.error, null, false, data.transaction_id);
             }
         } else if ("transaction_id" in data && "amount" in data) {
             document.getElementById('payout_success_header').innerText = "Cancel Bet";
@@ -169,11 +168,14 @@ async function handleUserSocketMessage(event) {
             document.getElementById('payout_message3').innerText = "";
             document.getElementById('payout_print_modal').style.display = 'flex';
             if (data.receipt && data.print_required !== false) {
-                document.getElementById('payout_message3').innerText = "Sending cancel receipt to local printer...";
+                document.getElementById('payout_message3').innerText = formatTransactionMessage(
+                    "Sending cancel receipt to local printer...",
+                    data.transaction_id,
+                );
                 const printResult = await printWagerReceipt(data.receipt);
                 document.getElementById('payout_message3').innerText = printResult.ok
-                    ? "Cancel receipt sent to printer."
-                    : "Cancel receipt print failed: " + printResult.message;
+                    ? formatTransactionMessage("Cancel receipt sent to printer.", data.transaction_id)
+                    : formatTransactionMessage("Cancel receipt print failed: " + printResult.message, data.transaction_id);
             }
         }
         // Refresh balance and per-fight totals — cancel reverses collected cash
@@ -802,12 +804,6 @@ async function submitTellerTransaction(type) {
         updateBalanceButton(data.balance);
         closemodal('balancemodal');
 
-        const now = new Date();
-        const dateStr = now.toLocaleString('en-PH', {
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', second: '2-digit',
-            hour12: false,
-        });
         const label = 'Advance';
 
         // Show the shared print-result modal while the job is in-flight
@@ -825,7 +821,7 @@ async function submitTellerTransaction(type) {
                 balance: data.balance,
                 grand_total: data.grand_total,
                 cashier: data.cashier,
-                date: dateStr,
+                date: data.created_at,
             });
             document.getElementById('payout_message3').innerText = printResult.ok
                 ? 'Receipt sent to printer.'

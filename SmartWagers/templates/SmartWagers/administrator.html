@@ -2,7 +2,7 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=22">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=23">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
@@ -235,7 +235,7 @@
 {% endblock css_files %}
 
 {% block script_files %}
-<script src="{% static 'SmartWagers/administrator.js' %}?v=advance-labels-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=advance-labels-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -461,6 +461,7 @@
                 <br>
                 <p>Payout cannot be processed at this teller.</p>
                 <br>
+                <p id='wrong_teller_transaction_id'></p>
                 <p>Please proceed to teller: <strong id='wrong_teller_name'></strong></p>
                 <br>
                 <button onclick='closemodal("wrong_teller_modal")'>Close</button>

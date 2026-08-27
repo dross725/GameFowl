@@ -23,6 +23,14 @@ def test_transaction_receipt_copies_for_admin_bank():
     )
 
 
+def test_money_shows_centavos_without_rounding():
+    assert print_agent.money("165.50") == "165.50"
+    assert print_agent.money(200.99) == "200.99"
+    assert print_agent.money(165.999) == "165.99"
+    assert print_agent.money(1000) == "1,000.00"
+    assert print_agent.money("1,250.75") == "1,250.75"
+
+
 def test_escpos_remit_receipt_contains_both_copy_labels():
     payload = print_agent.escpos_remit_receipt(
         {

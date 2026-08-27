@@ -27,9 +27,9 @@ socket.onmessage = (event) => {
         }
     } else if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
-        document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
+        setIndexPayout("M_payout", data.mpayout);
         document.getElementById("W_total_bet").innerText = data.wtotal;
-        document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
+        setIndexPayout("W_payout", data.wpayout);
         if (data.fightnum != null) updateFightnum(data.fightnum);
     } else if ("side" in data && "side_status" in data) {
         const side   = data.side;
@@ -46,6 +46,16 @@ socket.onmessage = (event) => {
 
     updateStatus("Connected");
 };
+
+function setIndexPayout(elementId, value) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    el.replaceChildren(
+        document.createTextNode("PAYOUT:"),
+        document.createElement("br"),
+        document.createTextNode(String(value ?? "")),
+    );
+}
 
 function normalizeDisplayStatus(status) {
     return status === "CLOSE" ? "CLOSED" : status;

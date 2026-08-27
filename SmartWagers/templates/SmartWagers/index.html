@@ -2,13 +2,28 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel="stylesheet" href="{% static "SmartWagers/index.css" %}?v=14">
+    <link rel="stylesheet" href="{% static "SmartWagers/index.css" %}?v=17">
 {% endblock css_files %}
 
 {% block script_files %}
     <!--script src="{% static 'SmartWagers/submit_wagers.js' %}"></script-->
-    <script src="{% static 'SmartWagers/signals.js' %}?v=display-only-4"></script>
+    <script src="{% static 'SmartWagers/signals.js' %}?v=display-only-6"></script>
 {% endblock script_files %}
+
+{% block pot_block %}
+    <section id="pot">
+        <div id="M_pot">
+            <div id="M_total_bet"><h1>{{ M_total_bet }}</h1></div>
+            <div id="M_payout">PAYOUT:<br>{{M_payout}}</div>
+            <div id="meron-betting-status"><h1>.</h1></div>
+        </div>
+        <div id="W_pot">
+            <div id="W_total_bet"><h1>{{ W_total_bet }}</h1></div>
+            <div id="W_payout">PAYOUT:<br>{{W_payout}}</div>
+            <div id="wala-betting-status"><h1>.</h1></div>
+        </div>
+    </section>
+{% endblock pot_block %}
 
 {% block content %}
 

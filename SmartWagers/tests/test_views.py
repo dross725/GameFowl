@@ -315,6 +315,19 @@ class TestReprintWager:
         response = client.get('/reprint_wager/')
         assert response.status_code == 405
 
+    def test_display_user_cannot_reprint(self, display_user, active_event):
+        w = Wagers.objects.create(
+            fightnum=1, side='MERON', wager=300,
+            cashier='testteller', registered=True,
+        )
+        client = Client()
+        client.force_login(display_user)
+        response = client.post('/reprint_wager/', {'transaction_id': w.transactionid})
+        assert response.status_code == 403
+        data = json.loads(response.content)
+        assert data['ok'] is False
+        assert data['error'] == 'Forbidden'
+
     def test_missing_transaction_id_returns_400(self, teller_user):
         client = Client()
         client.force_login(teller_user)
@@ -493,10 +506,6 @@ class TestReprintWager:
         assert data['ok'] is False
         assert data['error'] == 'notfound'
 
-
-# ---------------------------------------------------------------------------
-# teller_transaction (REMIT)
-# ---------------------------------------------------------------------------
 
 @pytest.mark.django_db
 class TestTellerTransactionView:
