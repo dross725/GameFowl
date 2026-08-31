@@ -1722,7 +1722,11 @@ def admin_event_report(request):
             include_archived=include_archived,
         )
         stats['is_admin_account'] = False
-        teller_cash_on_hand_recon += stats['balance']
+        close_out = close_outs.get(teller.pk)
+        if close_out is not None and close_out.actual_cash_counted is not None:
+            teller_cash_on_hand_recon += close_out.actual_cash_counted
+        else:
+            teller_cash_on_hand_recon += stats['balance']
         total_opening_fund_recon += stats['opening_fund_total']
         if not show_all_tellers and stats['bet_count'] <= 0:
             continue
@@ -1854,24 +1858,35 @@ def admin_event_report(request):
             'counted_at': event.admin_cash_counted_at,
         })
 
+        betting_surplus_shares = services.get_event_betting_surplus_shares(
+            event,
+            include_archived=include_archived,
+        )
+        admin_usernames = set(
+            User.objects.filter(groups__name='admin').values_list('username', flat=True),
+        )
+        admin_betting_surplus = round(sum(
+            betting_surplus_shares.get(username, 0.0)
+            for username in admin_usernames
+        ), 2)
+
         final_reconciliation_rows.append({
             'name': 'Admin',
-            'coh': (
-                admin_fund_summary['opening_fund']
-                + admin_fund_summary['expected_cash_on_hand']
-            ),
             'petty': admin_fund_summary['opening_fund'],
             'expected': admin_fund_summary['expected_cash_on_hand'],
             'actual': admin_fund_summary['actual_cash_counted'],
             'variance': admin_fund_summary['variance'],
+            'betting_surplus': admin_betting_surplus,
+            'advanced': admin_fund_summary['bank_remitted'],
+            'borrowed': admin_fund_summary['bank_borrowed'],
         })
         for stats in teller_data:
             if stats.get('is_admin_account'):
                 continue
             close_out = stats['close_out']
+            username = stats['user'].username
             final_reconciliation_rows.append({
                 'name': stats['display_name'],
-                'coh': stats['reporting_coh'],
                 'petty': stats['initial_fund'],
                 'expected': (
                     close_out.expected_cash_on_hand
@@ -1888,6 +1903,9 @@ def admin_event_report(request):
                     if close_out is not None
                     else None
                 ),
+                'betting_surplus': betting_surplus_shares.get(username, 0.0),
+                'advanced': stats['remit_total'],
+                'borrowed': stats['collect_total'],
             })
 
         def total_recorded(field):
@@ -1898,11 +1916,19 @@ def admin_event_report(request):
             ), 2)
 
         final_reconciliation_totals = {
-            'coh': total_recorded('coh'),
             'petty': total_recorded('petty'),
             'expected': total_recorded('expected'),
             'actual': total_recorded('actual'),
             'variance': total_recorded('variance'),
+            'betting_surplus': round(sum(
+                row['betting_surplus'] for row in final_reconciliation_rows
+            ), 2),
+            'advanced': round(sum(
+                row['advanced'] for row in final_reconciliation_rows
+            ), 2),
+            'borrowed': round(sum(
+                row['borrowed'] for row in final_reconciliation_rows
+            ), 2),
         }
 
     commission_20 = round(total_commission * 0.20, 2)

@@ -752,3 +752,119 @@ class TestEventCashReconciliation:
         assert recon['net_earnings'] == pytest.approx(recon['betting_surplus'])
         assert recon['betting_surplus'] == pytest.approx(3000.0)
         assert recon['surplus_vs_commission'] == pytest.approx(3000.0 - 350.0)
+
+
+@pytest.mark.django_db
+class TestEventCommissionShares:
+
+    def test_commission_shares_allocated_by_wager_share_per_fight(
+            self, active_event, teller_user, teller_user2, default_settings):
+        from SmartWagers.models import Fight_Results
+
+        Fight_Results.objects.create(
+            fightnum=1,
+            side='MERON',
+            mtotal=6000.0,
+            wtotal=4000.0,
+            mpayout=95.0,
+            wpayout=142.5,
+            totalpot=10000.0,
+            odds='Llamado',
+            event=active_event,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=6000.0,
+            cashier=teller_user.username, registered=True,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='WALA', wager=4000.0,
+            cashier=teller_user2.username, registered=True,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        plasada = services.get_comm_val()
+        fight_commissions = [{
+            'fightnum': 1,
+            'side': 'MERON',
+            'totalpot': 10000.0,
+            'commission': 10000.0 * plasada,
+        }]
+        shares = services.get_event_commission_shares(
+            active_event,
+            fight_commissions=fight_commissions,
+        )
+
+        assert shares[teller_user.username] == pytest.approx(6000.0 / 10000.0 * 500.0)
+        assert shares[teller_user2.username] == pytest.approx(4000.0 / 10000.0 * 500.0)
+        assert sum(shares.values()) == pytest.approx(500.0)
+
+    def test_cancelled_fights_excluded_from_commission_shares(
+            self, active_event, teller_user, default_settings):
+        from SmartWagers.models import Fight_Results
+
+        Fight_Results.objects.create(
+            fightnum=1,
+            side='CANCELLED',
+            totalpot=5000.0,
+            odds='REFUND',
+            event=active_event,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000.0,
+            cashier=teller_user.username, registered=True,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        fight_commissions = [{
+            'fightnum': 1,
+            'side': 'CANCELLED',
+            'totalpot': 5000.0,
+            'commission': 0.0,
+        }]
+        shares = services.get_event_commission_shares(
+            active_event,
+            fight_commissions=fight_commissions,
+        )
+
+        assert shares == {}
+
+
+@pytest.mark.django_db
+class TestEventBettingSurplusShares:
+
+    def test_betting_surplus_is_wagers_minus_payouts_per_cashier(
+            self, active_event, teller_user, teller_user2, default_settings):
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=6000.0,
+            cashier=teller_user.username, registered=True,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='WALA', wager=4000.0,
+            cashier=teller_user2.username, registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=1000.0,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user2,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=5000.0,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        shares = services.get_event_betting_surplus_shares(active_event)
+
+        assert shares[teller_user.username] == pytest.approx(5000.0)
+        assert shares[teller_user2.username] == pytest.approx(-1000.0)
+        assert sum(shares.values()) == pytest.approx(4000.0)

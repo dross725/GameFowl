@@ -581,6 +581,147 @@ def get_admin_fund_summary(event=None, apply_end_bound=True, include_archived=No
     }
 
 
+def get_event_commission_shares(event, *, fight_commissions, include_archived=None):
+    """Allocate each fight's commission to cashiers by wager share on that fight.
+
+    Returns a mapping of cashier username → commission share.  Summing all
+    values matches the event's pot-based commission total (within per-row
+    rounding).
+    """
+    from collections import defaultdict
+    from django.db.models import Sum
+
+    if event is None:
+        return {}
+
+    if include_archived is None:
+        include_archived = reporting.include_archived_for_event(event)
+
+    payable_fights = {
+        fc['fightnum']: fc
+        for fc in fight_commissions
+        if fc['side'] not in ('CANCELLED', 'DRAW') and fc['totalpot'] > 0
+    }
+    if not payable_fights:
+        return {}
+
+    fight_nums = list(payable_fights.keys())
+    wager_qs = reporting.active_wagers_for_event(event).filter(
+        registered=True,
+        cancelled=False,
+        fightnum__in=fight_nums,
+    )
+    archived_wager_qs = (
+        reporting.archived_wagers_for_event(event).filter(
+            registered=True,
+            cancelled=False,
+            fightnum__in=fight_nums,
+        )
+        if include_archived else None
+    )
+    if event.ended_at:
+        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+        if archived_wager_qs is not None:
+            archived_wager_qs = archived_wager_qs.filter(
+                created_at__lte=event.ended_at,
+            )
+
+    shares = defaultdict(float)
+
+    def add_rows(qs):
+        if qs is None:
+            return
+        for row in qs.values('fightnum', 'cashier').annotate(total=Sum('wager')):
+            fight = payable_fights.get(row['fightnum'])
+            if fight is None:
+                continue
+            pot = float(fight['totalpot'])
+            if pot <= 0:
+                continue
+            wager_total = float(row['total'] or 0)
+            if wager_total <= 0:
+                continue
+            shares[row['cashier']] += (wager_total / pot) * float(fight['commission'])
+
+    add_rows(wager_qs)
+    add_rows(archived_wager_qs)
+
+    return {cashier: round(amount, 2) for cashier, amount in shares.items()}
+
+
+def get_event_betting_surplus_shares(event, include_archived=None):
+    """Return each cashier's wagers minus payouts for the event."""
+    from collections import defaultdict
+    from django.db.models import Sum
+
+    if event is None:
+        return {}
+
+    if include_archived is None:
+        include_archived = reporting.include_archived_for_event(event)
+
+    wager_qs = reporting.active_wagers_for_event(event).filter(
+        registered=True,
+        cancelled=False,
+    )
+    archived_wager_qs = (
+        reporting.archived_wagers_for_event(event).filter(
+            registered=True,
+            cancelled=False,
+        )
+        if include_archived else None
+    )
+    payout_qs = reporting.active_teller_transactions_for_event(event).filter(
+        transaction_type=TellerTransaction.PAYOUT,
+    )
+    archived_payout_qs = (
+        reporting.archived_teller_transactions_for_event(event).filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        )
+        if include_archived else None
+    )
+    if event.ended_at:
+        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+        if archived_wager_qs is not None:
+            archived_wager_qs = archived_wager_qs.filter(
+                created_at__lte=event.ended_at,
+            )
+        payout_qs = payout_qs.filter(created_at__lte=event.ended_at)
+        if archived_payout_qs is not None:
+            archived_payout_qs = archived_payout_qs.filter(
+                created_at__lte=event.ended_at,
+            )
+
+    wagers_by_cashier = defaultdict(float)
+    payouts_by_cashier = defaultdict(float)
+
+    def add_wagers(qs):
+        if qs is None:
+            return
+        for row in qs.values('cashier').annotate(total=Sum('wager')):
+            wagers_by_cashier[row['cashier']] += float(row['total'] or 0)
+
+    def add_payouts(qs):
+        if qs is None:
+            return
+        for row in qs.values('user__username').annotate(total=Sum('amount')):
+            payouts_by_cashier[row['user__username']] += float(row['total'] or 0)
+
+    add_wagers(wager_qs)
+    add_wagers(archived_wager_qs)
+    add_payouts(payout_qs)
+    add_payouts(archived_payout_qs)
+
+    cashiers = set(wagers_by_cashier) | set(payouts_by_cashier)
+    return {
+        cashier: round(
+            wagers_by_cashier.get(cashier, 0.0) - payouts_by_cashier.get(cashier, 0.0),
+            2,
+        )
+        for cashier in cashiers
+    }
+
+
 def get_event_cash_reconciliation(
     event,
     *,
@@ -662,7 +803,7 @@ def get_event_cash_reconciliation(
         ),
     )
 
-    admin_cash = admin_fund_summary['balance']
+    admin_cash = admin_fund_summary['balance_before_closeouts']
     total_cash = teller_cash_on_hand + admin_cash
     admin_opening_fund = float(admin_fund_summary['opening_fund'])
     additional_bank_borrowed = float(admin_fund_summary['additional_bank_borrowed'])
