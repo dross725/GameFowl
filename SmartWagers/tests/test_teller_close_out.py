@@ -721,6 +721,50 @@ class TestEventReportCloseOut:
             recon['teller_cash_on_hand'] + 2500.0,
         )
 
+    def test_event_report_cash_reconciliation_uses_pre_reconcile_counts(
+        self, admin_client, admin_user, teller_user, event_with_fight,
+        teller_status_online, default_settings,
+    ):
+        event_with_fight.admin_opening_fund = default_settings.admin_initial_fund
+        event_with_fight.save(update_fields=['admin_opening_fund'])
+
+        _place_bet(teller_user, 5000.0)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+        close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        counted_cash = close_out.expected_cash_on_hand
+        services.register_teller_cash_count(close_out.pk, counted_cash, admin_user)
+
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        admin_summary = services.get_admin_fund_summary(event=event_with_fight)
+        teller_balance = services._get_teller_outstanding_balance(
+            teller_user, event=event_with_fight,
+        )
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        assert response.status_code == 200
+        recon = response.context['cash_reconciliation']
+        assert recon is not None
+        assert teller_balance == pytest.approx(0.0)
+        assert admin_summary['balance'] > admin_summary['balance_before_closeouts']
+        assert recon['teller_cash_on_hand'] == pytest.approx(counted_cash)
+        assert recon['admin_cash_on_hand'] == pytest.approx(
+            admin_summary['balance_before_closeouts'],
+        )
+        assert recon['total_cash_on_hand'] == pytest.approx(
+            counted_cash + admin_summary['balance_before_closeouts'],
+        )
+        assert recon['earnings_vs_betting_surplus'] == pytest.approx(0.0)
+
     def test_event_report_table_rows_match_declared_columns(
         self, admin_client, admin_user, teller_user, event_with_fight,
     ):
@@ -749,3 +793,75 @@ class TestEventReportCloseOut:
         }.items():
             assert parser.widths[table_id]
             assert set(parser.widths[table_id]) == {expected_width}
+
+    def test_event_report_final_reconciliation_includes_betting_and_fund_columns(
+        self, admin_client, admin_user, teller_user, event_with_fight, default_settings,
+    ):
+        Fight_Results.objects.create(
+            fightnum=1,
+            side='MERON',
+            mtotal=1000.0,
+            wtotal=0.0,
+            mpayout=95.0,
+            wpayout=0.0,
+            totalpot=1000.0,
+            odds='Llamado',
+            event=event_with_fight,
+        )
+        _place_bet(teller_user, 1000.0)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=250.0,
+            received=True,
+        )
+        AdminBankTransaction.objects.create(
+            event=event_with_fight,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.BORROW,
+            amount=20000.0,
+        )
+        AdminBankTransaction.objects.create(
+            event=event_with_fight,
+            admin=admin_user,
+            transaction_type=AdminBankTransaction.REMIT,
+            amount=5000.0,
+        )
+        close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_teller_cash_count(close_out.pk, 1000.0, admin_user)
+        services.end_event(0.0, admin_user)
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+
+        rows = response.context['final_reconciliation_rows']
+        admin_row = next(row for row in rows if row['name'] == 'Admin')
+        teller_row = next(row for row in rows if row['name'] != 'Admin')
+        assert teller_row['betting_surplus'] == pytest.approx(1000.0)
+        assert teller_row['borrowed'] == pytest.approx(default_settings.teller_initial_fund)
+        assert teller_row['advanced'] == pytest.approx(1250.0)
+        assert admin_row['borrowed'] == pytest.approx(
+            default_settings.admin_initial_fund + 20000.0,
+        )
+        assert admin_row['advanced'] == pytest.approx(5000.0)
+        totals = response.context['final_reconciliation_totals']
+        assert totals['betting_surplus'] == pytest.approx(1000.0)
+        assert totals['borrowed'] == pytest.approx(
+            default_settings.teller_initial_fund
+            + default_settings.admin_initial_fund
+            + 20000.0,
+        )
+        assert totals['advanced'] == pytest.approx(6250.0)
+        content = response.content.decode()
+        assert 'Betting Surplus' in content
+        assert 'Advanced' in content
+        assert 'Borrowed' in content
+        assert 'Commission Share' not in content
+        assert content.count('COH') == 1
