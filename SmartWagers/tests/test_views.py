@@ -940,3 +940,180 @@ class TestPreEventTellerPreparation:
             if item['user'].pk == new_teller.pk
         )
         assert teller_row['balance'] == pytest.approx(default_settings.teller_initial_fund)
+
+# ---------------------------------------------------------------------------
+# Admin user management
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAdminUsers:
+
+    def test_page_requires_admin(self, teller_user):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/administrator/users/')
+        assert response.status_code == 403
+
+    def test_admin_can_open_page(self, admin_user):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/administrator/users/')
+        assert response.status_code == 200
+        assert b'User Management' in response.content
+        assert any(row['user'].pk == admin_user.pk for row in response.context['users'])
+
+    def test_legacy_create_user_url_redirects(self, admin_user):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/administrator/create-user/')
+        assert response.status_code in (301, 302)
+        assert '/administrator/users/' in response['Location']
+
+    def test_create_teller_user(self, admin_user, teller_group):
+        from django.contrib.auth.models import User
+        from SmartWagers.models import TellerStatus
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'create',
+            'username': 'cashier99',
+            'password': 'Ab12Cd34',
+            'role': 'teller',
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert response.context['credentials']['username'] == 'cashier99'
+        user = User.objects.get(username='cashier99')
+        assert user.check_password('Ab12Cd34')
+        assert user.groups.filter(name='teller').exists()
+        assert TellerStatus.objects.filter(user=user, is_online=True).exists()
+
+    def test_create_teller_during_active_event_issues_opening_fund(
+            self, admin_user, teller_group, default_settings, active_event):
+        from django.contrib.auth.models import User
+        from SmartWagers.models import TellerTransaction
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'create',
+            'username': 'midEventTeller',
+            'password': 'Ab12Cd34',
+            'role': 'teller',
+        }, follow=True)
+
+        assert response.status_code == 200
+        user = User.objects.get(username='midEventTeller')
+        assert TellerTransaction.objects.filter(
+            user=user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        ).exists()
+
+    def test_duplicate_username_rejected(self, admin_user, teller_user, teller_group):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'create',
+            'username': teller_user.username,
+            'password': 'Ab12Cd34',
+            'role': 'teller',
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert response.context['credentials'] is None
+        assert 'already taken' in response.context['error']
+
+    def test_short_password_rejected(self, admin_user, teller_group):
+        from django.contrib.auth.models import User
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'create',
+            'username': 'shortpass',
+            'password': 'Ab12',
+            'role': 'teller',
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert response.context['credentials'] is None
+        assert not User.objects.filter(username='shortpass').exists()
+
+    def test_reset_password(self, admin_user, teller_user):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'reset_password',
+            'user_id': teller_user.pk,
+            'password': 'NewPass99',
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert response.context['credentials']['password'] == 'NewPass99'
+        teller_user.refresh_from_db()
+        assert teller_user.check_password('NewPass99')
+
+    def test_delete_user(self, admin_user, teller_user):
+        from django.contrib.auth.models import User
+
+        teller_id = teller_user.pk
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'delete',
+            'user_id': teller_id,
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert 'deleted' in response.context['success']
+        assert not User.objects.filter(pk=teller_id).exists()
+
+    def test_cannot_delete_self(self, admin_user):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'delete',
+            'user_id': admin_user.pk,
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert 'cannot delete your own' in response.context['error'].lower()
+        assert admin_user.__class__.objects.filter(pk=admin_user.pk).exists()
+
+    def test_can_delete_other_admin_when_multiple_exist(self, admin_user, admin_group):
+        from django.contrib.auth.models import User
+
+        other = User.objects.create_user(username='admin2', password='Ab12Cd34')
+        other.groups.add(admin_group)
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'delete',
+            'user_id': other.pk,
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert 'deleted' in response.context['success']
+        assert not User.objects.filter(pk=other.pk).exists()
+        assert User.objects.filter(pk=admin_user.pk).exists()
+
+    def test_cannot_delete_user_with_transactions(
+            self, admin_user, teller_user, active_event):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=100,
+        )
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'delete',
+            'user_id': teller_user.pk,
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert 'transaction history' in response.context['error'].lower()
+        assert teller_user.__class__.objects.filter(pk=teller_user.pk).exists()

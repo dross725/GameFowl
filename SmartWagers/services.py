@@ -1143,8 +1143,19 @@ def _closing_event_for_settlement():
 
 
 def teller_has_opening_fund_for_event(teller, event):
-    """Return True if *teller* already received opening float in *event*."""
-    return get_teller_opening_fund_total(teller, event) > 0
+    """Return True if *teller* already received opening float in *event*.
+
+    Matches any bank-sourced opening COLLECT (affects_admin_fund=False) in the
+    event window, not just the current settings amount.  That keeps issuance
+    idempotent if teller_initial_fund is changed mid-event.
+    """
+    if event is None:
+        return False
+    txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=teller)
+    return txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT,
+        affects_admin_fund=False,
+    ).exists()
 
 
 def get_teller_opening_fund_total(teller, event, txn_qs=None, include_archived=False):
@@ -1267,20 +1278,23 @@ def issue_teller_opening_fund_if_needed(teller, event=None, *, require_online=Tr
         if not status.is_online:
             return False
 
-    if teller_has_opening_fund_for_event(teller, event):
-        return False
-
     setting = Settings.objects.order_by('-id').first()
     initial_fund = setting.teller_initial_fund if setting else 10000.0
     if initial_fund <= 0:
         return False
 
-    TellerTransaction.objects.create(
-        user=teller,
-        transaction_type=TellerTransaction.COLLECT,
-        amount=round(initial_fund, 2),
-        affects_admin_fund=False,
-    )
+    with db_transaction.atomic():
+        # Serialize concurrent issuance (teller page + toggle + create user).
+        User.objects.select_for_update().filter(pk=teller.pk).first()
+        if teller_has_opening_fund_for_event(teller, event):
+            return False
+
+        TellerTransaction.objects.create(
+            user=teller,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=round(initial_fund, 2),
+            affects_admin_fund=False,
+        )
     return True
 
 
