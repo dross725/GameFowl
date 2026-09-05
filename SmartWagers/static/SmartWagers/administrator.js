@@ -14,6 +14,52 @@ function normalizeWagerTransactionId(raw) {
     return tid;
 }
 
+let lastEnteredTransactionId = "";
+
+function rememberTransactionId(raw) {
+    lastEnteredTransactionId = normalizeWagerTransactionId(raw) || String(raw ?? "").trim();
+    return lastEnteredTransactionId;
+}
+
+function formatTransactionMessage(message, transactionId) {
+    const txn = transactionId || lastEnteredTransactionId;
+    if (!txn) return message;
+    return `Transaction ID: ${txn} — ${message}`;
+}
+
+const PAYOUT_ERROR_MESSAGES = {
+    invalid_barcode: "Invalid barcode. Please try again.",
+    notfound_barcode: "Barcode not found. Please try again.",
+    alreadypaid_barcode: "This bet has already been paid out.",
+    web_socket_error: "Network error, try hitting F5",
+    notfound: "Transaction ID not found.",
+    alreadypaid: "This transaction has already been paid out.",
+    wrongside: "The selected side did not win. No payout available.",
+    exceeds_cash_on_hand: "Insufficient cash on hand to issue this payout.",
+    cashier_not_found: "The ticket's cashier account could not be found. Payout was blocked.",
+    teller_offline: "You are tagged as offline. Please report to the admin office.",
+    station_closed: "This station is closed. Action is disabled.",
+    matchcomplete: "The match is already complete. Bet cancellation is not allowed.",
+    matchnotopen: "The Betting is no longer open. Bet cancellation is not allowed.",
+    wrong_teller: "This ticket belongs to another teller.",
+    systemerror: "A system error occurred. Please try again.",
+};
+
+function payoutErrorMessage(errorCode, transactionId) {
+    const base = PAYOUT_ERROR_MESSAGES[errorCode] || "An unknown error occurred.";
+    return formatTransactionMessage(base, transactionId);
+}
+
+function showWrongTellerModal(data) {
+    const txnEl = document.getElementById("wrong_teller_transaction_id");
+    const txn = data.transaction_id || lastEnteredTransactionId;
+    if (txnEl) {
+        txnEl.innerText = txn ? `Transaction ID: ${txn}` : "";
+    }
+    document.getElementById("wrong_teller_name").innerText = data.original_cashier || "Unknown";
+    document.getElementById("wrong_teller_modal").style.display = "flex";
+}
+
 // Only open the admin WebSocket when on the admin page.  On the teller page
 // (/user) this script is also loaded for shared helpers, but creating the
 // socket there immediately fails the auth check and flashes a "Disconnected"
@@ -69,11 +115,10 @@ administratorSocket.onmessage = async (event) => {
         if ("error" in data){
             console.log("Cancel bet error:", data.error);
             if (data.error === 'wrong_teller') {
-                document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
-                document.getElementById('wrong_teller_modal').style.display = 'flex';
+                showWrongTellerModal(data);
             } else {
                 document.getElementById('payout_error_header').innerText = "Cancel Bet Error";
-                openmodal('payout_error_modal', data.error);
+                openmodal('payout_error_modal', data.error, null, false, data.transaction_id);
             }
         } else if ("transaction_id" in data && "amount" in data) {
             console.log("Cancel bet success:", data);
@@ -83,11 +128,14 @@ administratorSocket.onmessage = async (event) => {
             document.getElementById('payout_message3').innerText = "";
             document.getElementById('payout_print_modal').style.display = 'flex';
             if (data.receipt && data.print_required !== false) {
-                document.getElementById('payout_message3').innerText = "Sending cancel receipt to local printer...";
+                document.getElementById('payout_message3').innerText = formatTransactionMessage(
+                    "Sending cancel receipt to local printer...",
+                    data.transaction_id,
+                );
                 const printResult = await printWagerReceipt(data.receipt);
                 document.getElementById('payout_message3').innerText = printResult.ok
-                    ? "Cancel receipt sent to printer."
-                    : "Cancel receipt print failed: " + printResult.message;
+                    ? formatTransactionMessage("Cancel receipt sent to printer.", data.transaction_id)
+                    : formatTransactionMessage("Cancel receipt print failed: " + printResult.message, data.transaction_id);
             }
         }
     }
@@ -190,13 +238,14 @@ async function reprintPaidPayoutReceipt() {
     const button = document.getElementById('payout_reprint_button');
     const status = document.getElementById('payout_reprint_status');
     if (button) button.disabled = true;
-    if (status) status.innerText = 'Sending payout receipt to local printer...';
+    const txn = payoutReprintReceipt?.transaction_id || lastEnteredTransactionId;
+    if (status) status.innerText = formatTransactionMessage('Sending payout receipt to local printer...', txn);
 
     const printResult = await printPayoutReceipt({ receipt: payoutReprintReceipt });
     if (status) {
         status.innerText = printResult.ok
-            ? 'Payout receipt sent to printer.'
-            : 'Payout receipt print failed: ' + printResult.message;
+            ? formatTransactionMessage('Payout receipt sent to printer.', txn)
+            : formatTransactionMessage('Payout receipt print failed: ' + printResult.message, txn);
     }
     if (button) button.disabled = false;
 }
@@ -235,7 +284,7 @@ async function update_disp_Pot(){
     document.getElementById("M_total_bet").innerText = data.M_total_bet;
     document.getElementById("M_payout").innerText = "PAYOUT: " + data.M_payout;
     document.getElementById("W_total_bet").innerText = data.W_total_bet;
-    document.getElementById("W_payout").innerText = "PAYOUT: " + data.W_payout
+    document.getElementById("W_payout").innerText = "PAYOUT: " + data.W_payout;
 }
 
 // ── Bet input enable/disable ──────────────────────────────
@@ -441,7 +490,7 @@ function closeWala() {
     console.log("Wala betting closed");
 }
 
-function openmodal(modalid, buttonid, side=null, preservePayoutReprint=false) {
+function openmodal(modalid, buttonid, side=null, preservePayoutReprint=false, transactionId=null) {
     console.log ("open modal");
     console.log ("modal id : " +modalid);
     console.log ("button id : " + buttonid);
@@ -497,36 +546,10 @@ function openmodal(modalid, buttonid, side=null, preservePayoutReprint=false) {
         if (!preservePayoutReprint) {
             setPayoutReprintOption({ error: buttonid });
         }
-        if (buttonid === 'invalid_barcode') {
-            document.getElementById('payout_error_message').innerText = "Invalid barcode. Please try again.";
-        } else if (buttonid === 'notfound_barcode') {
-            document.getElementById('payout_error_message').innerText = "Barcode not found. Please try again.";
-        } else if (buttonid === 'alreadypaid_barcode') {
-            document.getElementById('payout_error_message').innerText = "This bet has already been paid out.";
-        } else if (buttonid === 'web_socket_error'){
-            document.getElementById('payout_error_message').innerText = "Network error, try hitting F5";
-        } else if (buttonid === 'notfound'){
-            document.getElementById('payout_error_message').innerText = "Transaction ID not found.";
-        } else if (buttonid === 'alreadypaid'){
-            document.getElementById('payout_error_message').innerText = "This transaction has already been paid out.";
-        } else if (buttonid === 'wrongside') {
-            document.getElementById('payout_error_message').innerText = "The selected side did not win. No payout available.";
-        } else if (buttonid === 'exceeds_cash_on_hand') {
-            document.getElementById('payout_error_message').innerText = "Insufficient cash on hand to issue this payout.";
-        } else if (buttonid === 'cashier_not_found') {
-            document.getElementById('payout_error_message').innerText = "The ticket's cashier account could not be found. Payout was blocked.";
-        } else if (buttonid === 'teller_offline') {
-            document.getElementById('payout_error_message').innerText = "You are tagged as offline. Please report to the admin office.";
-        } else if (buttonid === 'matchcomplete') {
-            document.getElementById('payout_error_message').innerText = "The match is already complete. Bet cancellation is not allowed.";
-        } else if (buttonid === 'matchnotopen') {
-            document.getElementById('payout_error_message').innerText = "The Betting is no longer open. Bet cancellation is not allowed.";
-        } else if (buttonid === 'notfound') {
-            document.getElementById('payout_error_message').innerText = "Transaction ID not found.";
-        }
-        else {
-            document.getElementById('payout_error_message').innerText = "An unknown error occurred.";
-        }
+        document.getElementById('payout_error_message').innerText = payoutErrorMessage(
+            buttonid,
+            transactionId,
+        );
         document.getElementById(modalid).style.display = 'flex';
     } else if (modalid == 'cancelbetmodal') {
         document.getElementById(modalid).style.display = 'flex';
@@ -558,11 +581,10 @@ async function handlePayoutMessage(data) {
         console.log("Payout error:", data.error);
         setPayoutReprintOption(data);
         if (data.error === 'wrong_teller') {
-            document.getElementById('wrong_teller_name').innerText = data.original_cashier || 'Unknown';
-            document.getElementById('wrong_teller_modal').style.display = 'flex';
+            showWrongTellerModal(data);
         } else {
             document.getElementById('payout_error_header').innerText = "Payout Error";
-            openmodal('payout_error_modal', data.error, null, true);
+            openmodal('payout_error_modal', data.error, null, true, data.transaction_id);
         }
     } else if ("transaction_id" in data && "Total_Payout" in data) {
         document.getElementById('payout_success_header').innerText = "Payout request valid!";
@@ -571,17 +593,20 @@ async function handlePayoutMessage(data) {
         document.getElementById('payout_print_modal').style.display = 'flex';
 
         if (data.print_required !== false) {
-            document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
+            document.getElementById('payout_message3').innerText = formatTransactionMessage(
+                "Sending receipt to local printer...",
+                data.transaction_id,
+            );
             const printResult = await printPayoutReceipt(data);
             document.getElementById('payout_message3').innerText = printResult.ok
-                ? printResult.message
-                : "Receipt print failed: " + printResult.message;
+                ? formatTransactionMessage(printResult.message, data.transaction_id)
+                : formatTransactionMessage("Receipt print failed: " + printResult.message, data.transaction_id);
         } else {
             document.getElementById('payout_message3').innerText = "";
         }
     } else if ("side" in data && data.side === "CANCELLED") {
         document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
-        document.getElementById('payout_message1').innerText = "Please refund the bettor.";
+        document.getElementById('payout_message1').innerText = "Transaction ID: " + (data.transaction_id || "—");
         document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
         document.getElementById('payout_print_modal').style.display = 'flex';
 
@@ -589,14 +614,14 @@ async function handlePayoutMessage(data) {
             document.getElementById('payout_message3').innerText = "Sending cancelled fight refund receipt to local printer...";
             const printResult = await printPayoutReceipt(data);
             document.getElementById('payout_message3').innerText = printResult.ok
-                ? "Cancelled fight refund receipt sent to printer."
-                : "Cancelled fight refund receipt print failed: " + printResult.message;
+                ? formatTransactionMessage("Cancelled fight refund receipt sent to printer.", data.transaction_id)
+                : formatTransactionMessage("Cancelled fight refund receipt print failed: " + printResult.message, data.transaction_id);
         } else {
             document.getElementById('payout_message3').innerText = "";
         }
     } else if ("side" in data && data.side === "DRAW") {
         document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
-        document.getElementById('payout_message1').innerText = "Fight result is a draw.";
+        document.getElementById('payout_message1').innerText = "Transaction ID: " + (data.transaction_id || "—");
         document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
         document.getElementById('payout_print_modal').style.display = 'flex';
 
@@ -604,8 +629,8 @@ async function handlePayoutMessage(data) {
             document.getElementById('payout_message3').innerText = "Sending draw refund receipt to local printer...";
             const printResult = await printPayoutReceipt(data);
             document.getElementById('payout_message3').innerText = printResult.ok
-                ? "Draw refund receipt sent to printer."
-                : "Draw refund receipt print failed: " + printResult.message;
+                ? formatTransactionMessage("Draw refund receipt sent to printer.", data.transaction_id)
+                : formatTransactionMessage("Draw refund receipt print failed: " + printResult.message, data.transaction_id);
         } else {
             document.getElementById('payout_message3').innerText = "";
         }
@@ -613,12 +638,10 @@ async function handlePayoutMessage(data) {
 }
 
 async function payout() {
-   const barcode = normalizeWagerTransactionId(
-       document.getElementById('payout_barcode').value
-   );
+   const barcode = rememberTransactionId(document.getElementById('payout_barcode').value);
    closemodal('payoutmodal');
    if (barcode === '' || isNaN(barcode)) {
-        openmodal('payout_error_modal', 'invalid_barcode');
+        openmodal('payout_error_modal', 'invalid_barcode', null, false, barcode);
    } else {
         // Teller pages use userSocket; admin pages use administratorSocket.
         const socket = (typeof userSocket !== 'undefined' && userSocket && userSocket.readyState === WebSocket.OPEN)
@@ -629,7 +652,7 @@ async function payout() {
             socket.send(JSON.stringify({barcode: barcode}));
         }catch (error){
             console.error("websocket send failed: ", error);
-            openmodal('payout_error_modal', 'web_socket_error');
+            openmodal('payout_error_modal', 'web_socket_error', null, false, barcode);
         }
    }
 }
@@ -811,11 +834,9 @@ function openadminbetcontrolModal(side, action) {
 
 function cancelbet(){
     console.log("Cancelling bet...");
-    const barcode = normalizeWagerTransactionId(
-        document.getElementById('cancelbet_barcode').value
-    );
+    const barcode = rememberTransactionId(document.getElementById('cancelbet_barcode').value);
     if (barcode === '' || isNaN(barcode)) {
-        openmodal('payout_error_modal', 'invalid_barcode');
+        openmodal('payout_error_modal', 'invalid_barcode', null, false, barcode);
     } else {
         // Teller pages use userSocket; admin pages use administratorSocket.
         const socket = (typeof userSocket !== 'undefined' && userSocket && userSocket.readyState === WebSocket.OPEN)
@@ -826,14 +847,14 @@ function cancelbet(){
             socket.send(JSON.stringify({cancel_barcode: barcode}));
         } catch (error) {
             console.error("websocket send failed: ", error);
-            openmodal('payout_error_modal', 'web_socket_error');
+            openmodal('payout_error_modal', 'web_socket_error', null, false, barcode);
         }
         closemodal('cancelbetmodal');
     }
 }
 
 async function reprintReceipt() {
-    const transactionId = normalizeWagerTransactionId(
+    const transactionId = rememberTransactionId(
         document.getElementById('reprint_transaction_id').value
     );
     const statusMsg = document.getElementById('reprint_status_message');
@@ -844,7 +865,7 @@ async function reprintReceipt() {
         return;
     }
 
-    statusMsg.innerText = 'Searching...';
+    statusMsg.innerText = formatTransactionMessage('Searching...', transactionId);
     searchBtn.disabled = true;
 
     const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
@@ -866,9 +887,15 @@ async function reprintReceipt() {
             closemodal('reprintmodal');
             document.getElementById('payout_error_header').innerText = 'Reprint Error';
             if (data.error === 'notfound') {
-                document.getElementById('payout_error_message').innerText = 'Transaction ID not found. Please check and try again.';
+                document.getElementById('payout_error_message').innerText = formatTransactionMessage(
+                    'Transaction ID not found. Please check and try again.',
+                    data.transaction_id || transactionId,
+                );
             } else {
-                document.getElementById('payout_error_message').innerText = 'An error occurred. Please try again.';
+                document.getElementById('payout_error_message').innerText = formatTransactionMessage(
+                    'An error occurred. Please try again.',
+                    data.transaction_id || transactionId,
+                );
             }
             document.getElementById('payout_error_modal').style.display = 'flex';
             return;
@@ -877,10 +904,13 @@ async function reprintReceipt() {
         const isRemit = data.receipt_type === 'remit';
         const isTest = data.receipt_type === 'test';
         statusMsg.innerText = isTest
-            ? 'Sending test receipt to printer...'
-            : (isRemit
-                ? 'Advance found. Sending to printer...'
-                : 'Transaction found. Sending to printer...');
+            ? formatTransactionMessage('Sending test receipt to printer...', transactionId)
+            : formatTransactionMessage(
+                isRemit
+                    ? 'Advance found. Sending to printer...'
+                    : 'Transaction found. Sending to printer...',
+                (data.receipt && data.receipt.transaction_id) || transactionId,
+            );
 
         let printResult;
         if (data.print_required !== false) {
@@ -903,8 +933,8 @@ async function reprintReceipt() {
                 (data.receipt && data.receipt.transaction_id) || transactionId
             );
         document.getElementById('payout_message2').innerText = printResult.ok
-            ? 'Receipt sent to printer successfully.'
-            : 'Print failed: ' + printResult.message;
+            ? formatTransactionMessage('Receipt sent to printer successfully.', transactionId)
+            : formatTransactionMessage('Print failed: ' + printResult.message, transactionId);
         document.getElementById('payout_message3').innerText = '';
         document.getElementById('payout_print_modal').style.display = 'flex';
 
@@ -912,7 +942,10 @@ async function reprintReceipt() {
         console.error('Reprint error:', error);
         closemodal('reprintmodal');
         document.getElementById('payout_error_header').innerText = 'Reprint Error';
-        document.getElementById('payout_error_message').innerText = 'Network error. Please try again.';
+        document.getElementById('payout_error_message').innerText = formatTransactionMessage(
+            'Network error. Please try again.',
+            transactionId,
+        );
         document.getElementById('payout_error_modal').style.display = 'flex';
     } finally {
         searchBtn.disabled = false;

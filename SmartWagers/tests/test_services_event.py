@@ -228,7 +228,7 @@ class TestGetTellerOutstandingBalance:
 class TestIssueInitialTellerFunds:
 
     def test_issues_collect_transaction_for_online_teller(
-            self, default_settings, teller_user, teller_status_online):
+            self, default_settings, teller_user, teller_status_online, active_event):
         services._issue_initial_teller_funds()
         txns = TellerTransaction.objects.filter(
             user=teller_user, transaction_type=TellerTransaction.COLLECT
@@ -238,13 +238,14 @@ class TestIssueInitialTellerFunds:
         assert txns.first().affects_admin_fund is False
 
     def test_skips_offline_teller(
-            self, default_settings, teller_user, teller_status_offline):
+            self, default_settings, teller_user, teller_status_offline, active_event):
         services._issue_initial_teller_funds()
         assert not TellerTransaction.objects.filter(
             user=teller_user, transaction_type=TellerTransaction.COLLECT
         ).exists()
 
-    def test_skips_when_initial_fund_is_zero(self, teller_user, teller_status_online):
+    def test_skips_when_initial_fund_is_zero(
+            self, teller_user, teller_status_online, active_event):
         from SmartWagers.models import Settings
         Settings.objects.create(
             teller_initial_fund=0.0,
@@ -255,18 +256,111 @@ class TestIssueInitialTellerFunds:
         assert not TellerTransaction.objects.filter(user=teller_user).exists()
 
     def test_does_not_issue_individual_fund_for_admin(
-            self, default_settings, admin_user):
+            self, default_settings, admin_user, active_event):
         services._issue_initial_teller_funds()
         assert not TellerTransaction.objects.filter(user=admin_user).exists()
 
     def test_dual_role_admin_does_not_receive_teller_opening_fund(
-            self, default_settings, admin_user, teller_group):
+            self, default_settings, admin_user, teller_group, active_event):
         admin_user.groups.add(teller_group)
         TellerStatus.objects.create(user=admin_user, is_online=True)
 
         services._issue_initial_teller_funds()
 
         assert not TellerTransaction.objects.filter(user=admin_user).exists()
+
+
+@pytest.mark.django_db
+class TestIssueTellerOpeningFundIfNeeded:
+
+    def test_issues_fund_for_new_teller_during_active_event(
+            self, default_settings, teller_group):
+        from django.contrib.auth.models import User
+
+        event = services.start_event('Event A')
+        new_teller = User.objects.create_user(username='newteller')
+        new_teller.groups.add(teller_group)
+
+        issued = services.issue_teller_opening_fund_if_needed(new_teller, event=event)
+
+        assert issued is True
+        assert TellerTransaction.objects.filter(
+            user=new_teller,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        ).count() == 1
+        balance = services._get_teller_outstanding_balance(new_teller, event=event)
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_skips_when_no_active_event(self, default_settings, teller_user):
+        assert services.issue_teller_opening_fund_if_needed(teller_user) is False
+        assert not TellerTransaction.objects.filter(user=teller_user).exists()
+
+    def test_skips_offline_teller(
+            self, default_settings, teller_user, teller_status_offline, active_event):
+        assert services.issue_teller_opening_fund_if_needed(
+            teller_user, event=active_event,
+        ) is False
+        assert not TellerTransaction.objects.filter(user=teller_user).exists()
+
+    def test_is_idempotent(
+            self, default_settings, teller_user, teller_status_online, active_event):
+        assert services.issue_teller_opening_fund_if_needed(
+            teller_user, event=active_event,
+        ) is True
+        assert services.issue_teller_opening_fund_if_needed(
+            teller_user, event=active_event,
+        ) is False
+        assert TellerTransaction.objects.filter(
+            user=teller_user, transaction_type=TellerTransaction.COLLECT,
+        ).count() == 1
+
+
+@pytest.mark.django_db
+class TestTellerActivityScope:
+
+    def test_recycled_username_does_not_inherit_prior_event_wagers(
+            self, default_settings, teller_group, admin_user):
+        from django.contrib.auth.models import User
+
+        services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=8000,
+            cashier='cashier1', registered=True,
+        )
+        services.end_event(0, admin_user)
+
+        new_teller = User.objects.create_user(username='cashier1')
+        new_teller.groups.add(teller_group)
+        TellerStatus.objects.create(user=new_teller, is_online=True)
+
+        event_b = services.start_event('Event B')
+        balance = services._get_teller_outstanding_balance(new_teller, event=event_b)
+        breakdown = services.compute_teller_balance_breakdown(new_teller, event=event_b)
+
+        assert breakdown['grand_total'] == 0.0
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_recycled_username_excluded_between_events(
+            self, default_settings, teller_group, admin_user):
+        from django.contrib.auth.models import User
+        from SmartWagers import views
+
+        event_a = services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000,
+            cashier='cashier2', registered=True,
+        )
+        services.end_event(0, admin_user)
+
+        new_teller = User.objects.create_user(username='cashier2')
+        new_teller.groups.add(teller_group)
+
+        _, grand_total = views._compute_teller_balance(
+            new_teller, event=event_a, apply_end_bound=False,
+        )
+        assert grand_total == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +593,50 @@ class TestOnlineTellerFreshBalanceOnEventStart:
         )
         assert balance == pytest.approx(default_settings.teller_initial_fund)
 
+    def test_new_event_grand_total_resets_after_prior_activity(
+            self, default_settings, teller_user, teller_status_online):
+        """Bet totals and settlement rows must not carry into the next event."""
+        from SmartWagers import views
+
+        services.start_event('Event A')
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000,
+            cashier=teller_user.username, registered=True,
+        )
+        event_b = services.start_event('Event B')
+
+        balance, grand_total = views._compute_teller_balance(
+            teller_user, event=event_b,
+        )
+        breakdown = services.compute_teller_balance_breakdown(
+            teller_user, event=event_b,
+        )
+
+        assert grand_total == pytest.approx(0.0)
+        assert breakdown['grand_total'] == pytest.approx(0.0)
+        assert breakdown['remit_total'] == pytest.approx(0.0)
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
+    def test_new_teller_mid_prior_event_starts_clean(
+            self, default_settings, teller_group, teller_status_online):
+        """A teller created during a prior event must not inherit old bet totals."""
+        from django.contrib.auth.models import User
+        from SmartWagers import views
+
+        services.start_event('Event A')
+        new_teller = User.objects.create_user(username='freshcashier')
+        new_teller.groups.add(teller_group)
+        TellerStatus.objects.create(user=new_teller, is_online=True)
+
+        event_b = services.start_event('Event B')
+        services.issue_teller_opening_fund_if_needed(new_teller, event=event_b)
+
+        balance, grand_total = views._compute_teller_balance(
+            new_teller, event=event_b,
+        )
+        assert grand_total == pytest.approx(0.0)
+        assert balance == pytest.approx(default_settings.teller_initial_fund)
+
     def test_online_teller_balance_after_end_then_start(
             self, default_settings, teller_user, teller_status_online, admin_user):
         services.start_event('Event A')
@@ -597,6 +735,136 @@ class TestEventCashReconciliation:
         assert recon['total_cash_on_hand'] == pytest.approx(
             teller_balance + admin_summary['balance'],
         )
+        assert recon['bank_borrowed'] == pytest.approx(admin_summary['bank_borrowed'])
+        assert recon['admin_opening_fund'] == pytest.approx(admin_summary['opening_fund'])
+        assert recon['additional_bank_borrowed'] == pytest.approx(
+            admin_summary['additional_bank_borrowed'],
+        )
+        assert recon['bank_remitted'] == pytest.approx(admin_summary['bank_remitted'])
+        assert recon['net_earnings'] == pytest.approx(
+            recon['total_cash_on_hand']
+            - recon['opening_fund_total']
+            - recon['admin_opening_fund']
+            - recon['additional_bank_borrowed']
+            + recon['bank_remitted']
+            + recon['remits_not_in_admin'],
+        )
         assert recon['net_earnings'] == pytest.approx(recon['betting_surplus'])
         assert recon['betting_surplus'] == pytest.approx(3000.0)
         assert recon['surplus_vs_commission'] == pytest.approx(3000.0 - 350.0)
+
+
+@pytest.mark.django_db
+class TestEventCommissionShares:
+
+    def test_commission_shares_allocated_by_wager_share_per_fight(
+            self, active_event, teller_user, teller_user2, default_settings):
+        from SmartWagers.models import Fight_Results
+
+        Fight_Results.objects.create(
+            fightnum=1,
+            side='MERON',
+            mtotal=6000.0,
+            wtotal=4000.0,
+            mpayout=95.0,
+            wpayout=142.5,
+            totalpot=10000.0,
+            odds='Llamado',
+            event=active_event,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=6000.0,
+            cashier=teller_user.username, registered=True,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='WALA', wager=4000.0,
+            cashier=teller_user2.username, registered=True,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        plasada = services.get_comm_val()
+        fight_commissions = [{
+            'fightnum': 1,
+            'side': 'MERON',
+            'totalpot': 10000.0,
+            'commission': 10000.0 * plasada,
+        }]
+        shares = services.get_event_commission_shares(
+            active_event,
+            fight_commissions=fight_commissions,
+        )
+
+        assert shares[teller_user.username] == pytest.approx(6000.0 / 10000.0 * 500.0)
+        assert shares[teller_user2.username] == pytest.approx(4000.0 / 10000.0 * 500.0)
+        assert sum(shares.values()) == pytest.approx(500.0)
+
+    def test_cancelled_fights_excluded_from_commission_shares(
+            self, active_event, teller_user, default_settings):
+        from SmartWagers.models import Fight_Results
+
+        Fight_Results.objects.create(
+            fightnum=1,
+            side='CANCELLED',
+            totalpot=5000.0,
+            odds='REFUND',
+            event=active_event,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=5000.0,
+            cashier=teller_user.username, registered=True,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        fight_commissions = [{
+            'fightnum': 1,
+            'side': 'CANCELLED',
+            'totalpot': 5000.0,
+            'commission': 0.0,
+        }]
+        shares = services.get_event_commission_shares(
+            active_event,
+            fight_commissions=fight_commissions,
+        )
+
+        assert shares == {}
+
+
+@pytest.mark.django_db
+class TestEventBettingSurplusShares:
+
+    def test_betting_surplus_is_wagers_minus_payouts_per_cashier(
+            self, active_event, teller_user, teller_user2, default_settings):
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=6000.0,
+            cashier=teller_user.username, registered=True,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='WALA', wager=4000.0,
+            cashier=teller_user2.username, registered=True,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=1000.0,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user2,
+            transaction_type=TellerTransaction.PAYOUT,
+            amount=5000.0,
+        )
+
+        active_event.is_active = False
+        active_event.ended_at = now()
+        active_event.save(update_fields=['is_active', 'ended_at'])
+
+        shares = services.get_event_betting_surplus_shares(active_event)
+
+        assert shares[teller_user.username] == pytest.approx(5000.0)
+        assert shares[teller_user2.username] == pytest.approx(-1000.0)
+        assert sum(shares.values()) == pytest.approx(4000.0)

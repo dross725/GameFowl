@@ -18,6 +18,8 @@
                         <li><a href="{% url 'admin-teller-transactions' %}">Teller Transactions</a></li>
                         <li><a href="{% url 'admin-commission' %}">Commission Total</a></li>
                         <li><a href="{% url 'admin-settings' %}">Settings</a></li>
+                        <li><a href="{% url 'admin-users' %}">User Management</a></li>
+                        <li><a href="{% url 'admin-print-agent' %}">Print Agent</a></li>
                     </ul>
                 </li>
                 <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
@@ -747,7 +749,7 @@
             <td class="num c-total">₱ {{ cash_reconciliation.teller_cash_on_hand|floatformat:2|intcomma }}</td>
           </tr>
           <tr>
-            <td>Admin shared fund cash on hand</td>
+            <td>Admin cash on hand</td>
             <td class="num c-total">₱ {{ cash_reconciliation.admin_cash_on_hand|floatformat:2|intcomma }}</td>
           </tr>
           <tr>
@@ -756,12 +758,20 @@
           </tr>
           <tr><td colspan="2" style="height:8px;border:none;"></td></tr>
           <tr>
-            <td>Less: Opening float issued (house capital at tellers)</td>
+            <td>Less: Teller Petty Cash</td>
             <td class="num c-collect">(₱ {{ cash_reconciliation.opening_fund_total|floatformat:2|intcomma }})</td>
           </tr>
           <tr>
-            <td>Less: Net bank funding (house capital at admin)</td>
-            <td class="num c-collect">(₱ {{ cash_reconciliation.net_bank_funding|floatformat:2|intcomma }})</td>
+            <td>Less: Admin Petty Cash</td>
+            <td class="num c-collect">(₱ {{ cash_reconciliation.admin_opening_fund|floatformat:2|intcomma }})</td>
+          </tr>
+          <tr>
+            <td>Less: Admin Bank Borrowed</td>
+            <td class="num c-collect">(₱ {{ cash_reconciliation.additional_bank_borrowed|floatformat:2|intcomma }})</td>
+          </tr>
+          <tr>
+            <td>Plus: Bank remits </td>
+            <td class="num c-remit">₱ {{ cash_reconciliation.bank_remitted|floatformat:2|intcomma }}</td>
           </tr>
           <tr>
             <td>Plus: Teller remits not in admin fund</td>
@@ -821,7 +831,8 @@
         <tfoot>
           <tr>
             <td colspan="2" style="font-size:11px;color:rgba(255,255,255,0.40);padding-top:8px;">
-              Net earnings = Total cash + Remits not in admin fund − Opening float − Net bank funding.
+              Net earnings = Total cash − Teller petty − Admin petty − Admin bank borrowed + Bank remits + Teller remits not in admin.
+              Bank remits are added back because that cash already left the drawers but is still part of event earnings.
               Ledger variance (surplus − commission) confirms betting math. Station close-out variance explains physical shortages like missing teller cash.
             </td>
           </tr>
@@ -853,20 +864,19 @@
         <thead>
           <tr>
             <th>Name</th>
-            <th class="num">COH</th>
             <th class="num">Petty</th>
             <th class="num">Expected</th>
             <th class="num">Actual</th>
             <th class="num">Variance</th>
+            <th class="num">Betting Surplus</th>
+            <th class="num">Advanced</th>
+            <th class="num">Borrowed</th>
           </tr>
         </thead>
         <tbody>
           {% for row in final_reconciliation_rows %}
           <tr>
             <td class="c-name">{{ row.name }}</td>
-            <td class="num c-balance-pos">
-              {% if row.coh is not None %}₱ {{ row.coh|floatformat:2|intcomma }}{% else %}—{% endif %}
-            </td>
             <td class="num c-collect">₱ {{ row.petty|floatformat:2|intcomma }}</td>
             <td class="num">
               {% if row.expected is not None %}₱ {{ row.expected|floatformat:2|intcomma }}{% else %}—{% endif %}
@@ -885,15 +895,21 @@
                 {% endif %}
               {% else %}—{% endif %}
             </td>
+            <td class="num {% if row.betting_surplus > 0 %}comm-val{% elif row.betting_surplus < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
+              {% if row.betting_surplus > 0 %}+{% elif row.betting_surplus < 0 %}−{% endif %}₱ {{ row.betting_surplus|floatformat:2|intcomma|cut:"-" }}
+            </td>
+            <td class="num c-remit">
+              {% if row.advanced > 0 %}₱ {{ row.advanced|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
+            <td class="num c-collect">
+              {% if row.borrowed > 0 %}₱ {{ row.borrowed|floatformat:2|intcomma }}{% else %}<span style="color:rgba(255,255,255,0.20);">—</span>{% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
         <tfoot>
           <tr>
             <td>Totals</td>
-            <td class="num c-balance-pos">
-              {% if final_reconciliation_totals.coh is not None %}₱ {{ final_reconciliation_totals.coh|floatformat:2|intcomma }}{% else %}Not recorded{% endif %}
-            </td>
             <td class="num c-collect">₱ {{ final_reconciliation_totals.petty|floatformat:2|intcomma }}</td>
             <td class="num">
               {% if final_reconciliation_totals.expected is not None %}₱ {{ final_reconciliation_totals.expected|floatformat:2|intcomma }}{% else %}Not recorded{% endif %}
@@ -912,6 +928,9 @@
                 {% endif %}
               {% else %}Not recorded{% endif %}
             </td>
+            <td class="num comm-val">₱ {{ final_reconciliation_totals.betting_surplus|floatformat:2|intcomma }}</td>
+            <td class="num c-remit">₱ {{ final_reconciliation_totals.advanced|floatformat:2|intcomma }}</td>
+            <td class="num c-collect">₱ {{ final_reconciliation_totals.borrowed|floatformat:2|intcomma }}</td>
           </tr>
         </tfoot>
       </table>

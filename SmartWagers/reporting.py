@@ -19,6 +19,37 @@ def include_archived_for_event(event):
     return event is not None and event.ended_at is not None and not event.is_active
 
 
+def teller_activity_started_at(user, event=None):
+    """Earliest timestamp from which this teller account's rows count.
+
+    Wagers are keyed by cashier username, so a recycled username would otherwise
+    inherit another person's history.  Always bound activity to account creation,
+    and to the event window when one is supplied.
+    """
+    joined = user.date_joined
+    if event is None or event.started_at is None:
+        return joined
+    if event.started_at > joined:
+        return event.started_at
+    return joined
+
+
+def filter_wagers_for_teller(qs, user, event=None, apply_end_bound=True):
+    """Scope a wager queryset to one teller account (and optional event)."""
+    qs = qs.filter(created_at__gte=teller_activity_started_at(user, event))
+    if event is not None and apply_end_bound and event.ended_at:
+        qs = qs.filter(created_at__lte=event.ended_at)
+    return qs
+
+
+def filter_transactions_for_teller(qs, user, event=None, apply_end_bound=True):
+    """Scope a teller transaction queryset to one account (and optional event)."""
+    qs = qs.filter(created_at__gte=teller_activity_started_at(user, event))
+    if event is not None and apply_end_bound and event.ended_at:
+        qs = qs.filter(created_at__lte=event.ended_at)
+    return qs
+
+
 def filter_active_wagers_by_event(qs, event):
     qs = qs.filter(created_at__gte=event.started_at)
     if event.ended_at:

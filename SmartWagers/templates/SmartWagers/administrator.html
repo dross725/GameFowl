@@ -2,7 +2,7 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=22">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=23">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
@@ -235,7 +235,7 @@
 {% endblock css_files %}
 
 {% block script_files %}
-<script src="{% static 'SmartWagers/administrator.js' %}?v=advance-labels-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=advance-labels-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -255,6 +255,8 @@
                         <li><a href="{% url 'admin-teller-transactions' %}">Teller Transactions</a></li>
                         <li><a href="{% url 'admin-commission' %}">Commission Total</a></li>
                         <li><a href="{% url 'admin-settings' %}">Settings</a></li>
+                        <li><a href="{% url 'admin-users' %}">User Management</a></li>
+                        <li><a href="{% url 'admin-print-agent' %}">Print Agent</a></li>
                         <li class="nav-dropdown-divider"></li>
                         <li><a href="#" class="nav-dropdown-action start-event-action" onclick="event.preventDefault();openStartEventModal()">▶ Start Event</a></li>
                         <li><a href="#" class="nav-dropdown-action end-event-action" onclick="event.preventDefault();openEndEventModal()">■ End Event</a></li>
@@ -461,6 +463,7 @@
                 <br>
                 <p>Payout cannot be processed at this teller.</p>
                 <br>
+                <p id='wrong_teller_transaction_id'></p>
                 <p>Please proceed to teller: <strong id='wrong_teller_name'></strong></p>
                 <br>
                 <button onclick='closemodal("wrong_teller_modal")'>Close</button>

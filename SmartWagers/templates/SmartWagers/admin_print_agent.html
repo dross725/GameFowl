@@ -1,0 +1,245 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Print Agent — SmartWagers{% endblock title %}
+
+{% block nav %}
+    <header id="main-navigation">
+        <nav id="navbar">
+            <div id="nav-brand">SmartWagers</div>
+            <ul id="nav-links">
+                <li><a href="{% url 'index' %}">Main</a></li>
+                <li><a href="{% url 'user-page' %}">Teller</a></li>
+                <li class="nav-dropdown">
+                    <a href="{% url 'admin-page' %}" class="nav-dropdown-toggle">Admin ▾</a>
+                    <ul class="nav-dropdown-menu">
+                        <li><a href="{% url 'admin-page' %}">Admin</a></li>
+                        <li><a href="{% url 'admin-teller-transactions' %}">Teller Transactions</a></li>
+                        <li><a href="{% url 'admin-commission' %}">Commission Total</a></li>
+                        <li><a href="{% url 'admin-settings' %}">Settings</a></li>
+                        <li><a href="{% url 'admin-users' %}">User Management</a></li>
+                        <li><a href="{% url 'admin-print-agent' %}">Print Agent</a></li>
+                    </ul>
+                </li>
+                <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
+            </ul>
+            <div id="nav-actions">
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="nav-logout-button" name="logout-button">Logout</button>
+                </form>
+            </div>
+        </nav>
+    </header>
+{% endblock nav %}
+
+{% block css_files %}
+<style>
+  #wagers_section {
+    overflow-y: auto !important;
+    background: none !important;
+    padding: 0 !important;
+    margin: 0 4px 4px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    min-height: 0;
+  }
+
+  #pa-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 16px 18px 32px;
+    flex: 0 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  #pa-title {
+    font-size: 18px;
+    font-weight: 900;
+    color: white;
+    letter-spacing: 0.4px;
+  }
+  #pa-subtitle {
+    font-size: 12px;
+    color: rgba(255,255,255,0.40);
+    margin-top: 4px;
+  }
+
+  .pa-panel {
+    background: #1b1e27;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 12px;
+    padding: 18px 22px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.30);
+  }
+
+  .pa-panel-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: rgba(255,255,255,0.55);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+  }
+
+  .pa-text {
+    font-size: 13px;
+    color: rgba(255,255,255,0.75);
+    line-height: 1.55;
+    margin: 0 0 10px;
+  }
+
+  .pa-steps {
+    margin: 0;
+    padding-left: 20px;
+    color: rgba(255,255,255,0.75);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .pa-steps li { margin-bottom: 6px; }
+
+  .pa-code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    background: #12151c;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px;
+    padding: 2px 7px;
+    color: #f0f2f7;
+  }
+
+  .pa-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .pa-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    padding: 5px 10px;
+    border-radius: 999px;
+  }
+  .pa-badge-ok {
+    background: rgba(46, 204, 113, 0.18);
+    color: #6fdf9a;
+    border: 1px solid rgba(46, 204, 113, 0.35);
+  }
+  .pa-badge-warn {
+    background: rgba(241, 196, 15, 0.15);
+    color: #f5d76e;
+    border: 1px solid rgba(241, 196, 15, 0.35);
+  }
+
+  .pa-version {
+    font-size: 12px;
+    color: rgba(255,255,255,0.45);
+    white-space: pre-wrap;
+    font-family: Consolas, "Courier New", monospace;
+  }
+
+  .pa-download-btn {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 12px 20px;
+    background: #2f6fed;
+    color: white;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 800;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+  .pa-download-btn:hover { filter: brightness(1.08); }
+  .pa-download-btn.is-disabled {
+    pointer-events: none;
+    opacity: 0.45;
+  }
+
+  .pa-note {
+    margin-top: 12px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.45);
+    line-height: 1.5;
+  }
+</style>
+{% endblock css_files %}
+
+{% block label %}{% endblock label %}
+{% block pot_block %}{% endblock pot_block %}
+
+{% block content %}
+<div id="pa-wrapper">
+  <div>
+    <div id="pa-title">Local Print Agent</div>
+    <div id="pa-subtitle">Download the offline package for Windows teller / cashier PCs.</div>
+  </div>
+
+  <div class="pa-panel">
+    <div class="pa-panel-title">Download</div>
+    <div class="pa-status">
+      {% if not agent_dir_exists %}
+        <span class="pa-badge pa-badge-warn">Agent folder missing</span>
+      {% elif python_ready %}
+        <span class="pa-badge pa-badge-ok">Offline Python ready</span>
+      {% else %}
+        <span class="pa-badge pa-badge-warn">Bundled Python missing</span>
+      {% endif %}
+    </div>
+
+    {% if version_text %}
+      <pre class="pa-version">{{ version_text }}</pre>
+    {% endif %}
+
+    {% if not agent_dir_exists %}
+      <p class="pa-text">The <span class="pa-code">local_print_agent</span> folder is missing on this server. Restore it from the project release.</p>
+      <a class="pa-download-btn is-disabled" href="#">Download unavailable</a>
+    {% else %}
+      <p class="pa-text">
+        Downloads <span class="pa-code">SmartWagers-PrintAgent.zip</span>
+        {% if python_ready %}
+          with embeddable Python 3.12 and pywin32 included (no internet needed on the teller PC).
+        {% else %}
+          — but this server has not built the offline Python runtime yet.
+        {% endif %}
+      </p>
+      {% if not python_ready %}
+        <p class="pa-text">
+          On the server (with internet), run
+          <span class="pa-code">local_print_agent\prepare_vendor.bat</span>
+          once, then refresh this page and download again.
+        </p>
+      {% endif %}
+      <a class="pa-download-btn" href="{% url 'admin-print-agent-download' %}">Download Print Agent</a>
+      <p class="pa-note">Local teller settings (<span class="pa-code">config.json</span>, logs) are not included in the zip.</p>
+    {% endif %}
+  </div>
+
+  <div class="pa-panel">
+    <div class="pa-panel-title">Install on a teller PC</div>
+    <ol class="pa-steps">
+      <li>Install the USB receipt printer driver in Windows.</li>
+      <li>Set that printer as the <strong>Windows default printer</strong>.</li>
+      <li>Unzip <span class="pa-code">SmartWagers-PrintAgent.zip</span> (for example to <span class="pa-code">C:\SmartWagers\local_print_agent\</span>).</li>
+      <li>Double-click <span class="pa-code">install_print_agent.bat</span>. It verifies the bundled Python, shows the detected default printer, and adds Startup.</li>
+      <li>Optional: create <span class="pa-code">server.env</span> from <span class="pa-code">server.env.example</span>, then run <span class="pa-code">create_teller_shortcut.bat</span>.</li>
+      <li>Test: open <span class="pa-code">http://127.0.0.1:8765/health</span> on that PC.</li>
+    </ol>
+    <p class="pa-note">
+      Leave <span class="pa-code">printer_name</span> empty in config.json to always use the Windows default.
+      Set it only if the receipt printer is not the default.
+    </p>
+  </div>
+</div>
+{% endblock content %}

@@ -1,8 +1,9 @@
 from django.shortcuts import render, redirect
 from django.urls import reverse
-from django.http import JsonResponse, HttpResponseForbidden
-from django.db import transaction as db_transaction
+from django.http import JsonResponse, HttpResponseForbidden, FileResponse, HttpResponse
+from django.db import transaction as db_transaction, IntegrityError
 from django.db.models import Sum, Count, Q, F
+from django.db.models.deletion import ProtectedError
 from django.views.decorators.http import require_GET, require_http_methods
 from django.views.decorators.csrf import ensure_csrf_cookie
 from . import services as services
@@ -10,6 +11,8 @@ from . import masterlock
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from .models import (
     AdminBankTransaction, Event, Fight_Results, SessionLog, Settings,
     TellerCloseOut, TellerStatus, TellerTransaction, Wagers,
@@ -18,8 +21,12 @@ from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
 from django.utils.timezone import now
+from django.conf import settings
+import io
 import logging
 import math
+import zipfile
+from pathlib import Path
 
 logger = logging.getLogger('SmartWagers.views')
 
@@ -167,11 +174,25 @@ def teller_station_closed_response():
     return JsonResponse({'ok': False, 'error': 'station_closed'}, status=403)
 
 
-def teller_action_blocked_response(user):
+def teller_action_blocked_response(user, *, action=None, transaction_id=None):
     """Return the appropriate 403 when a teller action is blocked."""
     if services.teller_station_is_closed(user):
+        services.log_teller_action(
+            action or 'action',
+            user,
+            transaction_id=transaction_id,
+            outcome='station_closed',
+            level='warning',
+        )
         return teller_station_closed_response()
     if not teller_is_online(user):
+        services.log_teller_action(
+            action or 'action',
+            user,
+            transaction_id=transaction_id,
+            outcome='teller_offline',
+            level='warning',
+        )
         return teller_offline_response()
     return None
 
@@ -181,14 +202,22 @@ def notify_teller_online_status(teller_id, is_online):
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return
-    async_to_sync(channel_layer.group_send)(
-        'user',
-        {
-            'type': 'send_data',
-            'teller_online': is_online,
-            'teller_id': teller_id,
-        },
-    )
+    try:
+        async_to_sync(channel_layer.group_send)(
+            'user',
+            {
+                'type': 'send_data',
+                'teller_online': is_online,
+                'teller_id': teller_id,
+            },
+        )
+    except Exception:
+        logger.exception(
+            "notify_teller_online_status: broadcast failed for teller_id=%s is_online=%s "
+            "— status was still saved",
+            teller_id,
+            is_online,
+        )
 
 
 class RoleBasedLoginView(LoginView):
@@ -308,22 +337,38 @@ def reprint_wager(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
-    if request.user.groups.filter(name='teller').exists():
-        blocked = teller_action_blocked_response(request.user)
-        if blocked is not None:
-            return blocked
-
     transaction_id = request.POST.get('transaction_id', '').strip()
     if not transaction_id:
         return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
 
+    normalized_txn = services.normalize_logged_transaction_id(transaction_id)
+
+    if request.user.groups.filter(name='teller').exists():
+        blocked = teller_action_blocked_response(
+            request.user,
+            action='reprint',
+            transaction_id=normalized_txn,
+        )
+        if blocked is not None:
+            return blocked
+
+    is_admin = request.user.groups.filter(name='admin').exists()
+    is_teller = request.user.groups.filter(name='teller').exists()
+    if not is_admin and not is_teller:
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id=normalized_txn,
+            outcome='forbidden',
+            level='warning',
+        )
+        return JsonResponse({'ok': False, 'error': 'Forbidden'}, status=403)
+
     # Tellers may only reprint their own tickets; admins may reprint any.
     cashier_filter = None
     remit_user_filter = None
-    is_admin = request.user.groups.filter(name='admin').exists()
-    is_teller = request.user.groups.filter(name='teller').exists()
     if is_teller and not is_admin:
-        cashier_filter = str(request.user)
+        cashier_filter = request.user.username
         remit_user_filter = request.user
 
     print_required = services.is_wager_receipt_printing_enabled()
@@ -341,6 +386,12 @@ def reprint_wager(request):
                 event=event_scope,
                 apply_end_bound=apply_end_bound,
             )
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id='test',
+            outcome='test_ok',
+        )
         return JsonResponse({
             'ok': True,
             'receipt_type': 'test',
@@ -363,6 +414,13 @@ def reprint_wager(request):
         transaction_id, cashier=cashier_filter,
     )
     if receipt is not None:
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id=receipt.get('transaction_id') or normalized_txn,
+            outcome='wager_ok',
+            receipt_type='wager',
+        )
         return JsonResponse({
             'ok': True,
             'receipt_type': 'wager',
@@ -374,6 +432,13 @@ def reprint_wager(request):
         transaction_id, user=remit_user_filter,
     )
     if remit_receipt is not None:
+        services.log_teller_action(
+            'reprint',
+            request.user,
+            transaction_id=remit_receipt.get('transaction_id') or normalized_txn,
+            outcome='remit_ok',
+            receipt_type='remit',
+        )
         return JsonResponse({
             'ok': True,
             'receipt_type': 'remit',
@@ -381,7 +446,18 @@ def reprint_wager(request):
             'receipt': remit_receipt,
         })
 
-    return JsonResponse({'ok': False, 'error': 'notfound'})
+    services.log_teller_action(
+        'reprint',
+        request.user,
+        transaction_id=normalized_txn,
+        outcome='notfound',
+        level='warning',
+    )
+    return JsonResponse({
+        'ok': False,
+        'error': 'notfound',
+        'transaction_id': services.normalize_wager_transaction_id(transaction_id),
+    })
 
 def notify_bet_updates():
     """Broadcast current pot values to all live UI groups after a wager changes."""
@@ -654,6 +730,8 @@ def Teller(request):
     current_fn = services.get_fightnum()
     is_online = teller_is_online(request.user)
     station_closed = services.teller_station_is_closed(request.user)
+    if is_online:
+        services.issue_teller_opening_fund_if_needed(request.user)
 
     def user_page_context(**extra):
         ctx = {
@@ -717,11 +795,14 @@ def Teller(request):
 
 @group_required('teller')
 def teller_report(request):
-    active_event = services.get_active_event()
+    from SmartWagers import reporting
+
+    event_scope, apply_end_bound = services.get_event_scope()
 
     wager_qs = Wagers.objects.filter(cashier=str(request.user), registered=True)
-    if active_event is not None:
-        wager_qs = wager_qs.filter(created_at__gte=active_event.started_at)
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, request.user, event_scope, apply_end_bound,
+    )
 
     wagers = wager_qs.order_by('-created_at')
     active_wagers = wagers.filter(cancelled=False)
@@ -731,6 +812,7 @@ def teller_report(request):
     # Build the set of fight numbers that have a recorded result so the
     # template can disable the reprint button for completed fights.
     result_qs = Fight_Results.objects.all()
+    active_event = services.get_active_event()
     if active_event is not None:
         result_qs = result_qs.filter(event=active_event)
     completed_fights = set(result_qs.values_list('fightnum', flat=True))
@@ -743,17 +825,17 @@ def teller_report(request):
     )
     allowed_reprint = set(recent_completed) | {current_fightnum}
 
-    close_out = services.get_teller_close_out(request.user, event=active_event)
+    close_out = services.get_teller_close_out(request.user, event=event_scope)
     balance_breakdown = services.compute_teller_balance_breakdown(
-        request.user, event=active_event, apply_end_bound=True,
-    ) if active_event else None
+        request.user, event=event_scope, apply_end_bound=apply_end_bound,
+    ) if event_scope else None
 
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
         'total_amount': total_amount,
         'total_count': total_count,
         'teller_name': str(request.user),
-        'active_event': active_event,
+        'active_event': event_scope,
         'completed_fights': completed_fights,
         'allowed_reprint': allowed_reprint,
         'station_closed': close_out is not None,
@@ -822,27 +904,25 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True, include_arch
     txn_qs = TellerTransaction.objects.filter(user=user)
     archived_txn_qs = None
 
-    if event is not None:
-        wager_qs = reporting.filter_active_wagers_by_event(wager_qs, event)
-        txn_qs = reporting.filter_active_teller_transactions_by_event(txn_qs, event)
-        if include_archived:
-            archived_wager_qs = reporting.archived_wagers_for_event(event).filter(
-                cashier=username, registered=True, cancelled=False,
-            )
-            archived_txn_qs = reporting.archived_teller_transactions_for_event(
-                event,
-            ).filter(user=user)
-        if apply_end_bound and event.ended_at:
-            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
-            if archived_wager_qs is not None:
-                archived_wager_qs = archived_wager_qs.filter(
-                    created_at__lte=event.ended_at,
-                )
-            if archived_txn_qs is not None:
-                archived_txn_qs = archived_txn_qs.filter(
-                    created_at__lte=event.ended_at,
-                )
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound,
+    )
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound,
+    )
+    if event is not None and include_archived:
+        archived_wager_qs = reporting.archived_wagers_for_event(event).filter(
+            cashier=username, registered=True, cancelled=False,
+        )
+        archived_wager_qs = reporting.filter_wagers_for_teller(
+            archived_wager_qs, user, event, apply_end_bound,
+        )
+        archived_txn_qs = reporting.archived_teller_transactions_for_event(
+            event,
+        ).filter(user=user)
+        archived_txn_qs = reporting.filter_transactions_for_teller(
+            archived_txn_qs, user, event, apply_end_bound,
+        )
 
     grand_total = reporting.sum_wagers(wager_qs, archived_wager_qs)
     remit_total = reporting.sum_teller_amounts(
@@ -877,21 +957,20 @@ def _build_event_user_stats(
     )
     username = str(user)
 
-    wager_qs = reporting.active_wagers_for_event(event).filter(
+    wager_qs = Wagers.objects.filter(
         cashier=username, registered=True, cancelled=False,
     )
-    archived_wager_qs = (
-        reporting.archived_wagers_for_event(event).filter(
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound=True,
+    )
+    archived_wager_qs = None
+    if include_archived:
+        archived_wager_qs = reporting.archived_wagers_for_event(event).filter(
             cashier=username, registered=True, cancelled=False,
         )
-        if include_archived else None
-    )
-    if event.ended_at:
-        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-        if archived_wager_qs is not None:
-            archived_wager_qs = archived_wager_qs.filter(
-                created_at__lte=event.ended_at,
-            )
+        archived_wager_qs = reporting.filter_wagers_for_teller(
+            archived_wager_qs, user, event, apply_end_bound=True,
+        )
 
     bet_stats = {
         'bet_count': reporting._count_rows(wager_qs, archived_wager_qs),
@@ -913,15 +992,18 @@ def _build_event_user_stats(
         ),
     }
 
-    txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=user)
-    archived_txn_qs = (
-        reporting.archived_teller_transactions_for_event(event).filter(user=user)
-        if include_archived else None
+    txn_qs = TellerTransaction.objects.filter(user=user)
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound=True,
     )
-    if event.ended_at:
-        txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
-        if archived_txn_qs is not None:
-            archived_txn_qs = archived_txn_qs.filter(created_at__lte=event.ended_at)
+    archived_txn_qs = None
+    if include_archived:
+        archived_txn_qs = reporting.archived_teller_transactions_for_event(
+            event,
+        ).filter(user=user)
+        archived_txn_qs = reporting.filter_transactions_for_teller(
+            archived_txn_qs, user, event, apply_end_bound=True,
+        )
 
     payout_filter = {'transaction_type': TellerTransaction.PAYOUT}
     if admin_fund_mode:
@@ -1029,6 +1111,8 @@ def get_teller_balance(request):
 @group_required('teller')
 def get_pending_payouts(request):
     """Return the count and total amount of this teller's unclaimed winning/refund tickets."""
+    from SmartWagers import reporting
+
     username = str(request.user)
     active_event = services.get_active_event()
 
@@ -1036,10 +1120,9 @@ def get_pending_payouts(request):
     pending_qs = Wagers.objects.filter(
         cashier=username, registered=True, cashed_out=False, cancelled=False,
     )
-    if active_event is not None:
-        pending_qs = pending_qs.filter(created_at__gte=active_event.started_at)
-        if active_event.ended_at:
-            pending_qs = pending_qs.filter(created_at__lte=active_event.ended_at)
+    pending_qs = reporting.filter_wagers_for_teller(
+        pending_qs, request.user, active_event, apply_end_bound=True,
+    )
 
     # Collect fight results within the event so we know which fights are decided
     results_qs = Fight_Results.objects.all()
@@ -1072,6 +1155,8 @@ def get_pending_payouts(request):
 @group_required('teller')
 def get_teller_fight_totals(request):
     """Return this teller's MERON and WALA bet totals for the current active fight only."""
+    from SmartWagers import reporting
+
     username = str(request.user)
     _, _, _, fightnum = services.get_fight_status()
 
@@ -1085,13 +1170,12 @@ def get_teller_fight_totals(request):
         cancelled=False,
     )
 
-    # Scope to the active event's time window so bets from a previous event
-    # with the same fight number are never counted.
+    # Scope to the active event and this account so recycled usernames and
+    # prior events with the same fight number are never counted.
     active_event = services.get_active_event()
-    if active_event is not None:
-        base_qs = base_qs.filter(created_at__gte=active_event.started_at)
-        if active_event.ended_at:
-            base_qs = base_qs.filter(created_at__lte=active_event.ended_at)
+    base_qs = reporting.filter_wagers_for_teller(
+        base_qs, request.user, active_event, apply_end_bound=True,
+    )
 
     meron_total = base_qs.filter(side='MERON').aggregate(total=Sum('wager'))['total'] or 0
     wala_total  = base_qs.filter(side='WALA').aggregate(total=Sum('wager'))['total'] or 0
@@ -1138,6 +1222,14 @@ def teller_transaction(request):
                 "REMIT REJECTED (exceeds_cash_on_hand): amount=%.2f balance=%.2f teller=%s",
                 amount, balance, request.user.username,
             )
+            services.log_teller_action(
+                'remit',
+                request.user,
+                outcome='exceeds_cash_on_hand',
+                level='warning',
+                amount=f"{amount:.2f}",
+                balance=f"{balance:.2f}",
+            )
             return JsonResponse({
                 'ok': False,
                 'error': 'exceeds_cash_on_hand',
@@ -1154,6 +1246,13 @@ def teller_transaction(request):
         "TELLER TXN: txn_id=%s type=%s amount=%.2f teller=%s",
         txn.transaction_id, transaction_type, amount, request.user.username,
     )
+    services.log_teller_action(
+        'remit',
+        request.user,
+        transaction_id=txn.transaction_id,
+        outcome='created',
+        amount=f"{amount:.2f}",
+    )
 
     balance, grand_total = _compute_teller_balance(
         request.user, event=event_scope, apply_end_bound=apply_end_bound,
@@ -1167,12 +1266,15 @@ def teller_transaction(request):
         'transaction_type': transaction_type,
         'amount': amount,
         'transaction_id': txn.transaction_id,
+        'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
     })
 
 
 @group_required('admin')
 def admin_tellers(request):
     """Admin view: shows all tellers with balances and TellerTransaction history."""
+    from SmartWagers import reporting
+
     try:
         teller_group = Group.objects.get(name='teller')
         admin_ids = User.objects.filter(
@@ -1189,6 +1291,12 @@ def admin_tellers(request):
 
     teller_data = []
     for teller in tellers:
+        ts, _ = TellerStatus.objects.get_or_create(user=teller)
+        is_online = ts.is_online
+
+        if active_event is not None and is_online:
+            services.issue_teller_opening_fund_if_needed(teller, event=active_event)
+
         balance, grand_total = _compute_teller_balance(teller, event=event_scope, apply_end_bound=apply_end_bound)
         txn_qs = TellerTransaction.objects.filter(user=teller)
         if event_scope is not None:
@@ -1199,14 +1307,10 @@ def admin_tellers(request):
             transaction_type=TellerTransaction.PAYOUT,
         ).order_by('-created_at')
 
-        ts, _ = TellerStatus.objects.get_or_create(user=teller)
-        is_online = ts.is_online
-
         wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
-        if event_scope is not None:
-            wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
-            if apply_end_bound and event_scope.ended_at:
-                wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+        wager_qs = reporting.filter_wagers_for_teller(
+            wager_qs, teller, event_scope, apply_end_bound,
+        )
         has_activity = not is_online and wager_qs.exists()
 
         close_out = services.get_teller_close_out(teller, event=event_scope)
@@ -1625,7 +1729,11 @@ def admin_event_report(request):
             include_archived=include_archived,
         )
         stats['is_admin_account'] = False
-        teller_cash_on_hand_recon += stats['balance']
+        close_out = close_outs.get(teller.pk)
+        if close_out is not None and close_out.actual_cash_counted is not None:
+            teller_cash_on_hand_recon += close_out.actual_cash_counted
+        else:
+            teller_cash_on_hand_recon += stats['balance']
         total_opening_fund_recon += stats['opening_fund_total']
         if not show_all_tellers and stats['bet_count'] <= 0:
             continue
@@ -1757,24 +1865,35 @@ def admin_event_report(request):
             'counted_at': event.admin_cash_counted_at,
         })
 
+        betting_surplus_shares = services.get_event_betting_surplus_shares(
+            event,
+            include_archived=include_archived,
+        )
+        admin_usernames = set(
+            User.objects.filter(groups__name='admin').values_list('username', flat=True),
+        )
+        admin_betting_surplus = round(sum(
+            betting_surplus_shares.get(username, 0.0)
+            for username in admin_usernames
+        ), 2)
+
         final_reconciliation_rows.append({
             'name': 'Admin',
-            'coh': (
-                admin_fund_summary['opening_fund']
-                + admin_fund_summary['expected_cash_on_hand']
-            ),
             'petty': admin_fund_summary['opening_fund'],
             'expected': admin_fund_summary['expected_cash_on_hand'],
             'actual': admin_fund_summary['actual_cash_counted'],
             'variance': admin_fund_summary['variance'],
+            'betting_surplus': admin_betting_surplus,
+            'advanced': admin_fund_summary['bank_remitted'],
+            'borrowed': admin_fund_summary['bank_borrowed'],
         })
         for stats in teller_data:
             if stats.get('is_admin_account'):
                 continue
             close_out = stats['close_out']
+            username = stats['user'].username
             final_reconciliation_rows.append({
                 'name': stats['display_name'],
-                'coh': stats['reporting_coh'],
                 'petty': stats['initial_fund'],
                 'expected': (
                     close_out.expected_cash_on_hand
@@ -1791,6 +1910,9 @@ def admin_event_report(request):
                     if close_out is not None
                     else None
                 ),
+                'betting_surplus': betting_surplus_shares.get(username, 0.0),
+                'advanced': stats['remit_total'],
+                'borrowed': stats['collect_total'],
             })
 
         def total_recorded(field):
@@ -1801,11 +1923,19 @@ def admin_event_report(request):
             ), 2)
 
         final_reconciliation_totals = {
-            'coh': total_recorded('coh'),
             'petty': total_recorded('petty'),
             'expected': total_recorded('expected'),
             'actual': total_recorded('actual'),
             'variance': total_recorded('variance'),
+            'betting_surplus': round(sum(
+                row['betting_surplus'] for row in final_reconciliation_rows
+            ), 2),
+            'advanced': round(sum(
+                row['advanced'] for row in final_reconciliation_rows
+            ), 2),
+            'borrowed': round(sum(
+                row['borrowed'] for row in final_reconciliation_rows
+            ), 2),
         }
 
     commission_20 = round(total_commission * 0.20, 2)
@@ -1958,6 +2088,8 @@ def admin_commission(request):
 @group_required('admin')
 def admin_teller_alerts(request):
     """Lightweight JSON endpoint: returns tellers whose balance is out of range."""
+    from SmartWagers import reporting
+
     try:
         teller_group = Group.objects.get(name='teller')
         admin_ids = User.objects.filter(
@@ -1967,7 +2099,6 @@ def admin_teller_alerts(request):
     except Group.DoesNotExist:
         tellers = []
 
-    active_event = services.get_active_event()
     event_scope, apply_end_bound = services.get_event_scope()
     setting = Settings.objects.order_by('-id').first()
     threshold   = setting.teller_max_balance  if setting else 0.0
@@ -1981,10 +2112,9 @@ def admin_teller_alerts(request):
         if not ts.is_online:
             # Check if this offline teller has any wager activity in the current scope
             wager_qs = Wagers.objects.filter(cashier=str(teller), registered=True)
-            if event_scope is not None:
-                wager_qs = wager_qs.filter(created_at__gte=event_scope.started_at)
-                if apply_end_bound and event_scope.ended_at:
-                    wager_qs = wager_qs.filter(created_at__lte=event_scope.ended_at)
+            wager_qs = reporting.filter_wagers_for_teller(
+                wager_qs, teller, event_scope, apply_end_bound,
+            )
             if wager_qs.exists():
                 alerts.append({
                     'name': name,
@@ -1994,7 +2124,9 @@ def admin_teller_alerts(request):
                 })
             continue
 
-        balance, _ = _compute_teller_balance(teller, event=active_event)
+        balance, _ = _compute_teller_balance(
+            teller, event=event_scope, apply_end_bound=apply_end_bound,
+        )
         if threshold > 0 and balance > threshold:
             alerts.append({'name': name, 'teller_id': teller.pk, 'balance': round(balance, 2), 'alert': 'remit'})
         elif balance < min_balance:
@@ -2043,26 +2175,13 @@ def toggle_teller_online(request):
         }, status=409)
 
     ts, _ = TellerStatus.objects.get_or_create(user=teller)
-    was_online = ts.is_online
     ts.is_online = is_online
     ts.save(update_fields=['is_online'])
 
-    # When a previously-offline teller is brought online mid-event, issue their
-    # initial fund as a COLLECT (borrow) so their ledger starts correctly.
+    # Issue opening float whenever an online teller lacks it for the active event.
     fund_issued = False
-    if is_online and not was_online:
-        active_event = services.get_active_event()
-        if active_event is not None and not services.teller_has_opening_fund_for_event(teller, active_event):
-            setting = Settings.objects.order_by('-id').first()
-            initial_fund = setting.teller_initial_fund if setting else 10000.0
-            if initial_fund > 0:
-                TellerTransaction.objects.create(
-                    user=teller,
-                    transaction_type=TellerTransaction.COLLECT,
-                    amount=round(initial_fund, 2),
-                    affects_admin_fund=False,
-                )
-                fund_issued = True
+    if is_online:
+        fund_issued = services.issue_teller_opening_fund_if_needed(teller)
 
     notify_teller_online_status(teller_id, is_online)
 
@@ -2363,3 +2482,420 @@ def admin_settings(request):
         'lock_status': lock_status,
         'extension_days': masterlock.EXTENSION_DAYS,
     })
+
+
+def _print_agent_dir() -> Path:
+    return Path(settings.BASE_DIR) / 'local_print_agent'
+
+
+def _print_agent_runtime_info():
+    agent_dir = _print_agent_dir()
+    python_dir = agent_dir / 'python'
+    python_exe = python_dir / 'python.exe'
+    version_file = python_dir / 'VERSION.txt'
+    version_text = ''
+    if version_file.is_file():
+        try:
+            version_text = version_file.read_text(encoding='utf-8').strip()
+        except OSError:
+            version_text = ''
+    return {
+        'agent_dir': agent_dir,
+        'agent_dir_exists': agent_dir.is_dir(),
+        'python_ready': python_exe.is_file(),
+        'version_text': version_text,
+    }
+
+
+_PRINT_AGENT_ZIP_SKIP_NAMES = {
+    'config.json',
+    'server.env',
+    '.env',
+    'print_agent_silent.log',
+}
+_PRINT_AGENT_ZIP_SKIP_SUFFIXES = ('.log', '.swp', '.swo')
+_PRINT_AGENT_ZIP_SKIP_DIR_NAMES = {
+    '__pycache__',
+    '_staging',
+    '.git',
+}
+
+
+def _should_skip_print_agent_path(path: Path, agent_dir: Path) -> bool:
+    try:
+        relative = path.relative_to(agent_dir)
+    except ValueError:
+        return True
+    parts = relative.parts
+    if any(part in _PRINT_AGENT_ZIP_SKIP_DIR_NAMES for part in parts):
+        return True
+    name = path.name
+    if name in _PRINT_AGENT_ZIP_SKIP_NAMES:
+        return True
+    if name.startswith('.') and name.endswith('.swp'):
+        return True
+    if name.endswith(_PRINT_AGENT_ZIP_SKIP_SUFFIXES):
+        return True
+    return False
+
+
+def build_print_agent_zip_bytes() -> bytes:
+    agent_dir = _print_agent_dir()
+    if not agent_dir.is_dir():
+        raise FileNotFoundError(f'Print agent folder missing: {agent_dir}')
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(agent_dir.rglob('*')):
+            if not path.is_file():
+                continue
+            if _should_skip_print_agent_path(path, agent_dir):
+                continue
+            arcname = Path('SmartWagers-PrintAgent') / path.relative_to(agent_dir)
+            zf.write(path, arcname.as_posix())
+    return buffer.getvalue()
+
+
+_CREATE_USER_ROLES = ('teller', 'admin', 'display')
+_ADMIN_USERS_FLASH_KEY = 'admin_users_flash'
+
+
+def _managed_user_rows():
+    """Return users with sorted role names for the management table."""
+    rows = []
+    for user in User.objects.prefetch_related('groups').order_by('username'):
+        roles = sorted(user.groups.values_list('name', flat=True))
+        rows.append({
+            'user': user,
+            'roles': roles,
+            'role_label': ', '.join(roles) if roles else '—',
+        })
+    return rows
+
+
+def _admin_users_context(**overrides):
+    context = {
+        'roles': _CREATE_USER_ROLES,
+        'users': _managed_user_rows(),
+        'error': None,
+        'success': None,
+        'credentials': None,
+        'form_username': '',
+        'form_role': 'teller',
+    }
+    context.update(overrides)
+    return context
+
+
+def _admin_users_redirect(
+    request,
+    *,
+    error=None,
+    success=None,
+    credentials=None,
+    form_username='',
+    form_role='teller',
+):
+    """PRG helper so refresh does not re-submit create/reset/delete."""
+    request.session[_ADMIN_USERS_FLASH_KEY] = {
+        'error': error,
+        'success': success,
+        'credentials': credentials,
+        'form_username': form_username,
+        'form_role': form_role,
+    }
+    return redirect('admin-users')
+
+
+def _invalidate_user_sessions(user):
+    """Drop all active Django sessions for *user* after a password reset."""
+    from django.contrib.sessions.models import Session
+    from django.utils.timezone import now as tz_now
+
+    for session in Session.objects.filter(expire_date__gte=tz_now()):
+        data = session.get_decoded()
+        if str(data.get('_auth_user_id')) == str(user.pk):
+            session.delete()
+
+
+def _password_validation_error(password, user=None):
+    """Return a user-facing password error string, or None if valid."""
+    if not password:
+        return 'Select or enter a password.'
+    if len(password) < 8:
+        return 'Password must be at least 8 characters.'
+    try:
+        validate_password(password, user=user)
+    except ValidationError as exc:
+        return ' '.join(exc.messages)
+    return None
+
+
+@group_required('admin')
+@require_http_methods(['GET', 'POST'])
+def admin_users(request):
+    """Admin page: list users, create accounts, reset passwords, delete users."""
+    if request.method == 'GET':
+        flash = request.session.pop(_ADMIN_USERS_FLASH_KEY, None) or {}
+        return render(
+            request,
+            'SmartWagers/admin_users.html',
+            _admin_users_context(**flash),
+        )
+
+    action = (request.POST.get('action') or 'create').strip().lower()
+
+    if action == 'create':
+        return _admin_users_create(request)
+    if action == 'reset_password':
+        return _admin_users_reset_password(request)
+    if action == 'delete':
+        return _admin_users_delete(request)
+
+    return _admin_users_redirect(request, error='Unknown action.')
+
+
+def _admin_users_create(request):
+    username = (request.POST.get('username') or '').strip()
+    password = request.POST.get('password') or ''
+    role = (request.POST.get('role') or 'teller').strip().lower()
+    form_role = role if role in _CREATE_USER_ROLES else 'teller'
+
+    if not username:
+        return _admin_users_redirect(
+            request,
+            error='Username is required.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    password_error = _password_validation_error(password)
+    if password_error:
+        return _admin_users_redirect(
+            request,
+            error=password_error,
+            form_username=username,
+            form_role=form_role,
+        )
+
+    if role not in _CREATE_USER_ROLES:
+        return _admin_users_redirect(
+            request,
+            error='Invalid role.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    if User.objects.filter(username__iexact=username).exists():
+        return _admin_users_redirect(
+            request,
+            error=f'Username "{username}" is already taken.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    try:
+        group = Group.objects.get(name=role)
+    except Group.DoesNotExist:
+        return _admin_users_redirect(
+            request,
+            error=f'Role group "{role}" is not configured.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    try:
+        with db_transaction.atomic():
+            user = User.objects.create_user(username=username, password=password)
+            user.groups.add(group)
+            if role == 'teller':
+                TellerStatus.objects.get_or_create(
+                    user=user, defaults={'is_online': True},
+                )
+                services.issue_teller_opening_fund_if_needed(user)
+    except IntegrityError:
+        return _admin_users_redirect(
+            request,
+            error=f'Username "{username}" is already taken.',
+            form_username=username,
+            form_role=form_role,
+        )
+    except ValidationError as exc:
+        return _admin_users_redirect(
+            request,
+            error=' '.join(getattr(exc, 'messages', [str(exc)])),
+            form_username=username,
+            form_role=form_role,
+        )
+
+    logger.info(
+        "CREATE_USER: username=%s role=%s by admin=%s",
+        username, role, request.user.username,
+    )
+    return _admin_users_redirect(
+        request,
+        success=f'User "{user.username}" created.',
+        credentials={
+            'username': user.username,
+            'password': password,
+            'role': role,
+            'action': 'created',
+        },
+    )
+
+
+def _admin_users_reset_password(request):
+    try:
+        user_id = int(request.POST.get('user_id', 0))
+    except (TypeError, ValueError):
+        user_id = 0
+    password = request.POST.get('password') or ''
+
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return _admin_users_redirect(request, error='User not found.')
+
+    password_error = _password_validation_error(password, user=user)
+    if password_error:
+        return _admin_users_redirect(request, error=password_error)
+
+    user.set_password(password)
+    user.save(update_fields=['password'])
+    _invalidate_user_sessions(user)
+    logger.info(
+        "RESET_PASSWORD: username=%s by admin=%s",
+        user.username, request.user.username,
+    )
+    return _admin_users_redirect(
+        request,
+        success=f'Password reset for "{user.username}".',
+        credentials={
+            'username': user.username,
+            'password': password,
+            'role': ', '.join(sorted(user.groups.values_list('name', flat=True))) or '—',
+            'action': 'reset',
+        },
+    )
+
+
+def _admin_users_delete(request):
+    try:
+        user_id = int(request.POST.get('user_id', 0))
+    except (TypeError, ValueError):
+        user_id = 0
+
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return _admin_users_redirect(request, error='User not found.')
+
+    if user.pk == request.user.pk:
+        return _admin_users_redirect(
+            request, error='You cannot delete your own account.',
+        )
+
+    if user.is_superuser and not request.user.is_superuser:
+        return _admin_users_redirect(
+            request, error='Only a superuser can delete another superuser.',
+        )
+
+    if user.groups.filter(name='admin').exists():
+        other_admins = User.objects.filter(groups__name='admin').exclude(pk=user.pk)
+        if not other_admins.exists():
+            return _admin_users_redirect(
+                request,
+                error='Cannot delete the last admin account.',
+            )
+
+    if (
+        TellerTransaction.objects.filter(user=user).exists()
+        or AdminBankTransaction.objects.filter(admin=user).exists()
+        or TellerCloseOut.objects.filter(Q(user=user) | Q(counted_by=user)).exists()
+    ):
+        return _admin_users_redirect(
+            request,
+            error=(
+                f'Cannot delete "{user.username}" because they have transaction '
+                'history. Reset their password instead.'
+            ),
+        )
+
+    username = user.username
+    try:
+        user.delete()
+    except ProtectedError:
+        logger.warning(
+            "DELETE_USER blocked (protected refs): username=%s by admin=%s",
+            username, request.user.username,
+        )
+        return _admin_users_redirect(
+            request,
+            error=(
+                f'Cannot delete "{username}" because they have historical '
+                'transaction records. Reset their password instead.'
+            ),
+        )
+
+    logger.info(
+        "DELETE_USER: username=%s by admin=%s",
+        username, request.user.username,
+    )
+    return _admin_users_redirect(
+        request, success=f'User "{username}" deleted.',
+    )
+
+
+# Keep old view name as an alias for any remaining imports / reverse lookups.
+admin_create_user = admin_users
+
+
+@group_required('admin')
+def admin_print_agent(request):
+    """Admin page: download offline local print agent package for teller PCs."""
+    info = _print_agent_runtime_info()
+    return render(request, 'SmartWagers/admin_print_agent.html', {
+        'python_ready': info['python_ready'],
+        'version_text': info['version_text'],
+        'agent_dir_exists': info['agent_dir_exists'],
+    })
+
+
+@group_required('admin')
+@require_GET
+def admin_print_agent_download(request):
+    """Stream a zip of local_print_agent (including bundled python/ when present)."""
+    info = _print_agent_runtime_info()
+    if not info['agent_dir_exists']:
+        return HttpResponse(
+            'local_print_agent folder is missing on the server.',
+            status=404,
+            content_type='text/plain',
+        )
+    try:
+        payload = build_print_agent_zip_bytes()
+    except FileNotFoundError as exc:
+        return HttpResponse(str(exc), status=404, content_type='text/plain')
+    except OSError as exc:
+        logger.exception('PRINT_AGENT_DOWNLOAD failed: %s', exc)
+        return HttpResponse(
+            'Failed to build print agent zip.',
+            status=500,
+            content_type='text/plain',
+        )
+
+    buffer = io.BytesIO(payload)
+    response = FileResponse(
+        buffer,
+        as_attachment=True,
+        filename='SmartWagers-PrintAgent.zip',
+        content_type='application/zip',
+    )
+    response['Content-Length'] = len(payload)
+    logger.info(
+        'PRINT_AGENT_DOWNLOAD: admin=%s bytes=%s python_ready=%s',
+        request.user.username,
+        len(payload),
+        info['python_ready'],
+    )
+    return response

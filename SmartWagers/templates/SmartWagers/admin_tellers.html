@@ -1288,14 +1288,8 @@ function prependHistoryRow(data) {
 
 /* ── Print agent ───────────────────────────────────── */
 function triggerPrint(data) {
-  const now = new Date();
-  const dateStr = now.getFullYear() + '-' +
-    String(now.getMonth()+1).padStart(2,'0') + '-' +
-    String(now.getDate()).padStart(2,'0') + ' ' +
-    String(now.getHours()).padStart(2,'0') + ':' +
-    String(now.getMinutes()).padStart(2,'0') + ':' +
-    String(now.getSeconds()).padStart(2,'0');
-
+  // Always print the server transaction timestamp — never the browser clock,
+  // which can disagree with the server and produce mismatched receipt dates.
   fetch(PRINT_AGENT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1306,7 +1300,7 @@ function triggerPrint(data) {
       balance:          data.balance,
       grand_total:      data.grand_total,
       cashier:          data.cashier,
-      date:             dateStr,
+      date:             data.created_at,
     }),
   }).catch(() => { /* print agent unavailable — silently ignore */ });
 }

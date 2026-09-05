@@ -1,6 +1,7 @@
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth import views as auth_views
 from django.urls import path
+from django.views.generic import RedirectView
 from . import views
 
 urlpatterns = [
@@ -37,6 +38,18 @@ urlpatterns = [
     path("administrator/teller-transactions/", views.admin_teller_transactions, name="admin-teller-transactions"),
     path("administrator/commission/", views.admin_commission, name="admin-commission"),
     path("administrator/settings/", views.admin_settings, name="admin-settings"),
+    path("administrator/users/", views.admin_users, name="admin-users"),
+    path(
+        "administrator/create-user/",
+        RedirectView.as_view(pattern_name='admin-users', permanent=False),
+        name="admin-create-user",
+    ),
+    path("administrator/print-agent/", views.admin_print_agent, name="admin-print-agent"),
+    path(
+        "administrator/print-agent/download/",
+        views.admin_print_agent_download,
+        name="admin-print-agent-download",
+    ),
     path("administrator/teller-alerts/", views.admin_teller_alerts, name="admin-teller-alerts"),
     path("administrator/teller-online-toggle/", views.toggle_teller_online, name="admin-teller-online-toggle"),
     path("administrator/teller-closeout/count/", views.admin_register_teller_cash_count, name="admin-teller-closeout-count"),
@@ -44,4 +57,4 @@ urlpatterns = [
     #path("get_button_state_view/<str:side>/", views.get_button_state_view)
     #path("reports", views.Reports, name="reports-page"),
     #path("su_admin/<slug:slug>", views.SuperUser, name="su_admin")
-]   
+]

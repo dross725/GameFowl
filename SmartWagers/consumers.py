@@ -226,7 +226,10 @@ class WagersConsumer(AsyncWebsocketConsumer):
 
         elif "barcode" in data:
             if not str(data.get("barcode") or "").strip():
-                await self.send(text_data=json.dumps({"payout": True, "error": "invalid_barcode"}))
+                await self.send(text_data=json.dumps({
+                    "payout": True,
+                    "error": "invalid_barcode",
+                }))
                 return
             if self.page == "user":
                 blocked = await self._teller_action_blocked()
@@ -234,11 +237,23 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     await self.send(text_data=json.dumps({
                         "payout": True,
                         "error": blocked,
+                        "transaction_id": services.normalize_wager_transaction_id(
+                            data["barcode"],
+                        ),
                     }))
                     return
             transaction_id = data["barcode"]
+            if self.page == "user":
+                services.log_teller_action(
+                    'payout_scan',
+                    self.scope["user"],
+                    transaction_id=services.normalize_wager_transaction_id(transaction_id),
+                    outcome='requested',
+                )
             # Tellers may only pay out bets made at their own terminal
-            requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
+            requesting_cashier = (
+                self.scope["user"].username if self.page == "user" else None
+            )
             payout_data = await self.payout_request(transaction_id, requesting_cashier)
             # Send payout result only to this connection, not the whole group,
             # so other terminals don't trigger duplicate prints.
@@ -246,7 +261,10 @@ class WagersConsumer(AsyncWebsocketConsumer):
 
         elif "cancel_barcode" in data:
             if not str(data.get("cancel_barcode") or "").strip():
-                await self.send(text_data=json.dumps({"cancel_bet": True, "error": "invalid_barcode"}))
+                await self.send(text_data=json.dumps({
+                    "cancel_bet": True,
+                    "error": "invalid_barcode",
+                }))
                 return
             if self.page == "user":
                 blocked = await self._teller_action_blocked()
@@ -254,11 +272,23 @@ class WagersConsumer(AsyncWebsocketConsumer):
                     await self.send(text_data=json.dumps({
                         "cancel_bet": True,
                         "error": blocked,
+                        "transaction_id": services.normalize_wager_transaction_id(
+                            data["cancel_barcode"],
+                        ),
                     }))
                     return
             transaction_id = data["cancel_barcode"]
+            if self.page == "user":
+                services.log_teller_action(
+                    'cancel_scan',
+                    self.scope["user"],
+                    transaction_id=services.normalize_wager_transaction_id(transaction_id),
+                    outcome='requested',
+                )
             # Tellers may only cancel bets made at their own terminal
-            requesting_cashier = str(self.scope["user"]) if self.page == "user" else None
+            requesting_cashier = (
+                self.scope["user"].username if self.page == "user" else None
+            )
             cancelbet_data = await self.cancel_bet(transaction_id, requesting_cashier)
             # Same as above — reply only to the connection that submitted the scan.
             await self.send(text_data=json.dumps(cancelbet_data))

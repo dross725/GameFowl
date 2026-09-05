@@ -305,6 +305,16 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
                     "DUPLICATE BET BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
                     existing.transactionid, fightnum, side, amount, cashier,
                 )
+                log_teller_action(
+                    'bet',
+                    cashier,
+                    transaction_id=existing.transactionid,
+                    outcome='duplicate_blocked',
+                    level='warning',
+                    fight=fightnum,
+                    side=side,
+                    amount=f"{amount:.2f}",
+                )
                 return existing, False
 
         addwager = Wagers(
@@ -328,12 +338,28 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
                         "IDEMPOTENT BET RACE: txn=%s client_request_id=%s cashier=%s",
                         existing.transactionid, client_request_id, cashier,
                     )
+                    log_teller_action(
+                        'bet',
+                        cashier,
+                        transaction_id=existing.transactionid,
+                        outcome='idempotent_retry',
+                        client_request_id=client_request_id,
+                    )
                     return existing, False
             raise
         add_total(amount, side)
     logger.info(
         "BET PLACED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
         addwager.transactionid, fightnum, side, amount, cashier,
+    )
+    log_teller_action(
+        'bet',
+        cashier,
+        transaction_id=addwager.transactionid,
+        outcome='placed',
+        fight=fightnum,
+        side=side,
+        amount=f"{amount:.2f}",
     )
     return addwager, True
 
@@ -555,6 +581,147 @@ def get_admin_fund_summary(event=None, apply_end_bound=True, include_archived=No
     }
 
 
+def get_event_commission_shares(event, *, fight_commissions, include_archived=None):
+    """Allocate each fight's commission to cashiers by wager share on that fight.
+
+    Returns a mapping of cashier username → commission share.  Summing all
+    values matches the event's pot-based commission total (within per-row
+    rounding).
+    """
+    from collections import defaultdict
+    from django.db.models import Sum
+
+    if event is None:
+        return {}
+
+    if include_archived is None:
+        include_archived = reporting.include_archived_for_event(event)
+
+    payable_fights = {
+        fc['fightnum']: fc
+        for fc in fight_commissions
+        if fc['side'] not in ('CANCELLED', 'DRAW') and fc['totalpot'] > 0
+    }
+    if not payable_fights:
+        return {}
+
+    fight_nums = list(payable_fights.keys())
+    wager_qs = reporting.active_wagers_for_event(event).filter(
+        registered=True,
+        cancelled=False,
+        fightnum__in=fight_nums,
+    )
+    archived_wager_qs = (
+        reporting.archived_wagers_for_event(event).filter(
+            registered=True,
+            cancelled=False,
+            fightnum__in=fight_nums,
+        )
+        if include_archived else None
+    )
+    if event.ended_at:
+        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+        if archived_wager_qs is not None:
+            archived_wager_qs = archived_wager_qs.filter(
+                created_at__lte=event.ended_at,
+            )
+
+    shares = defaultdict(float)
+
+    def add_rows(qs):
+        if qs is None:
+            return
+        for row in qs.values('fightnum', 'cashier').annotate(total=Sum('wager')):
+            fight = payable_fights.get(row['fightnum'])
+            if fight is None:
+                continue
+            pot = float(fight['totalpot'])
+            if pot <= 0:
+                continue
+            wager_total = float(row['total'] or 0)
+            if wager_total <= 0:
+                continue
+            shares[row['cashier']] += (wager_total / pot) * float(fight['commission'])
+
+    add_rows(wager_qs)
+    add_rows(archived_wager_qs)
+
+    return {cashier: round(amount, 2) for cashier, amount in shares.items()}
+
+
+def get_event_betting_surplus_shares(event, include_archived=None):
+    """Return each cashier's wagers minus payouts for the event."""
+    from collections import defaultdict
+    from django.db.models import Sum
+
+    if event is None:
+        return {}
+
+    if include_archived is None:
+        include_archived = reporting.include_archived_for_event(event)
+
+    wager_qs = reporting.active_wagers_for_event(event).filter(
+        registered=True,
+        cancelled=False,
+    )
+    archived_wager_qs = (
+        reporting.archived_wagers_for_event(event).filter(
+            registered=True,
+            cancelled=False,
+        )
+        if include_archived else None
+    )
+    payout_qs = reporting.active_teller_transactions_for_event(event).filter(
+        transaction_type=TellerTransaction.PAYOUT,
+    )
+    archived_payout_qs = (
+        reporting.archived_teller_transactions_for_event(event).filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        )
+        if include_archived else None
+    )
+    if event.ended_at:
+        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+        if archived_wager_qs is not None:
+            archived_wager_qs = archived_wager_qs.filter(
+                created_at__lte=event.ended_at,
+            )
+        payout_qs = payout_qs.filter(created_at__lte=event.ended_at)
+        if archived_payout_qs is not None:
+            archived_payout_qs = archived_payout_qs.filter(
+                created_at__lte=event.ended_at,
+            )
+
+    wagers_by_cashier = defaultdict(float)
+    payouts_by_cashier = defaultdict(float)
+
+    def add_wagers(qs):
+        if qs is None:
+            return
+        for row in qs.values('cashier').annotate(total=Sum('wager')):
+            wagers_by_cashier[row['cashier']] += float(row['total'] or 0)
+
+    def add_payouts(qs):
+        if qs is None:
+            return
+        for row in qs.values('user__username').annotate(total=Sum('amount')):
+            payouts_by_cashier[row['user__username']] += float(row['total'] or 0)
+
+    add_wagers(wager_qs)
+    add_wagers(archived_wager_qs)
+    add_payouts(payout_qs)
+    add_payouts(archived_payout_qs)
+
+    cashiers = set(wagers_by_cashier) | set(payouts_by_cashier)
+    return {
+        cashier: round(
+            wagers_by_cashier.get(cashier, 0.0) - payouts_by_cashier.get(cashier, 0.0),
+            2,
+        )
+        for cashier in cashiers
+    }
+
+
 def get_event_cash_reconciliation(
     event,
     *,
@@ -572,8 +739,9 @@ def get_event_cash_reconciliation(
       1. Betting surplus vs expected commission — same house take measured two
          ways (wagers−payouts vs pot×plasada); variance should be ~0.
       2. Net earnings (from cash position) vs betting surplus — physical cash
-         after stripping house capital; variance should be ~0 unless stations
-         were short/over at close-out (see close_out_variance_total).
+         after stripping house capital and adding back bank remits that already
+         left the drawers; variance should be ~0 unless stations were short/over
+         at close-out (see close_out_variance_total).
     """
     from django.db.models import Sum
 
@@ -635,14 +803,22 @@ def get_event_cash_reconciliation(
         ),
     )
 
-    admin_cash = admin_fund_summary['balance']
+    admin_cash = admin_fund_summary['balance_before_closeouts']
     total_cash = teller_cash_on_hand + admin_cash
+    admin_opening_fund = float(admin_fund_summary['opening_fund'])
+    additional_bank_borrowed = float(admin_fund_summary['additional_bank_borrowed'])
+    bank_borrowed = float(admin_fund_summary['bank_borrowed'])
+    bank_remitted = float(admin_fund_summary['bank_remitted'])
     net_bank = admin_fund_summary['net_bank_funding']
+    # Same math as − net_bank, but shown as admin petty / borrows vs remits
+    # added back so drawer cash can be traced up to commission.
     net_earnings = (
         total_cash
         + float(remits_not_in_admin)
         - float(total_opening_fund)
-        - float(net_bank)
+        - admin_opening_fund
+        - additional_bank_borrowed
+        + bank_remitted
     )
     betting_surplus = float(total_bets_collected) - float(total_payouts)
     surplus_vs_commission = betting_surplus - float(expected_commission)
@@ -654,6 +830,10 @@ def get_event_cash_reconciliation(
         'admin_cash_on_hand': round(float(admin_cash), 2),
         'total_cash_on_hand': round(float(total_cash), 2),
         'opening_fund_total': round(float(total_opening_fund), 2),
+        'admin_opening_fund': round(admin_opening_fund, 2),
+        'additional_bank_borrowed': round(additional_bank_borrowed, 2),
+        'bank_borrowed': round(bank_borrowed, 2),
+        'bank_remitted': round(bank_remitted, 2),
         'net_bank_funding': round(float(net_bank), 2),
         'teller_remits_all': round(float(teller_remits_all), 2),
         'remits_not_in_admin': round(float(remits_not_in_admin), 2),
@@ -679,15 +859,17 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     post-event settlement transactions are still counted.
     """
     from django.db.models import Sum
+    from SmartWagers import reporting
+
     wager_qs = Wagers.objects.filter(cashier=str(user), registered=True, cancelled=False)
     txn_qs   = TellerTransaction.objects.filter(user=user)
 
-    if event is not None:
-        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
-        txn_qs   = txn_qs.filter(created_at__gte=event.started_at)
-        if apply_end_bound and event.ended_at:
-            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-            txn_qs   = txn_qs.filter(created_at__lte=event.ended_at)
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound,
+    )
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound,
+    )
 
     grand_total   = wager_qs.aggregate(t=Sum('wager'))['t']  or 0.0
     remit_total   = txn_qs.filter(transaction_type=TellerTransaction.REMIT  ).aggregate(t=Sum('amount'))['t'] or 0.0
@@ -700,17 +882,18 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
 def compute_teller_balance_breakdown(user, event=None, apply_end_bound=True):
     """Return balance components for a teller, optionally scoped to an event."""
     from django.db.models import Sum
+    from SmartWagers import reporting
 
     username = str(user)
     wager_qs = Wagers.objects.filter(cashier=username, registered=True, cancelled=False)
     txn_qs = TellerTransaction.objects.filter(user=user)
 
-    if event is not None:
-        wager_qs = wager_qs.filter(created_at__gte=event.started_at)
-        txn_qs = txn_qs.filter(created_at__gte=event.started_at)
-        if apply_end_bound and event.ended_at:
-            wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
-            txn_qs = txn_qs.filter(created_at__lte=event.ended_at)
+    wager_qs = reporting.filter_wagers_for_teller(
+        wager_qs, user, event, apply_end_bound,
+    )
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound,
+    )
 
     grand_total = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
     remit_total = txn_qs.filter(
@@ -778,6 +961,15 @@ def close_teller_station(user, event=None):
     logger.info(
         "STATION CLOSED: teller=%s event=%s fight=%s expected=%.2f",
         user.username, event.pk, fightnum, breakdown['balance'],
+    )
+    log_teller_action(
+        'close_station',
+        user,
+        outcome='closed',
+        event=event.pk,
+        fight=fightnum,
+        close_out_id=close_out.pk,
+        expected_cash=f"{breakdown['balance']:.2f}",
     )
     return close_out
 
@@ -853,6 +1045,53 @@ def register_teller_cash_count(close_out_id, actual_amount, admin_user):
     return close_out
 
 
+def truncate_payout_to_pesos(amount):
+    """Drop centavos from a payout amount with no rounding. 165.50 -> 165."""
+    return math.trunc(float(amount))
+
+
+def cashier_username(user_or_name):
+    """Normalize a User or stored cashier string to the Wagers.cashier username."""
+    if user_or_name is None:
+        return None
+    if hasattr(user_or_name, 'username'):
+        return user_or_name.username
+    return str(user_or_name).strip()
+
+
+def normalize_logged_transaction_id(raw):
+    """Normalize wager/remit/test ids for consistent audit log lines."""
+    if raw is None:
+        return None
+    tid = str(raw).strip()
+    if not tid:
+        return None
+    if tid.lower() == 'test':
+        return 'test'
+    remit_tid = normalize_teller_transaction_id(tid)
+    if remit_tid:
+        return remit_tid
+    return normalize_wager_transaction_id(tid)
+
+
+def log_teller_action(action, teller, *, transaction_id=None, outcome=None, level='info', **extra):
+    """Write a standardized teller audit line to app.log."""
+    parts = [f"TELLER {str(action).upper()}"]
+    if outcome:
+        parts.append(f"outcome={outcome}")
+    teller_name = cashier_username(teller)
+    if teller_name:
+        parts.append(f"teller={teller_name}")
+    txn = normalize_logged_transaction_id(transaction_id)
+    if txn:
+        parts.append(f"txn={txn}")
+    for key, value in extra.items():
+        if value is not None and value != '':
+            parts.append(f"{key}={value}")
+    log_fn = getattr(logger, level, logger.info)
+    log_fn(" ".join(parts))
+
+
 def _payout_exceeds_cash_on_hand(cashier_username, amount, transaction_id):
     """Return an error dict if *amount* exceeds the cashier's cash on hand, else None.
 
@@ -904,8 +1143,19 @@ def _closing_event_for_settlement():
 
 
 def teller_has_opening_fund_for_event(teller, event):
-    """Return True if *teller* already received opening float in *event*."""
-    return get_teller_opening_fund_total(teller, event) > 0
+    """Return True if *teller* already received opening float in *event*.
+
+    Matches any bank-sourced opening COLLECT (affects_admin_fund=False) in the
+    event window, not just the current settings amount.  That keeps issuance
+    idempotent if teller_initial_fund is changed mid-event.
+    """
+    if event is None:
+        return False
+    txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=teller)
+    return txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT,
+        affects_admin_fund=False,
+    ).exists()
 
 
 def get_teller_opening_fund_total(teller, event, txn_qs=None, include_archived=False):
@@ -951,10 +1201,12 @@ def _reset_teller_balances():
 
     These rollover entries are accounting-only. The outgoing event is settled
     with the bank, so they must not change the next event's shared admin fund.
+
+    Returns the primary keys of settlement rows created in this call.
     """
     closing_event = _closing_event_for_settlement()
     if closing_event is None:
-        return
+        return []
 
     # Active events have no ended_at yet; already-ended events must include
     # post-ended_at settlement rows in the closing event's report window.
@@ -969,6 +1221,7 @@ def _reset_teller_balances():
     )
 
     created_settlements = False
+    settlement_ids = []
     for cashier in cashiers:
         balance = _get_teller_outstanding_balance(
             cashier, event=closing_event, apply_end_bound=apply_end_bound,
@@ -977,7 +1230,7 @@ def _reset_teller_balances():
             continue
         created_settlements = True
         if balance > 0:
-            TellerTransaction.objects.create(
+            txn = TellerTransaction.objects.create(
                 user=cashier,
                 transaction_type=TellerTransaction.REMIT,
                 amount=round(balance, 2),
@@ -985,15 +1238,64 @@ def _reset_teller_balances():
                 affects_admin_fund=False,
             )
         else:
-            TellerTransaction.objects.create(
+            txn = TellerTransaction.objects.create(
                 user=cashier,
                 transaction_type=TellerTransaction.COLLECT,
                 amount=round(abs(balance), 2),
                 affects_admin_fund=False,
             )
+        settlement_ids.append(txn.pk)
 
     if already_ended and created_settlements:
         Event.objects.filter(pk=closing_event.pk).update(ended_at=now())
+
+    return settlement_ids
+
+
+def issue_teller_opening_fund_if_needed(teller, event=None, *, require_online=True):
+    """Issue opening float to *teller* for *event* when eligible.
+
+    Returns True when a COLLECT row is created.  Offline tellers are skipped
+    when *require_online* is True (the default).  Idempotent: callers may
+    invoke this whenever an online teller should have opening funds, including
+    for tellers created after the current event already started.
+    """
+    if event is None:
+        event = get_active_event()
+    if event is None:
+        return False
+
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    if teller.pk in admin_ids or not teller.groups.filter(name='teller').exists():
+        return False
+
+    if require_online:
+        status, _ = TellerStatus.objects.get_or_create(
+            user=teller, defaults={'is_online': True},
+        )
+        if not status.is_online:
+            return False
+
+    setting = Settings.objects.order_by('-id').first()
+    initial_fund = setting.teller_initial_fund if setting else 10000.0
+    if initial_fund <= 0:
+        return False
+
+    with db_transaction.atomic():
+        # Serialize concurrent issuance (teller page + toggle + create user).
+        User.objects.select_for_update().filter(pk=teller.pk).first()
+        if teller_has_opening_fund_for_event(teller, event):
+            return False
+
+        TellerTransaction.objects.create(
+            user=teller,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=round(initial_fund, 2),
+            affects_admin_fund=False,
+        )
+    return True
 
 
 def _issue_initial_teller_funds():
@@ -1006,33 +1308,20 @@ def _issue_initial_teller_funds():
     amount on top of any bets they collect during the event).
 
     Offline/absent tellers are intentionally skipped — they receive no opening
-    float.  If they are later marked online mid-event, toggle_teller_online
+    float.  If they are later marked online mid-event, issue_teller_opening_fund_if_needed
     issues a matching COLLECT at that point.  If they register bets while still
     marked offline, that is an admin-visible alert (by design: we notify rather
     than block, since the physical teller may be present but just forgotten to
     be toggled on).
     """
-    setting = Settings.objects.order_by('-id').first()
-    initial_fund = setting.teller_initial_fund if setting else 10000.0
-    if initial_fund > 0:
-        admin_ids = User.objects.filter(
-            groups__name='admin',
-        ).values_list('pk', flat=True)
-        tellers = User.objects.filter(groups__name='teller').exclude(
-            pk__in=admin_ids,
-        )
-        for teller in tellers:
-            status, _ = TellerStatus.objects.get_or_create(user=teller)
-            if not status.is_online:
-                continue
-            if teller_has_opening_fund_for_event(teller, get_active_event()):
-                continue
-            TellerTransaction.objects.create(
-                user=teller,
-                transaction_type=TellerTransaction.COLLECT,
-                amount=round(initial_fund, 2),
-                affects_admin_fund=False,
-            )
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    tellers = User.objects.filter(groups__name='teller').exclude(
+        pk__in=admin_ids,
+    )
+    for teller in tellers:
+        issue_teller_opening_fund_if_needed(teller)
 
 
 def start_event(name):
@@ -1057,14 +1346,23 @@ def start_event(name):
 
         # Settle all outstanding teller balances against the closing event
         # before it is deactivated so the entries stay in the old event scope.
-        _reset_teller_balances()
-        Event.objects.filter(is_active=True).update(is_active=False, ended_at=now())
+        settlement_ids = _reset_teller_balances()
+        ended_at = now()
+        Event.objects.filter(is_active=True).update(
+            is_active=False, ended_at=ended_at,
+        )
+        if settlement_ids:
+            # Anchor settlement rows inside the closing event window so they
+            # never appear in the next event's teller/admin totals.
+            TellerTransaction.objects.filter(pk__in=settlement_ids).update(
+                created_at=ended_at,
+            )
 
         setting = Settings.objects.order_by('-id').first()
         admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
-        # Stamp started_at after settlement so rollover transactions never leak
-        # into the new event window on backends with coarse timestamps.
-        event_start = now()
+        # Stamp started_at strictly after settlement so rollover transactions
+        # never leak into the new event window on backends with coarse timestamps.
+        event_start = ended_at + timedelta(microseconds=1)
         event = Event.objects.create(
             name=name,
             is_active=True,
@@ -1281,7 +1579,7 @@ def print_payout_reciept(payout_data):
     wager_amount = payout_data.get('wager', payout_data.get('amount', ''))
     c.drawCentredString(width / 2, height - 95, f"Amount: {wager_amount}")
     c.drawCentredString(width / 2, height - 110, f"Odds: {odds}")
-    c.drawCentredString(width / 2, height - 125, f"Payout Amount: {amount:.2f}")
+    c.drawCentredString(width / 2, height - 125, f"Payout Amount: {math.trunc(amount)}")
     
     c.setFont("Helvetica", 10)
     c.drawCentredString(width / 2, height - 145, f"Cashier: {cashier}")
@@ -1545,7 +1843,7 @@ def build_payout_reprint_payload(wager):
         return None
 
     multiplier = round(payout_rate / 100, 4)
-    total_payout = round(wager.wager * multiplier, 2)
+    total_payout = truncate_payout_to_pesos(wager.wager * multiplier)
     receipt_date = now().strftime("%Y-%m-%d %H:%M:%S")
     return {
         'receipt_type': receipt_kind,
@@ -1555,7 +1853,7 @@ def build_payout_reprint_payload(wager):
         'amount': format(wager.wager, '.2f'),
         'odds': odds,
         'multiplier': format(multiplier, '.4f'),
-        'Total_Payout': format(total_payout, '.2f'),
+        'Total_Payout': format(total_payout, '.0f'),
         'cashier': wager.cashier,
         'date': receipt_date,
         'reprint': True,
@@ -1575,10 +1873,92 @@ def payout_request(transaction_id, requesting_cashier=None):
         wager = wager_qs.first()
 
     cashier_hint = wager.cashier if wager else None
-    return _payout_request_locked(
+    result = _payout_request_locked(
         transaction_id,
         requesting_cashier=requesting_cashier,
         cashier_hint=cashier_hint,
+    )
+    _audit_payout_result(transaction_id, requesting_cashier, result)
+    return result
+
+
+def _audit_payout_result(transaction_id, requesting_cashier, result):
+    actor = requesting_cashier or result.get('cashier')
+    txn = result.get('transaction_id') or transaction_id
+    if result.get('error'):
+        extra = {}
+        if result['error'] == 'wrong_teller':
+            extra['owner'] = result.get('original_cashier')
+        if result['error'] == 'cashier_not_found':
+            extra['ticket_cashier'] = result.get('cashier')
+        if result.get('reprint_available'):
+            extra['reprint'] = 'available'
+        warning_errors = {
+            'notfound', 'wrong_teller', 'alreadypaid', 'wrongside',
+            'exceeds_cash_on_hand', 'cashier_not_found',
+        }
+        log_teller_action(
+            'payout',
+            actor,
+            transaction_id=txn,
+            outcome=result['error'],
+            level='warning' if result['error'] in warning_errors else 'info',
+            **extra,
+        )
+        return
+
+    side = str(result.get('side', '')).upper()
+    if side == 'CANCELLED':
+        outcome = 'cancel_refund'
+    elif side == 'DRAW':
+        outcome = 'draw_refund'
+    else:
+        outcome = 'paid'
+    extra = {}
+    if result.get('fightnum') is not None:
+        extra['fight'] = result.get('fightnum')
+    if side:
+        extra['side'] = side
+    if result.get('Total_Payout') is not None:
+        extra['payout'] = result.get('Total_Payout')
+    if result.get('wager') is not None:
+        extra['wager'] = result.get('wager')
+    log_teller_action(
+        'payout',
+        actor or result.get('cashier'),
+        transaction_id=txn,
+        outcome=outcome,
+        **extra,
+    )
+
+
+def _audit_cancel_result(transaction_id, requesting_cashier, result, cancel_data=None):
+    actor = requesting_cashier or (cancel_data.cashier if cancel_data else None)
+    txn = result.get('transaction_id') or transaction_id
+    if result.get('error'):
+        extra = {}
+        if result['error'] == 'wrong_teller':
+            extra['owner'] = result.get('original_cashier')
+        log_teller_action(
+            'cancel_bet',
+            actor,
+            transaction_id=txn,
+            outcome=result['error'],
+            level='warning',
+            **extra,
+        )
+        return
+
+    extra = {'amount': result.get('amount')}
+    if cancel_data is not None:
+        extra['fight'] = cancel_data.fightnum
+        extra['side'] = cancel_data.side
+    log_teller_action(
+        'cancel_bet',
+        actor or (cancel_data.cashier if cancel_data else None),
+        transaction_id=txn,
+        outcome='cancelled',
+        **extra,
     )
 
 
@@ -1586,7 +1966,7 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
     from django.db.models import Q
     from django.db.models import F
 
-    payout_result = {'payout': True}
+    payout_result = {'payout': True, 'transaction_id': transaction_id}
     comm = get_comm_val()
     active_event = get_active_event()
 
@@ -1619,6 +1999,16 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
             payout_result['error'] = 'notfound'
             return payout_result
 
+        requesting_cashier = cashier_username(requesting_cashier)
+        if requesting_cashier and payout_data.cashier != requesting_cashier:
+            logger.warning(
+                "PAYOUT WRONG TELLER: txn=%s belongs to %s, requested by %s",
+                transaction_id, payout_data.cashier, requesting_cashier,
+            )
+            payout_result['error'] = 'wrong_teller'
+            payout_result['original_cashier'] = payout_data.cashier
+            return payout_result
+
         if payout_data.cashed_out:
             logger.warning(
                 "PAYOUT DUPLICATE: txn=%s fight=%s already paid cashier=%s",
@@ -1629,15 +2019,6 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
             if receipt:
                 payout_result['receipt'] = receipt
                 payout_result['reprint_available'] = True
-            return payout_result
-
-        if requesting_cashier and payout_data.cashier != requesting_cashier:
-            logger.warning(
-                "PAYOUT WRONG TELLER: txn=%s belongs to %s, requested by %s",
-                transaction_id, payout_data.cashier, requesting_cashier,
-            )
-            payout_result['error'] = 'wrong_teller'
-            payout_result['original_cashier'] = payout_data.cashier
             return payout_result
 
         # Resolve cashier before any cash-out so a missing User never leaves
@@ -1775,7 +2156,7 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
             payout_multiplier = 100
 
         payout_multiplier = round(payout_multiplier / 100, 4)
-        total_payout = round(wager * payout_multiplier, 2)
+        total_payout = truncate_payout_to_pesos(wager * payout_multiplier)
 
         reject = _payout_exceeds_cash_on_hand(
             payout_data.cashier, total_payout, transaction_id,
@@ -1809,7 +2190,7 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
         'odds': payout_fightresults.odds,
         'cashier': payout_data.cashier,
         'receipt_date': receipt_date,
-        'Total_Payout': format(total_payout, '.2f'),
+        'Total_Payout': format(total_payout, '.0f'),
         'multiplier': format(payout_multiplier, '.4f'),
         'receipt': {
             'receipt_type': 'payout',
@@ -1819,7 +2200,7 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
             'amount': format(wager, '.2f'),
             'odds': payout_fightresults.odds,
             'multiplier': format(payout_multiplier, '.4f'),
-            'Total_Payout': format(total_payout, '.2f'),
+            'Total_Payout': format(total_payout, '.0f'),
             'cashier': payout_data.cashier,
             'date': receipt_date,
         },
@@ -1933,7 +2314,7 @@ def payout_old_ticket(event, teller_username, transaction_id):
             payout_multiplier = 100.0
 
         payout_multiplier = round(payout_multiplier / 100, 4)
-        total_payout = round(wager.wager * payout_multiplier, 2)
+        total_payout = truncate_payout_to_pesos(wager.wager * payout_multiplier)
 
         wager.cashed_out = True
         wager.save(update_fields=['cashed_out'])
@@ -1958,6 +2339,7 @@ def lookup_wager_for_reprint(transaction_id, cashier=None):
     qs = Wagers.objects.filter(
         transactionid=transaction_id, registered=True, cancelled=False,
     )
+    cashier = cashier_username(cashier)
     if cashier is not None:
         qs = qs.filter(cashier=cashier)
     if active_event:
@@ -2024,7 +2406,8 @@ def cancel_bet(transaction_id, requesting_cashier=None):
     """
     transaction_id = normalize_wager_transaction_id(transaction_id)
     active_event = get_active_event()
-    cancel_result = {"cancel_bet": True}
+    cancel_result = {'cancel_bet': True, 'transaction_id': transaction_id}
+    requesting_actor = cashier_username(requesting_cashier)
 
     with db_transaction.atomic():
         qs = Wagers.objects.select_for_update().filter(
@@ -2038,32 +2421,16 @@ def cancel_bet(transaction_id, requesting_cashier=None):
         if cancel_data is None:
             logger.warning("CANCEL BET: txn=%s not found", transaction_id)
             cancel_result['error'] = 'notfound'
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result)
             return cancel_result
 
         if cancel_data.transactionid is None:
             logger.warning("CANCEL BET: txn=%s has null transactionid", transaction_id)
             cancel_result['error'] = 'notfound'
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result)
             return cancel_result
 
-        if cancel_data.cashed_out:
-            logger.warning(
-                "CANCEL BET REJECTED (already paid): txn=%s fight=%s", transaction_id, cancel_data.fightnum
-            )
-            cancel_result['error'] = 'alreadypaid'
-            return cancel_result
-
-        if cancel_data.side not in ('MERON', 'WALA'):
-            logger.warning(
-                "CANCEL BET REJECTED (invalid side): txn=%s side=%s", transaction_id, cancel_data.side
-            )
-            cancel_result['error'] = 'notfound'
-            return cancel_result
-
-        if cancel_data.cashier == 'System':
-            logger.warning("CANCEL BET REJECTED (system wager): txn=%s", transaction_id)
-            cancel_result['error'] = 'notfound'
-            return cancel_result
-
+        requesting_cashier = requesting_actor
         if requesting_cashier and cancel_data.cashier != requesting_cashier:
             logger.warning(
                 "CANCEL BET WRONG TELLER: txn=%s belongs to %s, requested by %s",
@@ -2071,6 +2438,29 @@ def cancel_bet(transaction_id, requesting_cashier=None):
             )
             cancel_result['error'] = 'wrong_teller'
             cancel_result['original_cashier'] = cancel_data.cashier
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
+            return cancel_result
+
+        if cancel_data.cashed_out:
+            logger.warning(
+                "CANCEL BET REJECTED (already paid): txn=%s fight=%s", transaction_id, cancel_data.fightnum
+            )
+            cancel_result['error'] = 'alreadypaid'
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
+            return cancel_result
+
+        if cancel_data.side not in ('MERON', 'WALA'):
+            logger.warning(
+                "CANCEL BET REJECTED (invalid side): txn=%s side=%s", transaction_id, cancel_data.side
+            )
+            cancel_result['error'] = 'notfound'
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
+            return cancel_result
+
+        if cancel_data.cashier == 'System':
+            logger.warning("CANCEL BET REJECTED (system wager): txn=%s", transaction_id)
+            cancel_result['error'] = 'notfound'
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
             return cancel_result
 
         fn = cancel_data.fightnum
@@ -2083,10 +2473,12 @@ def cancel_bet(transaction_id, requesting_cashier=None):
                     "CANCEL BET REJECTED (match complete): txn=%s fight=%s", transaction_id, fn
                 )
                 cancel_result['error'] = 'matchcomplete'
+                _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
                 return cancel_result
 
             logger.error("CANCEL BET: Fight_Status not found for fight=%s", fn)
             cancel_result['error'] = 'systemerror'
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
             return cancel_result
 
         overall_status = fight_status.overall_status
@@ -2097,6 +2489,7 @@ def cancel_bet(transaction_id, requesting_cashier=None):
                 transaction_id, fn, overall_status,
             )
             cancel_result['error'] = 'matchnotopen'
+            _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
             return cancel_result
 
         # Deduct totals and mark the wager cancelled inside the same atomic
@@ -2116,6 +2509,7 @@ def cancel_bet(transaction_id, requesting_cashier=None):
         cancel_result['transaction_id'], fn, cancel_data.side,
         cancel_data.wager, cancel_data.cashier,
     )
+    _audit_cancel_result(transaction_id, requesting_actor, cancel_result, cancel_data)
     return cancel_result
 
 #update totals due to cancelled bet
