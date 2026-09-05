@@ -153,19 +153,34 @@ Test from another PC on the network: `http://<SERVER-IP>:8080/login`
 
 ## Step 6 — Deploy the print agent on each cashier PC
 
-On every Windows PC that will handle payouts (teller/cashier stations):
+### Build the offline runtime on the server (once, needs internet)
 
-1. Copy the `local_print_agent\` folder to the cashier PC (e.g. `C:\SmartWagers\local_print_agent\`)
-2. Run `local_print_agent\install_print_agent.bat`
-   - Installs `pywin32`
-   - Creates `config.json` and opens it in Notepad — set `printer_name` to the
-     exact Windows printer queue name for that PC's receipt printer
+```bat
+cd C:\SmartWagers\GameFowl\local_print_agent
+prepare_vendor.bat
+```
+
+This creates `local_print_agent\python\` (embeddable Python 3.12 + pywin32).
+Without this step, Admin → Print Agent downloads will not include an offline Python.
+
+### Install on each teller / cashier PC
+
+1. Install the USB receipt printer driver and set it as the **Windows default printer**
+2. On any admin PC, open **Admin ▾ → Print Agent → Download Print Agent**
+3. Unzip `SmartWagers-PrintAgent.zip` on the cashier PC
+   (e.g. `C:\SmartWagers\local_print_agent\`)
+4. Run `install_print_agent.bat`
+   - Uses the bundled `python\` runtime (no system Python / no internet)
+   - Shows the detected Windows default printer (leave `printer_name` empty)
+   - Creates `config.json` if missing
    - Adds the agent to the Windows **Startup** folder so it auto-starts on login
-3. Optional: run `local_print_agent\create_teller_shortcut.bat` to put a
-   **SmartWagers Teller** icon (club logo) on the Desktop that launches
-   `start_teller_silent.vbs`
+5. Optional: create `server.env` from `server.env.example`, then run
+   `create_teller_shortcut.bat` for a **SmartWagers Teller** desktop icon
 
 Test: open `http://127.0.0.1:8765/health` in a browser on the cashier PC.
+
+You can still copy the `local_print_agent\` folder via USB instead of downloading
+from the admin page — same install steps apply.
 
 ---
 
