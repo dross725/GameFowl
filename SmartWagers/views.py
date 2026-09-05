@@ -1,8 +1,9 @@
 from django.shortcuts import render, redirect
 from django.urls import reverse
 from django.http import JsonResponse, HttpResponseForbidden, FileResponse, HttpResponse
-from django.db import transaction as db_transaction
+from django.db import transaction as db_transaction, IntegrityError
 from django.db.models import Sum, Count, Q, F
+from django.db.models.deletion import ProtectedError
 from django.views.decorators.http import require_GET, require_http_methods
 from django.views.decorators.csrf import ensure_csrf_cookie
 from . import services as services
@@ -10,6 +11,8 @@ from . import masterlock
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from .models import (
     AdminBankTransaction, Event, Fight_Results, SessionLog, Settings,
     TellerCloseOut, TellerStatus, TellerTransaction, Wagers,
@@ -2551,6 +2554,300 @@ def build_print_agent_zip_bytes() -> bytes:
             arcname = Path('SmartWagers-PrintAgent') / path.relative_to(agent_dir)
             zf.write(path, arcname.as_posix())
     return buffer.getvalue()
+
+
+_CREATE_USER_ROLES = ('teller', 'admin', 'display')
+_ADMIN_USERS_FLASH_KEY = 'admin_users_flash'
+
+
+def _managed_user_rows():
+    """Return users with sorted role names for the management table."""
+    rows = []
+    for user in User.objects.prefetch_related('groups').order_by('username'):
+        roles = sorted(user.groups.values_list('name', flat=True))
+        rows.append({
+            'user': user,
+            'roles': roles,
+            'role_label': ', '.join(roles) if roles else '—',
+        })
+    return rows
+
+
+def _admin_users_context(**overrides):
+    context = {
+        'roles': _CREATE_USER_ROLES,
+        'users': _managed_user_rows(),
+        'error': None,
+        'success': None,
+        'credentials': None,
+        'form_username': '',
+        'form_role': 'teller',
+    }
+    context.update(overrides)
+    return context
+
+
+def _admin_users_redirect(
+    request,
+    *,
+    error=None,
+    success=None,
+    credentials=None,
+    form_username='',
+    form_role='teller',
+):
+    """PRG helper so refresh does not re-submit create/reset/delete."""
+    request.session[_ADMIN_USERS_FLASH_KEY] = {
+        'error': error,
+        'success': success,
+        'credentials': credentials,
+        'form_username': form_username,
+        'form_role': form_role,
+    }
+    return redirect('admin-users')
+
+
+def _invalidate_user_sessions(user):
+    """Drop all active Django sessions for *user* after a password reset."""
+    from django.contrib.sessions.models import Session
+    from django.utils.timezone import now as tz_now
+
+    for session in Session.objects.filter(expire_date__gte=tz_now()):
+        data = session.get_decoded()
+        if str(data.get('_auth_user_id')) == str(user.pk):
+            session.delete()
+
+
+def _password_validation_error(password, user=None):
+    """Return a user-facing password error string, or None if valid."""
+    if not password:
+        return 'Select or enter a password.'
+    if len(password) < 8:
+        return 'Password must be at least 8 characters.'
+    try:
+        validate_password(password, user=user)
+    except ValidationError as exc:
+        return ' '.join(exc.messages)
+    return None
+
+
+@group_required('admin')
+@require_http_methods(['GET', 'POST'])
+def admin_users(request):
+    """Admin page: list users, create accounts, reset passwords, delete users."""
+    if request.method == 'GET':
+        flash = request.session.pop(_ADMIN_USERS_FLASH_KEY, None) or {}
+        return render(
+            request,
+            'SmartWagers/admin_users.html',
+            _admin_users_context(**flash),
+        )
+
+    action = (request.POST.get('action') or 'create').strip().lower()
+
+    if action == 'create':
+        return _admin_users_create(request)
+    if action == 'reset_password':
+        return _admin_users_reset_password(request)
+    if action == 'delete':
+        return _admin_users_delete(request)
+
+    return _admin_users_redirect(request, error='Unknown action.')
+
+
+def _admin_users_create(request):
+    username = (request.POST.get('username') or '').strip()
+    password = request.POST.get('password') or ''
+    role = (request.POST.get('role') or 'teller').strip().lower()
+    form_role = role if role in _CREATE_USER_ROLES else 'teller'
+
+    if not username:
+        return _admin_users_redirect(
+            request,
+            error='Username is required.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    password_error = _password_validation_error(password)
+    if password_error:
+        return _admin_users_redirect(
+            request,
+            error=password_error,
+            form_username=username,
+            form_role=form_role,
+        )
+
+    if role not in _CREATE_USER_ROLES:
+        return _admin_users_redirect(
+            request,
+            error='Invalid role.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    if User.objects.filter(username__iexact=username).exists():
+        return _admin_users_redirect(
+            request,
+            error=f'Username "{username}" is already taken.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    try:
+        group = Group.objects.get(name=role)
+    except Group.DoesNotExist:
+        return _admin_users_redirect(
+            request,
+            error=f'Role group "{role}" is not configured.',
+            form_username=username,
+            form_role=form_role,
+        )
+
+    try:
+        with db_transaction.atomic():
+            user = User.objects.create_user(username=username, password=password)
+            user.groups.add(group)
+            if role == 'teller':
+                TellerStatus.objects.get_or_create(
+                    user=user, defaults={'is_online': True},
+                )
+                services.issue_teller_opening_fund_if_needed(user)
+    except IntegrityError:
+        return _admin_users_redirect(
+            request,
+            error=f'Username "{username}" is already taken.',
+            form_username=username,
+            form_role=form_role,
+        )
+    except ValidationError as exc:
+        return _admin_users_redirect(
+            request,
+            error=' '.join(getattr(exc, 'messages', [str(exc)])),
+            form_username=username,
+            form_role=form_role,
+        )
+
+    logger.info(
+        "CREATE_USER: username=%s role=%s by admin=%s",
+        username, role, request.user.username,
+    )
+    return _admin_users_redirect(
+        request,
+        success=f'User "{user.username}" created.',
+        credentials={
+            'username': user.username,
+            'password': password,
+            'role': role,
+            'action': 'created',
+        },
+    )
+
+
+def _admin_users_reset_password(request):
+    try:
+        user_id = int(request.POST.get('user_id', 0))
+    except (TypeError, ValueError):
+        user_id = 0
+    password = request.POST.get('password') or ''
+
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return _admin_users_redirect(request, error='User not found.')
+
+    password_error = _password_validation_error(password, user=user)
+    if password_error:
+        return _admin_users_redirect(request, error=password_error)
+
+    user.set_password(password)
+    user.save(update_fields=['password'])
+    _invalidate_user_sessions(user)
+    logger.info(
+        "RESET_PASSWORD: username=%s by admin=%s",
+        user.username, request.user.username,
+    )
+    return _admin_users_redirect(
+        request,
+        success=f'Password reset for "{user.username}".',
+        credentials={
+            'username': user.username,
+            'password': password,
+            'role': ', '.join(sorted(user.groups.values_list('name', flat=True))) or '—',
+            'action': 'reset',
+        },
+    )
+
+
+def _admin_users_delete(request):
+    try:
+        user_id = int(request.POST.get('user_id', 0))
+    except (TypeError, ValueError):
+        user_id = 0
+
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return _admin_users_redirect(request, error='User not found.')
+
+    if user.pk == request.user.pk:
+        return _admin_users_redirect(
+            request, error='You cannot delete your own account.',
+        )
+
+    if user.is_superuser and not request.user.is_superuser:
+        return _admin_users_redirect(
+            request, error='Only a superuser can delete another superuser.',
+        )
+
+    if user.groups.filter(name='admin').exists():
+        other_admins = User.objects.filter(groups__name='admin').exclude(pk=user.pk)
+        if not other_admins.exists():
+            return _admin_users_redirect(
+                request,
+                error='Cannot delete the last admin account.',
+            )
+
+    if (
+        TellerTransaction.objects.filter(user=user).exists()
+        or AdminBankTransaction.objects.filter(admin=user).exists()
+        or TellerCloseOut.objects.filter(Q(user=user) | Q(counted_by=user)).exists()
+    ):
+        return _admin_users_redirect(
+            request,
+            error=(
+                f'Cannot delete "{user.username}" because they have transaction '
+                'history. Reset their password instead.'
+            ),
+        )
+
+    username = user.username
+    try:
+        user.delete()
+    except ProtectedError:
+        logger.warning(
+            "DELETE_USER blocked (protected refs): username=%s by admin=%s",
+            username, request.user.username,
+        )
+        return _admin_users_redirect(
+            request,
+            error=(
+                f'Cannot delete "{username}" because they have historical '
+                'transaction records. Reset their password instead.'
+            ),
+        )
+
+    logger.info(
+        "DELETE_USER: username=%s by admin=%s",
+        username, request.user.username,
+    )
+    return _admin_users_redirect(
+        request, success=f'User "{username}" deleted.',
+    )
+
+
+# Keep old view name as an alias for any remaining imports / reverse lookups.
+admin_create_user = admin_users
 
 
 @group_required('admin')
