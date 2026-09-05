@@ -48,6 +48,13 @@ releases/
 deploy/release_staging/
 *.egg-info/
 
+# Local print agent offline runtime (built by prepare_vendor.py)
+local_print_agent/python/
+local_print_agent/vendor/_staging/
+local_print_agent/config.json
+local_print_agent/server.env
+local_print_agent/*.log
+
 # Node/frontend dependencies and builds
 node_modules/
 npm-debug.log*

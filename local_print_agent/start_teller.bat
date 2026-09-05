@@ -67,6 +67,10 @@ echo        Starting print agent...
 if not exist "%AGENT_DIR%print_agent.py" goto :print_missing
 if exist "%AGENT_DIR%start_print_agent_silent.vbs" (
     wscript //nologo "%AGENT_DIR%start_print_agent_silent.vbs"
+) else if exist "%AGENT_DIR%python\pythonw.exe" (
+    start "" /D "%AGENT_DIR%" "%AGENT_DIR%python\pythonw.exe" print_agent.py
+) else if exist "%AGENT_DIR%python\python.exe" (
+    start "" /D "%AGENT_DIR%" /min "%AGENT_DIR%python\python.exe" print_agent.py
 ) else (
     where pythonw >nul 2>&1
     if not errorlevel 1 (

@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect
 from django.urls import reverse
-from django.http import JsonResponse, HttpResponseForbidden
+from django.http import JsonResponse, HttpResponseForbidden, FileResponse, HttpResponse
 from django.db import transaction as db_transaction
 from django.db.models import Sum, Count, Q, F
 from django.views.decorators.http import require_GET, require_http_methods
@@ -18,8 +18,12 @@ from django.contrib.auth.models import Group, User
 from django.contrib.auth.views import LoginView
 from django.contrib.auth.views import LogoutView
 from django.utils.timezone import now
+from django.conf import settings
+import io
 import logging
 import math
+import zipfile
+from pathlib import Path
 
 logger = logging.getLogger('SmartWagers.views')
 
@@ -2475,3 +2479,126 @@ def admin_settings(request):
         'lock_status': lock_status,
         'extension_days': masterlock.EXTENSION_DAYS,
     })
+
+
+def _print_agent_dir() -> Path:
+    return Path(settings.BASE_DIR) / 'local_print_agent'
+
+
+def _print_agent_runtime_info():
+    agent_dir = _print_agent_dir()
+    python_dir = agent_dir / 'python'
+    python_exe = python_dir / 'python.exe'
+    version_file = python_dir / 'VERSION.txt'
+    version_text = ''
+    if version_file.is_file():
+        try:
+            version_text = version_file.read_text(encoding='utf-8').strip()
+        except OSError:
+            version_text = ''
+    return {
+        'agent_dir': agent_dir,
+        'agent_dir_exists': agent_dir.is_dir(),
+        'python_ready': python_exe.is_file(),
+        'version_text': version_text,
+    }
+
+
+_PRINT_AGENT_ZIP_SKIP_NAMES = {
+    'config.json',
+    'server.env',
+    '.env',
+    'print_agent_silent.log',
+}
+_PRINT_AGENT_ZIP_SKIP_SUFFIXES = ('.log', '.swp', '.swo')
+_PRINT_AGENT_ZIP_SKIP_DIR_NAMES = {
+    '__pycache__',
+    '_staging',
+    '.git',
+}
+
+
+def _should_skip_print_agent_path(path: Path, agent_dir: Path) -> bool:
+    try:
+        relative = path.relative_to(agent_dir)
+    except ValueError:
+        return True
+    parts = relative.parts
+    if any(part in _PRINT_AGENT_ZIP_SKIP_DIR_NAMES for part in parts):
+        return True
+    name = path.name
+    if name in _PRINT_AGENT_ZIP_SKIP_NAMES:
+        return True
+    if name.startswith('.') and name.endswith('.swp'):
+        return True
+    if name.endswith(_PRINT_AGENT_ZIP_SKIP_SUFFIXES):
+        return True
+    return False
+
+
+def build_print_agent_zip_bytes() -> bytes:
+    agent_dir = _print_agent_dir()
+    if not agent_dir.is_dir():
+        raise FileNotFoundError(f'Print agent folder missing: {agent_dir}')
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(agent_dir.rglob('*')):
+            if not path.is_file():
+                continue
+            if _should_skip_print_agent_path(path, agent_dir):
+                continue
+            arcname = Path('SmartWagers-PrintAgent') / path.relative_to(agent_dir)
+            zf.write(path, arcname.as_posix())
+    return buffer.getvalue()
+
+
+@group_required('admin')
+def admin_print_agent(request):
+    """Admin page: download offline local print agent package for teller PCs."""
+    info = _print_agent_runtime_info()
+    return render(request, 'SmartWagers/admin_print_agent.html', {
+        'python_ready': info['python_ready'],
+        'version_text': info['version_text'],
+        'agent_dir_exists': info['agent_dir_exists'],
+    })
+
+
+@group_required('admin')
+@require_GET
+def admin_print_agent_download(request):
+    """Stream a zip of local_print_agent (including bundled python/ when present)."""
+    info = _print_agent_runtime_info()
+    if not info['agent_dir_exists']:
+        return HttpResponse(
+            'local_print_agent folder is missing on the server.',
+            status=404,
+            content_type='text/plain',
+        )
+    try:
+        payload = build_print_agent_zip_bytes()
+    except FileNotFoundError as exc:
+        return HttpResponse(str(exc), status=404, content_type='text/plain')
+    except OSError as exc:
+        logger.exception('PRINT_AGENT_DOWNLOAD failed: %s', exc)
+        return HttpResponse(
+            'Failed to build print agent zip.',
+            status=500,
+            content_type='text/plain',
+        )
+
+    buffer = io.BytesIO(payload)
+    response = FileResponse(
+        buffer,
+        as_attachment=True,
+        filename='SmartWagers-PrintAgent.zip',
+        content_type='application/zip',
+    )
+    response['Content-Length'] = len(payload)
+    logger.info(
+        'PRINT_AGENT_DOWNLOAD: admin=%s bytes=%s python_ready=%s',
+        request.user.username,
+        len(payload),
+        info['python_ready'],
+    )
+    return response
