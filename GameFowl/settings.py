@@ -65,14 +65,14 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() not in ('false', '0', 'no', 'off')
 
 _allowed = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
-ALLOWED_HOSTS = [
+ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()] or [
     'localhost',
     '127.0.0.1',
     '192.168.1.4',
     '192.168.0.63',
     '10.0.0.10',
     '192.168.0.150',
-] or [h.strip() for h in _allowed.split(',') if h.strip()]
+]
 
 
 # Application definition
@@ -87,7 +87,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.humanize',
-    'SmartWagers',
+    'SmartWagers.apps.SmartwagersConfig',
 ]
 
 MIDDLEWARE = [
@@ -102,14 +102,14 @@ MIDDLEWARE = [
 ]
 
 _csrf_origins = os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '')
-CSRF_TRUSTED_ORIGINS =  [
+CSRF_TRUSTED_ORIGINS =  [o.strip() for o in _csrf_origins.split(',') if o.strip()] or [
     'http://localhost',
     'http://127.0.0.1',
     'http://192.168.1.4',
     'http://192.168.0.63',
     'http://10.0.0.10',
     'http://192.168.0.150',
-] or [o.strip() for o in _csrf_origins.split(',') if o.strip()]
+]
 
 ROOT_URLCONF = 'GameFowl.urls'
 
