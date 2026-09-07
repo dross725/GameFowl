@@ -11,9 +11,10 @@
         window.TELLER_ID = {{ teller_id|default:"null" }};
         window.TELLER_IS_ONLINE = {{ teller_is_online|yesno:"true,false" }};
         window.TELLER_STATION_CLOSED = {{ teller_station_closed|yesno:"true,false" }};
+        window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
     </script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=bet-textbox-deactivate-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=wrong-punch-4"></script>
     <script src="{% static 'SmartWagers/user.js' %}?v=txn-messages-1"></script>
 {% endblock script_files %}
 
@@ -116,6 +117,21 @@
             <p id='invalidtotal-message'>Please make sure the bet amount is a valid number.</p>
             <br>
             <button onclick='closeInvalidTotalModal()'>Close</button>
+        </div>
+    </div>
+
+    <div id='wrongpunchModal' class='modal'>
+        <div class='modal-content'>
+            <h2>Wrong Punch</h2>
+            <br>
+            <p id='wrongpunch-message'>Wrong punch! Finger slipped on 3 or 6 before Enter. That one goes on the shame board — re-enter the bet.</p>
+            <br>
+            <p id='wrongpunch-score' style='display:none;font-size:1.15em;font-weight:700;'>
+                Wrong punches this event: <strong id='wrongpunch-count'>0</strong>
+            </p>
+            <p id='wrongpunch-rank' style='display:none;margin-top:8px;opacity:0.85;'></p>
+            <br>
+            <button id='wrongpunch-close-button' onclick='closeWrongPunchModal()'>Close</button>
         </div>
     </div>
     

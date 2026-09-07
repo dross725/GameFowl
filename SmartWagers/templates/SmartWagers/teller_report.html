@@ -254,6 +254,21 @@
     color: white;
   }
 
+  .summary-value.rank-best {
+    color: #2ecc71;
+  }
+
+  .summary-value.rank-warn {
+    color: #e67e22;
+  }
+
+  .summary-sub {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+    margin-top: 2px;
+  }
+
   /* ── Table container ───────────────────────────────────── */
   #report-table-container {
     flex: 0 0 auto;
@@ -677,6 +692,24 @@ function showReprintToast(message, type) {
     <div class="summary-card">
       <div class="summary-label">Total Amount Collected</div>
       <div class="summary-value">₱ {{ total_amount|floatformat:0|intcomma }}</div>
+    </div>
+    <div class="summary-card" id="wrong-punch-rank-card">
+      <div class="summary-label">Butterfingers Rank</div>
+      {% if not wrong_punch.event_name %}
+        <div class="summary-value neutral">—</div>
+        <div class="summary-sub">No event yet</div>
+      {% elif wrong_punch.count == 0 %}
+        <div class="summary-value neutral">Angel</div>
+        <div class="summary-sub">0 punches — suspiciously accurate</div>
+      {% else %}
+        <div class="summary-value {% if wrong_punch.rank == 1 %}rank-best{% elif wrong_punch.rank == wrong_punch.tellers_counted and wrong_punch.tellers_counted > 1 %}rank-warn{% else %}neutral{% endif %}">
+          {% if wrong_punch.rank %}#{{ wrong_punch.rank }}{% else %}—{% endif %}
+          {% if wrong_punch.tellers_counted %}<span style="font-size:14px;font-weight:700;opacity:0.55;"> / {{ wrong_punch.tellers_counted }}</span>{% endif %}
+        </div>
+        <div class="summary-sub">
+          {{ wrong_punch.count }} punch{{ wrong_punch.count|pluralize }} · more = more glory
+        </div>
+      {% endif %}
     </div>
   </div>
 

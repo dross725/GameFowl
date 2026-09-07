@@ -235,8 +235,11 @@
 {% endblock css_files %}
 
 {% block script_files %}
+<script>
+    window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
+</script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=bet-textbox-deactivate-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=wrong-punch-4"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
@@ -379,6 +382,21 @@
             <p id='invalidtotal-message'>Please make sure the bet amount is a valid number.</p>
             <br>
             <button onclick='closeInvalidTotalModal()'>Close</button>
+        </div>
+    </div>
+
+    <div id='wrongpunchModal' class='modal'>
+        <div class='modal-content'>
+            <h2>Wrong Punch</h2>
+            <br>
+            <p id='wrongpunch-message'>Wrong punch! Finger slipped on 3 or 6 before Enter. That one goes on the shame board — re-enter the bet.</p>
+            <br>
+            <p id='wrongpunch-score' style='display:none;font-size:1.15em;font-weight:700;'>
+                Wrong punches this event: <strong id='wrongpunch-count'>0</strong>
+            </p>
+            <p id='wrongpunch-rank' style='display:none;margin-top:8px;opacity:0.85;'></p>
+            <br>
+            <button id='wrongpunch-close-button' onclick='closeWrongPunchModal()'>Close</button>
         </div>
     </div>
 
@@ -600,6 +618,20 @@
             <br>
             <button id='endevent_confirm_btn' onclick='submitEndEvent()'>End Event &amp; View Report</button>
             <button onclick='closemodal("endeventmodal")'>Cancel</button>
+        </div>
+    </div>
+
+    <div id='wrongpunchwinnermodal' class='modal'>
+        <div class='modal-content' style='max-width:440px;'>
+            <h2>Butterfingers Champion</h2>
+            <br>
+            <p id='wp-winner-event' style='opacity:0.7;'></p>
+            <br>
+            <div id='wp-winner-announce' style='font-size:1.15em;font-weight:800;line-height:1.4;'></div>
+            <br>
+            <div id='wp-winner-board' style='text-align:left;max-height:220px;overflow-y:auto;font-size:13px;'></div>
+            <br>
+            <button id='wp-winner-continue' onclick='continueToEventReport()'>View Final Report</button>
         </div>
     </div>
 
@@ -933,12 +965,86 @@
             }
 
             closemodal('endeventmodal');
-            window.location.href = data.report_url;
+            showWrongPunchWinnerModal(data);
 
         } catch (err) {
             statusEl.style.color = '#e74c3c';
             statusEl.innerText = 'Network error. Check connection.';
             btn.disabled = false;
+        }
+    }
+
+    let pendingEventReportUrl = '';
+
+    function showWrongPunchWinnerModal(data) {
+        pendingEventReportUrl = data.report_url || '';
+        const boardData = data.wrong_punch || {};
+        const eventLabel = document.getElementById('wp-winner-event');
+        const announce = document.getElementById('wp-winner-announce');
+        const boardEl = document.getElementById('wp-winner-board');
+
+        if (eventLabel) {
+            eventLabel.textContent = boardData.event_name
+                ? ('Event: ' + boardData.event_name)
+                : (data.event_name ? ('Event: ' + data.event_name) : '');
+        }
+
+        const winners = boardData.winners || [];
+        const bestCount = boardData.best_count;
+        if (!boardData.has_contestants || !winners.length) {
+            if (announce) {
+                announce.textContent = 'Nobody slipped on 3 or 6. Boringly perfect — no champion crowned.';
+            }
+            if (boardEl) boardEl.innerHTML = '';
+        } else if (bestCount === 0) {
+            if (announce) {
+                announce.innerHTML = 'Everyone kept their fingers under control.<br>'
+                    + '<span style="font-size:0.8em;font-weight:600;opacity:0.75;">No Butterfingers Champion this event. Try harder next time.</span>';
+            }
+            if (boardEl) boardEl.innerHTML = '';
+        } else {
+            const names = winners.map(w => w.username).join(', ');
+            const punchLabel = bestCount === 1 ? '1 glorious wrong punch' : (bestCount + ' glorious wrong punches');
+            if (announce) {
+                if (winners.length === 1) {
+                    announce.innerHTML = _escHtml(names) + ' takes the crown with '
+                        + '<strong>' + punchLabel + '</strong>!'
+                        + '<div style="margin-top:10px;font-size:0.78em;font-weight:600;opacity:0.75;line-height:1.35;">'
+                        + 'May their fingers rest — preferably far from Enter.'
+                        + '</div>';
+                } else {
+                    announce.innerHTML = 'Dead heat! ' + _escHtml(names) + ' share the butterfingers crown with '
+                        + '<strong>' + punchLabel + '</strong> each.'
+                        + '<div style="margin-top:10px;font-size:0.78em;font-weight:600;opacity:0.75;line-height:1.35;">'
+                        + 'Two (or more) Enter-key disasters. Historic.'
+                        + '</div>';
+                }
+            }
+            if (boardEl) {
+                const rows = (boardData.board || []).map((row, idx) => {
+                    const isWinner = winners.some(w => w.user_id === row.user_id);
+                    const style = isWinner
+                        ? 'font-weight:800;color:#f1c40f;'
+                        : 'color:rgba(255,255,255,0.80);';
+                    const badge = isWinner ? ' ★' : (row.count === 0 ? ' (angel)' : '');
+                    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);' + style + '">'
+                        + '<span>#' + (idx + 1) + ' ' + _escHtml(row.username) + badge + '</span>'
+                        + '<span>' + row.count + '</span>'
+                        + '</div>';
+                }).join('');
+                boardEl.innerHTML = '<div style="opacity:0.45;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Hall of Shame</div>' + rows;
+            }
+        }
+
+        document.getElementById('wrongpunchwinnermodal').style.display = 'flex';
+        setTimeout(() => document.getElementById('wp-winner-continue')?.focus(), 80);
+    }
+
+    function continueToEventReport() {
+        const url = pendingEventReportUrl;
+        closemodal('wrongpunchwinnermodal');
+        if (url) {
+            window.location.href = url;
         }
     }
 

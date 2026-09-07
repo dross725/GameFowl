@@ -283,6 +283,79 @@
   }
   #st-back:hover { color: white; }
 
+  /* ── Feature toggle switch ── */
+  .st-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .st-toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .st-toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .st-toggle-track {
+    width: 48px;
+    height: 26px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 999px;
+    transition: background 0.15s, border-color 0.15s;
+    flex-shrink: 0;
+  }
+
+  .st-toggle-thumb {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    background: rgba(255,255,255,0.70);
+    border-radius: 50%;
+    transition: transform 0.15s, background 0.15s;
+  }
+
+  .st-toggle input:checked + .st-toggle-track {
+    background: rgba(46,204,113,0.28);
+    border-color: rgba(46,204,113,0.55);
+  }
+
+  .st-toggle input:checked + .st-toggle-track .st-toggle-thumb {
+    transform: translateX(22px);
+    background: #2ecc71;
+  }
+
+  .st-toggle input:disabled + .st-toggle-track {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .st-toggle-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.85);
+  }
+
+  .st-toggle-hint {
+    font-size: 12px;
+    color: rgba(255,255,255,0.35);
+    flex: 1;
+    min-width: 220px;
+    line-height: 1.45;
+  }
+
   @media (max-width: 768px) {
     #st-wrapper { padding: 10px 10px 16px; gap: 12px; }
     .st-panel { padding: 14px 14px; }
@@ -468,6 +541,27 @@
       </div>
       <div id="st-min-balance-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
     </div>
+  </div>
+
+  <!-- ── Bet entry safeguards ── -->
+  <div class="st-panel">
+    <div class="st-panel-title">Bet Entry Safeguards</div>
+    <div class="st-toggle-row">
+      <label class="st-toggle" for="discard-trailing-toggle">
+        <input type="checkbox" id="discard-trailing-toggle"
+               {% if discard_trailing_3_6 %}checked{% endif %}
+               onchange="saveDiscardTrailing36(this.checked)">
+        <span class="st-toggle-track"><span class="st-toggle-thumb"></span></span>
+      </label>
+      <div>
+        <div class="st-toggle-label">Block amounts ending in 3 or 6</div>
+        <div class="st-toggle-hint">
+          Prevents accidental bets like ₱2003 when a teller hits <strong>3</strong> or <strong>6</strong>
+          right before Enter. Shows a wrong-punch warning and clears the amount.
+        </div>
+      </div>
+    </div>
+    <div id="st-discard-trailing-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:10px;"></div>
   </div>
 
   <!-- ── Fight results panel ── -->
@@ -852,6 +946,40 @@ async function saveThreshold() {
         statusEl.textContent = 'Network error. Check connection.';
     } finally {
         btn.disabled = false;
+    }
+}
+
+async function saveDiscardTrailing36(enabled) {
+    const statusEl = document.getElementById('st-discard-trailing-status');
+    const toggle = document.getElementById('discard-trailing-toggle');
+    if (toggle) toggle.disabled = true;
+    statusEl.className = '';
+    statusEl.textContent = 'Saving…';
+
+    const fd = new FormData();
+    fd.append('action', 'update_discard_trailing_3_6');
+    fd.append('discard_trailing_3_6', enabled ? 'true' : 'false');
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+    try {
+        const res = await fetch(SETTINGS_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.className = 'st-ok';
+            statusEl.textContent = data.discard_trailing_3_6
+                ? 'Saved! Wrong-punch amounts ending in 3 or 6 will be blocked.'
+                : 'Saved! Wrong-punch guard is disabled.';
+        } else {
+            if (toggle) toggle.checked = !enabled;
+            statusEl.className = 'st-err';
+            statusEl.textContent = data.error || 'Unknown error.';
+        }
+    } catch (err) {
+        if (toggle) toggle.checked = !enabled;
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Network error. Check connection.';
+    } finally {
+        if (toggle) toggle.disabled = false;
     }
 }
 

@@ -3,6 +3,7 @@ let wager_value = 0;
 let wager_id = '';
 let clientRequestId = '';
 let isSubmitting = false;
+let isRecordingWrongPunch = false;
 let tellerEnterAction = null;
 
 function formatNumber(n) {
@@ -77,7 +78,7 @@ function meron_addValue(value) { addValue(value); }
 function wala_addValue(value) { addValue(value); }
 
 function check_total(side) {
-    if (isSubmitting) return;
+    if (isSubmitting || isRecordingWrongPunch) return;
     if (typeof isTellerOffline === 'function' && isTellerOffline()) {
         if (typeof isTellerStationClosed === 'function' && isTellerStationClosed()) {
             if (typeof openTellerStationClosedModal === 'function') openTellerStationClosedModal();
@@ -102,7 +103,74 @@ function check_total(side) {
         openInvalidTotalModal('Please make sure the bet amount is a valid number.');
         return;
     }
+
+    if (window.DISCARD_TRAILING_3_6 === true && isWrongPunchAmount(raw)) {
+        recordAndShowWrongPunch(raw, activeSide);
+        return;
+    }
+
     openConfirmationModal(raw, activeSide);
+}
+
+function isWrongPunchAmount(raw) {
+    const last = String(raw).slice(-1);
+    return last === '3' || last === '6';
+}
+
+function getCsrfToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+}
+
+async function recordAndShowWrongPunch(rawAmount, side) {
+    if (isRecordingWrongPunch || isSubmitting) return;
+    isRecordingWrongPunch = true;
+
+    const activeSide = side || getSelectedSide();
+    let stats = null;
+    let disabledOnServer = false;
+
+    try {
+        const fd = new FormData();
+        const csrf = getCsrfToken();
+        if (csrf) fd.append('csrfmiddlewaretoken', csrf);
+        const response = await fetch('/wrong_punch/', {
+            method: 'POST',
+            body: fd,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const contentType = response.headers.get('content-type') || '';
+        let data = {};
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        }
+
+        if (response.ok && data && data.ok) {
+            stats = {
+                count: data.count,
+                rank: data.rank,
+                tellers_counted: data.tellers_counted,
+                event_name: data.event_name,
+            };
+        } else if (data && data.error === 'disabled') {
+            /* Admin turned the guard off after this page loaded. */
+            window.DISCARD_TRAILING_3_6 = false;
+            disabledOnServer = true;
+        }
+    } catch (error) {
+        console.warn('Unable to record wrong punch:', error);
+    } finally {
+        isRecordingWrongPunch = false;
+    }
+
+    if (disabledOnServer) {
+        openConfirmationModal(rawAmount, activeSide);
+        return;
+    }
+
+    resetBet();
+    openWrongPunchModal(null, stats);
 }
 
 function resetTotal() {
@@ -140,6 +208,58 @@ function openInvalidTotalModal(message) {
 
 function closeInvalidTotalModal() {
     document.getElementById('invalidtotalModal').style.display = 'none';
+    resetTotal();
+    focusBetInput();
+}
+
+function updateWrongPunchScore(stats) {
+    const scoreEl = document.getElementById('wrongpunch-score');
+    const countEl = document.getElementById('wrongpunch-count');
+    const rankEl = document.getElementById('wrongpunch-rank');
+
+    if (!stats || stats.count == null || !stats.event_name) {
+        if (scoreEl) scoreEl.style.display = 'none';
+        if (rankEl) {
+            rankEl.style.display = 'none';
+            rankEl.textContent = '';
+        }
+        return;
+    }
+
+    if (countEl) countEl.textContent = String(stats.count);
+    if (scoreEl) scoreEl.style.display = '';
+
+    if (rankEl) {
+        if (stats.rank && stats.tellers_counted) {
+            let rankText = 'Shame board #' + stats.rank + ' of ' + stats.tellers_counted
+                + ' — keep climbing!';
+            if (stats.rank === 1 && stats.tellers_counted > 1) {
+                rankText = 'Butterfingers lead! #1 of ' + stats.tellers_counted
+                    + ' — the Enter key fears you.';
+            } else if (stats.rank === stats.tellers_counted && stats.tellers_counted > 1) {
+                rankText = 'Last place (#' + stats.rank + ' of ' + stats.tellers_counted
+                    + ') — too accurate. Try harder.';
+            }
+            rankEl.textContent = rankText;
+            rankEl.style.display = '';
+        } else {
+            rankEl.style.display = 'none';
+            rankEl.textContent = '';
+        }
+    }
+}
+
+function openWrongPunchModal(message, stats) {
+    const msg = document.getElementById('wrongpunch-message');
+    if (msg && message) msg.textContent = message;
+    updateWrongPunchScore(stats || null);
+    const modal = document.getElementById('wrongpunchModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeWrongPunchModal() {
+    const modal = document.getElementById('wrongpunchModal');
+    if (modal) modal.style.display = 'none';
     resetTotal();
     focusBetInput();
 }
@@ -559,6 +679,15 @@ async function submitValue() {
                 showClosedBettingModal(result.blocked_betting_side || wager_id);
                 return;
             }
+            if (result.error === "wrong_punch") {
+                openWrongPunchModal(null, {
+                    count: result.count,
+                    rank: result.rank,
+                    tellers_counted: result.tellers_counted,
+                    event_name: result.event_name,
+                });
+                return;
+            }
             alert(result.error || "Unable to submit wager.");
             return;
         }
@@ -724,6 +853,8 @@ document.addEventListener('keydown', (e) => {
         ['ws_disconnected_modal',  null,                                  null],
         ['confirmationModal',      () => click('submitvalue'),            () => call(closeModal)],
         ['invalidtotalModal',      () => call(closeInvalidTotalModal),    () => call(closeInvalidTotalModal)],
+        ['wrongpunchModal',        () => call(closeWrongPunchModal),      () => call(closeWrongPunchModal)],
+        ['wrongpunchwinnermodal',  () => click('wp-winner-continue'),     () => click('wp-winner-continue')],
         ['control_confirmationModal', () => click('cm-yes-button'),       () => click('cm-no-button')],
         ['adminbetcontrol',        () => click('confirmopen'),            () => { if (typeof closemodal === 'function') closemodal('adminbetcontrol'); }],
         ['whowonmodal',            null,                                  () => { if (typeof closemodal === 'function') closemodal('whowonmodal'); }],

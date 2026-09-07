@@ -103,6 +103,7 @@ def default_settings(db):
         teller_max_balance=50000.0,
         teller_initial_fund=10000.0,
         teller_min_balance=1000.0,
+        discard_trailing_3_6=True,
     )
 
 

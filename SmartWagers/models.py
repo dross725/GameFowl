@@ -81,6 +81,8 @@ class Settings (models.Model):
     teller_max_balance = models.FloatField(default=0.0, null=False, blank=False)
     teller_initial_fund = models.FloatField(default=10000.0, null=False, blank=False)
     teller_min_balance = models.FloatField(default=0.0, null=False, blank=False)
+    # Reject amounts ending in 3 or 6 (common accidental numpad punch before Enter).
+    discard_trailing_3_6 = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.plasada} {self.M_control_status} {self.W_control_status}"
@@ -224,6 +226,26 @@ class TellerCloseOut(models.Model):
             f"{self.user} | {self.event} | fight {self.fightnum} | "
             f"expected={self.expected_cash_on_hand}"
         )
+
+
+class TellerWrongPunch(models.Model):
+    """Per-teller wrong-punch tally for an event (accidental trailing 3/6)."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wrong_punches')
+    event = models.ForeignKey('Event', on_delete=models.CASCADE, related_name='wrong_punches')
+    count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['count', 'user__username']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'event'],
+                name='one_wrong_punch_per_teller_per_event',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user} | {self.event} | wrong punches={self.count}"
 
 
 class Event(models.Model):

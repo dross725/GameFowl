@@ -545,6 +545,17 @@ def Main_admin(request):
         if wager <= 0:
             return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
+        if services.is_discard_trailing_3_6_enabled() and services.is_wrong_punch_amount(wager):
+            punch = services.record_wrong_punch(request.user)
+            return JsonResponse({
+                'ok': False,
+                'error': 'wrong_punch',
+                'count': punch['count'],
+                'rank': punch['rank'],
+                'tellers_counted': punch['tellers_counted'],
+                'event_name': punch['event_name'],
+            }, status=400)
+
         if not services.is_match_open():
             if request.headers.get('x-requested-with') == 'XMLHttpRequest':
                 return JsonResponse({
@@ -559,6 +570,7 @@ def Main_admin(request):
                 'W_payout': wala_payout,
                 'blocked_betting_side': wager_id,
                 'admin_fund': admin_fund,
+                'discard_trailing_3_6': services.is_discard_trailing_3_6_enabled(),
             })
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
@@ -587,6 +599,7 @@ def Main_admin(request):
         'W_total_bet' : format(int(wala_total), ','),
         'W_payout' : wala_payout,
         'admin_fund': admin_fund,
+        'discard_trailing_3_6': services.is_discard_trailing_3_6_enabled(),
     })
 
 
@@ -742,6 +755,7 @@ def Teller(request):
             'teller_is_online': is_online,
             'teller_station_closed': station_closed,
             'teller_id': request.user.pk,
+            'discard_trailing_3_6': services.is_discard_trailing_3_6_enabled(),
         }
         ctx.update(extra)
         return ctx
@@ -759,6 +773,17 @@ def Teller(request):
 
         if wager <= 0:
             return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+        if services.is_discard_trailing_3_6_enabled() and services.is_wrong_punch_amount(wager):
+            punch = services.record_wrong_punch(request.user)
+            return JsonResponse({
+                'ok': False,
+                'error': 'wrong_punch',
+                'count': punch['count'],
+                'rank': punch['rank'],
+                'tellers_counted': punch['tellers_counted'],
+                'event_name': punch['event_name'],
+            }, status=400)
 
         if not services.is_betting_open(wager_id):
             if request.headers.get('x-requested-with') == 'XMLHttpRequest':
@@ -791,6 +816,30 @@ def Teller(request):
         return wager_ajax_response(saved_wager, duplicate=not created)
 
     return render(request, 'SmartWagers/user.html', user_page_context())
+
+
+@login_required
+@require_http_methods(['POST'])
+def record_wrong_punch_view(request):
+    """Increment the caller's per-event wrong-punch counter (teller/admin)."""
+    if not request.user.groups.filter(name__in=('teller', 'admin')).exists():
+        return JsonResponse({'ok': False, 'error': 'Forbidden'}, status=403)
+
+    if not services.is_discard_trailing_3_6_enabled():
+        return JsonResponse({
+            'ok': False,
+            'error': 'disabled',
+            'discard_trailing_3_6': False,
+        })
+
+    punch = services.record_wrong_punch(request.user)
+    return JsonResponse({
+        'ok': True,
+        'count': punch['count'],
+        'rank': punch['rank'],
+        'tellers_counted': punch['tellers_counted'],
+        'event_name': punch['event_name'],
+    })
 
 
 @group_required('teller')
@@ -829,6 +878,7 @@ def teller_report(request):
     balance_breakdown = services.compute_teller_balance_breakdown(
         request.user, event=event_scope, apply_end_bound=apply_end_bound,
     ) if event_scope else None
+    wrong_punch = services.get_wrong_punch_stats(request.user, event=event_scope)
 
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
@@ -843,6 +893,7 @@ def teller_report(request):
         'expected_balance': balance_breakdown['balance'] if balance_breakdown else 0.0,
         'balance_breakdown': balance_breakdown,
         'current_fightnum': current_fightnum,
+        'wrong_punch': wrong_punch,
     })
 
 
@@ -1562,12 +1613,15 @@ def end_event_view(request):
     notify_event_change()
     logger.info("EVENT END (view): id=%s name=%r admin=%s", event.id, event.name, request.user.username)
 
+    wrong_punch = services.get_wrong_punch_leaderboard(event)
+
     return JsonResponse({
         'ok': True,
         'event_id': event.id,
         'event_name': event.name,
         'ended_at': event.ended_at.strftime('%Y-%m-%d %H:%M:%S'),
         'report_url': reverse('admin-event-report') + f'?event_id={event.id}',
+        'wrong_punch': wrong_punch,
     })
 
 
@@ -2381,6 +2435,24 @@ def admin_settings(request):
             setting.save()
             return JsonResponse({'ok': True, 'teller_min_balance': new_min})
 
+        if action == 'update_discard_trailing_3_6':
+            raw = (request.POST.get('discard_trailing_3_6') or '').strip().lower()
+            if raw not in ('1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'):
+                return JsonResponse({'ok': False, 'error': 'Invalid toggle value'}, status=400)
+            enabled = raw in ('1', 'true', 'yes', 'on')
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(discard_trailing_3_6=enabled)
+            else:
+                setting.discard_trailing_3_6 = enabled
+            setting.save()
+            logger.info(
+                "SETTINGS: discard_trailing_3_6=%s by admin=%s",
+                enabled, request.user.username,
+            )
+            return JsonResponse({'ok': True, 'discard_trailing_3_6': enabled})
+
         if action == 'update_fight_result':
             try:
                 result_id = int(request.POST.get('result_id', 0))
@@ -2468,6 +2540,7 @@ def admin_settings(request):
     teller_max_balance  = setting.teller_max_balance  if setting else 0.0
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
     teller_min_balance  = setting.teller_min_balance  if setting else 0.0
+    discard_trailing_3_6 = setting.discard_trailing_3_6 if setting else True
     lock_status = masterlock.get_status(touch_heartbeat=False)
 
     return render(request, 'SmartWagers/admin_settings.html', {
@@ -2479,6 +2552,7 @@ def admin_settings(request):
         'teller_max_balance': teller_max_balance,
         'teller_initial_fund': teller_initial_fund,
         'teller_min_balance': teller_min_balance,
+        'discard_trailing_3_6': discard_trailing_3_6,
         'lock_status': lock_status,
         'extension_days': masterlock.EXTENSION_DAYS,
     })

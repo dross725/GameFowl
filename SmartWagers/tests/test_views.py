@@ -276,6 +276,31 @@ class TestAdminActionGuards:
         default_settings.refresh_from_db()
         assert default_settings.admin_initial_fund == 125000.0
 
+    def test_admin_can_toggle_discard_trailing_3_6(
+            self, admin_user, default_settings):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/settings/', {
+            'action': 'update_discard_trailing_3_6',
+            'discard_trailing_3_6': 'false',
+        })
+        assert response.status_code == 200
+        assert response.json() == {
+            'ok': True,
+            'discard_trailing_3_6': False,
+        }
+        default_settings.refresh_from_db()
+        assert default_settings.discard_trailing_3_6 is False
+
+        response = client.post('/administrator/settings/', {
+            'action': 'update_discard_trailing_3_6',
+            'discard_trailing_3_6': 'true',
+        })
+        assert response.status_code == 200
+        assert response.json()['discard_trailing_3_6'] is True
+        default_settings.refresh_from_db()
+        assert default_settings.discard_trailing_3_6 is True
+
     def test_end_event_post_ends_active_event(self, admin_user, active_event):
         client = Client()
         client.force_login(admin_user)
@@ -285,10 +310,28 @@ class TestAdminActionGuards:
         assert response.status_code == 200
         data = json.loads(response.content)
         assert data.get('ok') is True
+        assert 'wrong_punch' in data
+        assert data['wrong_punch']['event_name'] == active_event.name
         active_event.refresh_from_db()
         assert active_event.is_active is False
         assert active_event.actual_admin_cash_counted == 99950.25
         assert active_event.admin_cash_counted_by == admin_user
+
+    def test_end_event_includes_wrong_punch_winner(
+            self, admin_user, teller_user, teller_user2, default_settings, active_event):
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user2)
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/end-event/', {
+            'actual_admin_cash': '100000',
+        })
+        assert response.status_code == 200
+        board = response.json()['wrong_punch']
+        assert board['has_contestants'] is True
+        assert board['best_count'] == 2
+        assert [w['username'] for w in board['winners']] == [teller_user.username]
 
     def test_end_event_requires_valid_admin_cash(self, admin_user, active_event):
         client = Client()
@@ -1189,3 +1232,137 @@ class TestAdminUsers:
         assert response.status_code == 200
         assert 'transaction history' in response.context['error'].lower()
         assert teller_user.__class__.objects.filter(pk=teller_user.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# Wrong-punch bet rejection (trailing 3 / 6)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWrongPunchBetRejection:
+
+    def test_teller_rejects_amount_ending_in_3(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'wager_value': '2003', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 400
+        assert response.json()['error'] == 'wrong_punch'
+        assert response.json()['count'] == 1
+        assert not Wagers.objects.filter(cashier=str(teller_user), wager=2003).exists()
+
+    def test_teller_rejects_amount_ending_in_6(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'wager_value': '2006', 'wager_id': 'WALA'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 400
+        assert response.json()['error'] == 'wrong_punch'
+        assert response.json()['count'] == 1
+
+    def test_teller_allows_trailing_3_when_disabled(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'wager_value': '2003', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        assert response.json()['ok'] is True
+        assert Wagers.objects.filter(cashier=str(teller_user), wager=2003).exists()
+
+    def test_admin_rejects_amount_ending_in_3(
+            self, admin_user, default_settings, active_event):
+        _open_fight()
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post(
+            '/administrator',
+            {'wager_value': '1003', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 400
+        assert response.json()['error'] == 'wrong_punch'
+        assert response.json()['count'] == 1
+
+    def test_record_wrong_punch_endpoint_increments(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/wrong_punch/',
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['count'] == 1
+        assert data['rank'] == 1
+
+        response = client.post(
+            '/wrong_punch/',
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.json()['count'] == 2
+
+    def test_record_wrong_punch_endpoint_respects_disabled_toggle(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/wrong_punch/',
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is False
+        assert data['error'] == 'disabled'
+        assert services.get_wrong_punch_count(teller_user) == 0
+
+
+@pytest.mark.django_db
+class TestTellerReportWrongPunchCard:
+
+    def test_report_shows_clean_sheet(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/reports/')
+        assert response.status_code == 200
+        assert response.context['wrong_punch']['count'] == 0
+        assert response.context['wrong_punch']['rank'] is None
+        assert b'Angel' in response.content
+        assert b'Butterfingers Rank' in response.content
+
+    def test_report_shows_rank_after_wrong_punches(
+            self, teller_user, teller_user2, default_settings,
+            teller_status_online, active_event):
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user2)
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/reports/')
+        assert response.status_code == 200
+        punch = response.context['wrong_punch']
+        assert punch['count'] == 2
+        assert punch['rank'] == 1
+        assert punch['tellers_counted'] == 2
+        assert b'#1' in response.content
