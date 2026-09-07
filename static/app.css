@@ -234,6 +234,12 @@ a:hover {
   flex-direction: column;
   overflow-y: auto;
   flex-shrink: 0;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/legacy Edge */
+}
+
+#sidebar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
 }
 
 #sidebar h1 {
@@ -249,14 +255,16 @@ a:hover {
 }
 
 .sidebar-header {
-  display: grid;
-  grid-template-columns: 58px 1fr;
-  font-size: clamp(30px, 3.16vw, 36px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: clamp(24px, 2.6vw, 32px);
   font-weight: 700;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
-  padding: 7px 2px;
+  padding: 7px 4px;
+  white-space: nowrap;
 }
 
 .sidebar-header > div,
@@ -265,18 +273,24 @@ a:hover {
 }
 
 .sidebar-row {
-  display: grid;
-  grid-template-columns: 58px 1fr;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-size: clamp(30px, 3.16vw, 36px);
-  padding: 7px 2px;
+  font-size: clamp(24px, 2.6vw, 32px);
+  padding: 7px 4px;
+  white-space: nowrap;
 }
 
 .fightnum {
+  flex: 0 0 auto;
+  min-width: 2.5ch;
   color: var(--text-dim);
   font-style: normal;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   border: none;
+  white-space: nowrap;
 }
 
 .fightres {
@@ -287,14 +301,17 @@ a:hover {
 }
 
 .odds {
+  flex: 1 1 auto;
+  min-width: 0;
   color: #f39c12;
   font-weight: 600;
   font-style: normal;
   border: none;
+  white-space: nowrap;
 }
 
 .winner {
-  font-size: clamp(30px, 3.16vw, 36px);
+  font-size: clamp(24px, 2.6vw, 32px);
   font-weight: 700;
 }
 
