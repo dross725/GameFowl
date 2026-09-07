@@ -427,3 +427,74 @@ class TestCancelBet:
         w, _ = services.add_wager(300, 'MERON', 1, cashier='teller1')
         result = services.cancel_bet(w.transactionid, requesting_cashier=None)
         assert result.get('message') == 'betcancelled'
+
+# ---------------------------------------------------------------------------
+# Wrong-punch amount guard (trailing 3 / 6)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWrongPunchGuard:
+
+    def test_detects_amounts_ending_in_3_or_6(self):
+        assert services.is_wrong_punch_amount(2003) is True
+        assert services.is_wrong_punch_amount(2006) is True
+        assert services.is_wrong_punch_amount(3) is True
+        assert services.is_wrong_punch_amount(6) is True
+        assert services.is_wrong_punch_amount(200) is False
+        assert services.is_wrong_punch_amount(1000) is False
+        assert services.is_wrong_punch_amount(250) is False
+
+    def test_enabled_by_default_when_settings_exist(self, default_settings):
+        assert services.is_discard_trailing_3_6_enabled() is True
+
+    def test_can_be_disabled(self, default_settings):
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        assert services.is_discard_trailing_3_6_enabled() is False
+
+    def test_record_wrong_punch_increments_per_event(
+            self, default_settings, teller_user, active_event):
+        first = services.record_wrong_punch(teller_user)
+        second = services.record_wrong_punch(teller_user)
+        assert first['count'] == 1
+        assert second['count'] == 2
+        assert second['event_name'] == active_event.name
+        assert second['rank'] == 1
+        assert second['tellers_counted'] == 1
+
+    def test_record_wrong_punch_ranks_by_most(
+            self, default_settings, teller_user, teller_user2, active_event):
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user)
+        low = services.record_wrong_punch(teller_user2)
+        assert low['count'] == 1
+        assert low['rank'] == 2
+        assert low['tellers_counted'] == 2
+        assert services.get_wrong_punch_count(teller_user) == 3
+        top = services.get_wrong_punch_stats(teller_user, event=active_event)
+        assert top['rank'] == 1
+
+    def test_record_wrong_punch_without_event_is_noop(self, default_settings, teller_user):
+        result = services.record_wrong_punch(teller_user)
+        assert result['count'] == 0
+        assert result['event_name'] is None
+
+    def test_leaderboard_most_punches_wins(
+            self, default_settings, teller_user, teller_user2, active_event):
+        from SmartWagers.models import Wagers
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=100,
+            cashier=teller_user.username, registered=True,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='WALA', wager=100,
+            cashier=teller_user2.username, registered=True,
+        )
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user2)
+        board = services.get_wrong_punch_leaderboard(active_event)
+        assert board['has_contestants'] is True
+        assert board['best_count'] == 2
+        assert [w['username'] for w in board['winners']] == [teller_user.username]

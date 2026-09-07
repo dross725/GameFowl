@@ -367,6 +367,216 @@ def is_wager_receipt_printing_enabled():
     return getattr(settings, "WAGER_RECEIPT_PRINTING_ENABLED", True)
 
 
+def is_discard_trailing_3_6_enabled():
+    """Return whether bets ending in 3 or 6 should be rejected (wrong punch guard)."""
+    setting = Settings.objects.order_by('-id').first()
+    if setting is None:
+        return True
+    return bool(setting.discard_trailing_3_6)
+
+
+def is_wrong_punch_amount(amount):
+    """True when the amount ends with 3 or 6 (accidental punch before Enter)."""
+    try:
+        value = abs(int(amount))
+    except (TypeError, ValueError):
+        return False
+    return (value % 10) in (3, 6)
+
+
+def get_wrong_punch_count(user, event=None):
+    """Return the teller's wrong-punch count for the event (0 if none)."""
+    if user is None:
+        return 0
+    if event is None:
+        event = get_active_event()
+    if event is None:
+        return 0
+    from .models import TellerWrongPunch
+    row = TellerWrongPunch.objects.filter(user=user, event=event).only('count').first()
+    return int(row.count) if row else 0
+
+
+def get_wrong_punch_stats(user, event=None):
+    """Return wrong-punch count/rank for a user without incrementing.
+
+    Rank is among users with at least one wrong punch this event.
+    Highest count wins (rank 1 = most butterfingers). Clean sheets get rank=None.
+    """
+    if user is None:
+        return {
+            'count': 0,
+            'rank': None,
+            'tellers_counted': 0,
+            'event_name': None,
+        }
+
+    if event is None:
+        event = get_active_event()
+    if event is None:
+        return {
+            'count': 0,
+            'rank': None,
+            'tellers_counted': 0,
+            'event_name': None,
+        }
+
+    from .models import TellerWrongPunch
+
+    count = get_wrong_punch_count(user, event=event)
+    board = list(
+        TellerWrongPunch.objects.filter(event=event, count__gt=0)
+        .order_by('-count', 'user__username')
+        .values_list('user_id', 'count')
+    )
+    tellers_counted = len(board)
+    rank = None
+    if count > 0:
+        for index, (uid, _count) in enumerate(board, start=1):
+            if uid == user.pk:
+                rank = index
+                break
+
+    return {
+        'count': count,
+        'rank': rank,
+        'tellers_counted': tellers_counted,
+        'event_name': event.name,
+    }
+
+
+def get_wrong_punch_leaderboard(event):
+    """Return the wrong-punch board and winner(s) for an event.
+
+    Includes tellers who placed at least one registered wager during the event
+    window and/or recorded a wrong punch. Most punches wins; ties share the crown.
+    """
+    from .models import TellerWrongPunch
+
+    if event is None:
+        return {
+            'event_name': None,
+            'winners': [],
+            'board': [],
+            'best_count': None,
+            'has_contestants': False,
+        }
+
+    teller_ids = set(
+        User.objects.filter(groups__name='teller').values_list('id', flat=True)
+    )
+    punch_rows = {
+        user_id: int(count)
+        for user_id, count in TellerWrongPunch.objects.filter(event=event)
+        .values_list('user_id', 'count')
+    }
+
+    wager_qs = Wagers.objects.filter(
+        registered=True,
+        created_at__gte=event.started_at,
+    ).exclude(cashier='System')
+    if event.ended_at is not None:
+        wager_qs = wager_qs.filter(created_at__lte=event.ended_at)
+    wager_usernames = set(wager_qs.values_list('cashier', flat=True).distinct())
+
+    contestant_ids = set(punch_rows.keys())
+    if wager_usernames:
+        contestant_ids.update(
+            User.objects.filter(
+                username__in=wager_usernames,
+                id__in=teller_ids,
+            ).values_list('id', flat=True)
+        )
+    # Keep punch rows even if the user is no longer in the teller group.
+    contestant_ids.update(uid for uid in punch_rows if uid)
+
+    if not contestant_ids:
+        return {
+            'event_name': event.name,
+            'winners': [],
+            'board': [],
+            'best_count': None,
+            'has_contestants': False,
+        }
+
+    users = {
+        u.id: u
+        for u in User.objects.filter(id__in=contestant_ids).only('id', 'username')
+    }
+    board = []
+    for user_id in contestant_ids:
+        user = users.get(user_id)
+        if user is None:
+            continue
+        board.append({
+            'user_id': user_id,
+            'username': user.username,
+            'count': punch_rows.get(user_id, 0),
+        })
+    # Highest wrong-punch count first — the butterfingers crown.
+    board.sort(key=lambda row: (-row['count'], row['username'].lower()))
+
+    best_count = board[0]['count'] if board else None
+    winners = [row for row in board if row['count'] == best_count] if board else []
+    for index, row in enumerate(board, start=1):
+        row['rank'] = index
+
+    return {
+        'event_name': event.name,
+        'winners': winners,
+        'board': board,
+        'best_count': best_count,
+        'has_contestants': bool(board),
+    }
+
+
+def record_wrong_punch(user, event=None):
+    """Increment the user's wrong-punch counter for the active event.
+
+    Returns a dict with count, rank (1 = most punches), and tellers_counted.
+    """
+    from .models import TellerWrongPunch
+    from django.db.models import F
+
+    if user is None:
+        return {
+            'count': 0,
+            'rank': None,
+            'tellers_counted': 0,
+            'event_name': None,
+        }
+
+    if event is None:
+        event = get_active_event()
+    if event is None:
+        return {
+            'count': 0,
+            'rank': None,
+            'tellers_counted': 0,
+            'event_name': None,
+        }
+
+    with db_transaction.atomic():
+        row, _ = TellerWrongPunch.objects.select_for_update().get_or_create(
+            user=user,
+            event=event,
+            defaults={'count': 0},
+        )
+        TellerWrongPunch.objects.filter(pk=row.pk).update(count=F('count') + 1)
+        row.refresh_from_db(fields=['count'])
+
+    stats = get_wrong_punch_stats(user, event=event)
+    logger.info(
+        "WRONG PUNCH: user=%s event=%s count=%s rank=%s/%s",
+        getattr(user, 'username', user),
+        event.name,
+        stats['count'],
+        stats['rank'],
+        stats['tellers_counted'],
+    )
+    return stats
+
+
 def get_active_event():
     """Return the currently active Event, or None."""
     return Event.objects.filter(is_active=True).order_by('-started_at').first()

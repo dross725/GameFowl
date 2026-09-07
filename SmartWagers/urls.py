@@ -15,6 +15,7 @@ urlpatterns = [
     path("index", views.index, name="index"),
     path("administrator", views.Main_admin, name="admin-page"), #admin/<admin-name>
     path("user", views.Teller, name="user-page"),
+    path("wrong_punch/", views.record_wrong_punch_view, name="record-wrong-punch"),
     path("get_button_state_view/", views.get_button_state_view, name="get-button-state"),
     path("get_fight_status_view/", views.get_fight_status_view, name="get-fight-status"),
     path("get_pot_values/", views.get_pot_values, name="get-pot-values"),
