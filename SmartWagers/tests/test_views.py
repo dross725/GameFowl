@@ -1100,6 +1100,78 @@ class TestAdminUsers:
         assert not User.objects.filter(pk=other.pk).exists()
         assert User.objects.filter(pk=admin_user.pk).exists()
 
+    def test_non_superuser_admin_does_not_see_superusers(self, admin_user):
+        from django.contrib.auth.models import User
+
+        superuser = User.objects.create_superuser(
+            username='rootadmin', password='Ab12Cd34',
+        )
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/administrator/users/')
+
+        assert response.status_code == 200
+        listed_ids = {row['user'].pk for row in response.context['users']}
+        assert admin_user.pk in listed_ids
+        assert superuser.pk not in listed_ids
+        assert b'rootadmin' not in response.content
+
+    def test_superuser_can_see_other_superusers(self, admin_user, admin_group):
+        from django.contrib.auth.models import User
+
+        viewer = User.objects.create_superuser(
+            username='rootviewer', password='Ab12Cd34',
+        )
+        viewer.groups.add(admin_group)
+        other = User.objects.create_superuser(
+            username='rootother', password='Ab12Cd34',
+        )
+        client = Client()
+        client.force_login(viewer)
+        response = client.get('/administrator/users/')
+
+        assert response.status_code == 200
+        listed_ids = {row['user'].pk for row in response.context['users']}
+        assert viewer.pk in listed_ids
+        assert other.pk in listed_ids
+        assert admin_user.pk in listed_ids
+
+    def test_non_superuser_cannot_reset_superuser_password(self, admin_user):
+        from django.contrib.auth.models import User
+
+        superuser = User.objects.create_superuser(
+            username='rootadmin', password='Ab12Cd34',
+        )
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'reset_password',
+            'user_id': superuser.pk,
+            'password': 'NewPass99',
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert 'not found' in response.context['error'].lower()
+        superuser.refresh_from_db()
+        assert superuser.check_password('Ab12Cd34')
+
+    def test_non_superuser_cannot_delete_superuser(self, admin_user):
+        from django.contrib.auth.models import User
+
+        superuser = User.objects.create_superuser(
+            username='rootadmin', password='Ab12Cd34',
+        )
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/users/', {
+            'action': 'delete',
+            'user_id': superuser.pk,
+        }, follow=True)
+
+        assert response.status_code == 200
+        assert 'not found' in response.context['error'].lower()
+        assert User.objects.filter(pk=superuser.pk).exists()
+
     def test_cannot_delete_user_with_transactions(
             self, admin_user, teller_user, active_event):
         TellerTransaction.objects.create(

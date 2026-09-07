@@ -21,7 +21,18 @@ function getSelectedSide() {
 
 function focusBetInput() {
     const textarea = document.getElementById('bet_textinput');
-    if (textarea) textarea.focus();
+    if (textarea && !textarea.disabled) textarea.focus();
+}
+
+function setBetTextInputActive(active) {
+    const textarea = document.getElementById('bet_textinput');
+    if (!textarea) return;
+    textarea.disabled = !active;
+    if (active) {
+        focusBetInput();
+    } else {
+        textarea.blur();
+    }
 }
 
 function generateClientRequestId() {
@@ -109,13 +120,16 @@ function openConfirmationModal(total, side) {
     const confirmside = document.getElementById('confirmside');
     confirmside.innerText = wager_id;
     summaryValue.innerText = 'Total: ₱ ' + formatNumber(wager_value);
+    /* Deactivate the bet textbox while confirming so it cannot stay focused
+       or accept edits behind the modal. */
+    setBetTextInputActive(false);
     document.getElementById('confirmationModal').style.display = 'flex'; // Show the modal
 }
 
 function closeModal() {
     document.getElementById('confirmationModal').style.display = 'none';
     resetTotal();
-    focusBetInput();
+    setBetTextInputActive(true);
 }
 
 function openInvalidTotalModal(message) {
@@ -449,8 +463,7 @@ function lockBetUI() {
        code path — including rapid keyboard auto-repeat — hits a hard wall. */
     document.getElementById('confirmationModal').style.display = 'none';
 
-    const textarea = document.getElementById('bet_textinput');
-    if (textarea) textarea.disabled = true;
+    setBetTextInputActive(false);
 
     ['Usersubmit', 'SubmitButton', 'submitvalue'].forEach(id => {
         const el = document.getElementById(id);
@@ -464,9 +477,6 @@ function lockBetUI() {
 function unlockBetUI() {
     /* Re-enable the bet UI after a failed / cancelled submission. Never called
        on the success path — the page is reloading so there is nothing to restore. */
-    const textarea = document.getElementById('bet_textinput');
-    if (textarea) textarea.disabled = false;
-
     ['Usersubmit', 'SubmitButton'].forEach(id => {
         const el = document.getElementById(id);
         if (el) { el.disabled = false; }
@@ -478,7 +488,7 @@ function unlockBetUI() {
         submitButton.innerText = "Confirm";
     }
 
-    focusBetInput();
+    setBetTextInputActive(true);
 }
 
 async function submitValue() {

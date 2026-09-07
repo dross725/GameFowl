@@ -2560,10 +2560,21 @@ _CREATE_USER_ROLES = ('teller', 'admin', 'display')
 _ADMIN_USERS_FLASH_KEY = 'admin_users_flash'
 
 
-def _managed_user_rows():
+def _managed_users_queryset(viewer):
+    """Users visible on the management page for *viewer*.
+
+    Superusers are hidden from everyone except other superusers.
+    """
+    qs = User.objects.prefetch_related('groups').order_by('username')
+    if not getattr(viewer, 'is_superuser', False):
+        qs = qs.filter(is_superuser=False)
+    return qs
+
+
+def _managed_user_rows(viewer):
     """Return users with sorted role names for the management table."""
     rows = []
-    for user in User.objects.prefetch_related('groups').order_by('username'):
+    for user in _managed_users_queryset(viewer):
         roles = sorted(user.groups.values_list('name', flat=True))
         rows.append({
             'user': user,
@@ -2573,10 +2584,21 @@ def _managed_user_rows():
     return rows
 
 
-def _admin_users_context(**overrides):
+def _get_visible_managed_user(viewer, user_id):
+    """Return a managed user if *viewer* is allowed to see/act on them."""
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        return None
+    if user.is_superuser and not getattr(viewer, 'is_superuser', False):
+        return None
+    return user
+
+
+def _admin_users_context(request, **overrides):
     context = {
         'roles': _CREATE_USER_ROLES,
-        'users': _managed_user_rows(),
+        'users': _managed_user_rows(request.user),
         'error': None,
         'success': None,
         'credentials': None,
@@ -2640,7 +2662,7 @@ def admin_users(request):
         return render(
             request,
             'SmartWagers/admin_users.html',
-            _admin_users_context(**flash),
+            _admin_users_context(request, **flash),
         )
 
     action = (request.POST.get('action') or 'create').strip().lower()
@@ -2751,9 +2773,8 @@ def _admin_users_reset_password(request):
         user_id = 0
     password = request.POST.get('password') or ''
 
-    try:
-        user = User.objects.get(pk=user_id)
-    except User.DoesNotExist:
+    user = _get_visible_managed_user(request.user, user_id)
+    if user is None:
         return _admin_users_redirect(request, error='User not found.')
 
     password_error = _password_validation_error(password, user=user)
@@ -2785,19 +2806,13 @@ def _admin_users_delete(request):
     except (TypeError, ValueError):
         user_id = 0
 
-    try:
-        user = User.objects.get(pk=user_id)
-    except User.DoesNotExist:
+    user = _get_visible_managed_user(request.user, user_id)
+    if user is None:
         return _admin_users_redirect(request, error='User not found.')
 
     if user.pk == request.user.pk:
         return _admin_users_redirect(
             request, error='You cannot delete your own account.',
-        )
-
-    if user.is_superuser and not request.user.is_superuser:
-        return _admin_users_redirect(
-            request, error='Only a superuser can delete another superuser.',
         )
 
     if user.groups.filter(name='admin').exists():
