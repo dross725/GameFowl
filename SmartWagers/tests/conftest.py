@@ -170,3 +170,31 @@ def teller_status_offline(db, teller_user):
     status.is_online = False
     status.save()
     return status
+
+
+def closeout_and_end_event(admin_user, actual_admin_cash=0.0):
+    """Close stations, count admin + teller cash, then end the active event."""
+    from SmartWagers import services
+    from SmartWagers.models import TellerCloseOut, TellerStatus
+
+    event = services.get_active_event()
+    if event is None:
+        return services.end_event(admin_user)
+
+    for teller in services.get_non_admin_tellers():
+        if services.teller_station_is_closed(teller, event):
+            continue
+        status = TellerStatus.objects.filter(user=teller).first()
+        if services._teller_participates_in_event(teller, event, status=status):
+            services.close_teller_station(teller, event=event)
+
+    if event.actual_admin_cash_counted is None:
+        services.register_admin_cash_count(actual_admin_cash, admin_user)
+
+    for close_out in TellerCloseOut.objects.filter(
+        event=event, actual_cash_counted__isnull=True,
+    ):
+        services.register_teller_cash_count(
+            close_out.pk, close_out.expected_cash_on_hand, admin_user,
+        )
+    return services.end_event(admin_user)

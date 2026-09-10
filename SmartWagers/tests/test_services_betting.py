@@ -140,6 +140,26 @@ class TestAddWager:
             'aabbccdd-eeff-4111-8111-112233445566'
         )
 
+    def test_normalize_amount_source(self):
+        assert services.normalize_amount_source('button') == 'button'
+        assert services.normalize_amount_source('MANUAL') == 'manual'
+        assert services.normalize_amount_source('') == 'unknown'
+        assert services.normalize_amount_source('typed') == 'unknown'
+
+    def test_amount_source_is_logged_on_place(self, default_settings, monkeypatch):
+        _open_fight()
+        messages = []
+
+        def capture(msg, *args, **kwargs):
+            messages.append(msg % args if args else msg)
+
+        monkeypatch.setattr(services.logger, 'info', capture)
+        services.add_wager(
+            500, 'MERON', 1, cashier='teller1', amount_source='button',
+        )
+        assert any('BET PLACED:' in m and 'source=button' in m for m in messages)
+        assert any('TELLER BET' in m and 'amount_source=button' in m for m in messages)
+
     def test_teller_blocked_when_side_closed(self, default_settings):
         _open_fight()
         Fight_Status.objects.all().update(meron_status='CLOSE')

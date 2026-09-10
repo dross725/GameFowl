@@ -2,6 +2,8 @@ let bet_total = 0;
 let wager_value = 0;
 let wager_id = '';
 let clientRequestId = '';
+let amountSource = '';
+let amountLocked = false;
 let isSubmitting = false;
 let isRecordingWrongPunch = false;
 let tellerEnterAction = null;
@@ -14,15 +16,36 @@ function stripCommas(str) {
     return String(str).replace(/,/g, '');
 }
 
+function isBetAmountEmptyDisplay(value) {
+    const raw = String(value ?? '').trim();
+    return raw === '' || raw === '0';
+}
+
+function setBetAmountEmptyDisplay() {
+    const textarea = document.getElementById('bet_textinput');
+    if (!textarea) return;
+    textarea.value = '';
+}
+
 function getSelectedSide() {
     if (document.getElementById('radio_meron')?.checked) return 'MERON';
     if (document.getElementById('radio_wala')?.checked) return 'WALA';
     return null; /* neutral / no side chosen */
 }
 
+function setAmountLocked(locked) {
+    amountLocked = !!locked;
+    const textarea = document.getElementById('bet_textinput');
+    if (!textarea) return;
+    textarea.readOnly = amountLocked;
+    textarea.classList.toggle('bet-amount-locked', amountLocked);
+}
+
 function focusBetInput() {
     const textarea = document.getElementById('bet_textinput');
-    if (textarea && !textarea.disabled) textarea.focus();
+    /* Allow focus while preset-locked so Enter can still submit; typing is blocked. */
+    if (!textarea || textarea.disabled) return;
+    textarea.focus();
 }
 
 function setBetTextInputActive(active) {
@@ -54,17 +77,27 @@ function setClientRequestId(value) {
     if (hidden) hidden.value = clientRequestId;
 }
 
+function setAmountSource(value) {
+    amountSource = value || '';
+    const hidden = document.getElementById('amount_source');
+    if (hidden) hidden.value = amountSource;
+}
+
 function addValue(value) {
     bet_total = value;
+    setAmountSource('button');
     const textarea = document.getElementById('bet_textinput');
     if (textarea) textarea.value = formatNumber(bet_total);
+    /* Preset chips lock the editor so tellers cannot accidentally append digits. */
+    setAmountLocked(true);
     focusBetInput();
 }
 
 function resetBet() {
     bet_total = 0;
-    const textarea = document.getElementById('bet_textinput');
-    if (textarea) textarea.value = '0';
+    setBetAmountEmptyDisplay();
+    /* Unlock for manual entry; only Reset (or a full form reset) clears the lock. */
+    setAmountLocked(false);
     /* Return to neutral — no side selected */
     const noneRadio = document.getElementById('radio_none');
     if (noneRadio) noneRadio.checked = true;
@@ -98,7 +131,7 @@ function check_total(side) {
     const textarea = document.getElementById('bet_textinput');
     const raw = stripCommas(textarea ? textarea.value.trim() : '');
 
-    if (!raw || raw === '0' || isNaN(raw) || Number(raw) <= 0) {
+    if (isBetAmountEmptyDisplay(raw) || isNaN(raw) || Number(raw) <= 0) {
         resetBet();
         openInvalidTotalModal('Please make sure the bet amount is a valid number.');
         return;
@@ -178,6 +211,7 @@ function resetTotal() {
     document.getElementById('wager_value').value = '';
     document.getElementById('wager_id').value = '';
     setClientRequestId('');
+    setAmountSource('');
 }
 
 function openConfirmationModal(total, side) {
@@ -637,6 +671,7 @@ async function submitValue() {
         wager_side.value = wager_id;
 
         setClientRequestId(clientRequestId);
+        setAmountSource(amountSource);
 
         /* Reset textarea immediately — values already captured in the hidden fields above */
         resetBet();
@@ -742,6 +777,7 @@ window.addEventListener('load', () => {
     wagerValue.value = '';
     wagerId.value = '';
     setClientRequestId('');
+    setAmountSource('');
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -761,17 +797,27 @@ document.addEventListener('DOMContentLoaded', () => {
     /* Auto-focus on page load */
     textarea.focus();
 
-    /* Auto-format with commas as the user types */
+    /* Auto-format with commas as the user types (ignored while preset-locked). */
     textarea.addEventListener('input', () => {
+        if (amountLocked || textarea.readOnly) {
+            textarea.value = formatNumber(bet_total);
+            return;
+        }
         const digits = stripCommas(textarea.value).replace(/\D/g, '');
         const num = digits === '' ? 0 : parseInt(digits, 10);
         bet_total = num;
+        setAmountSource('manual');
         const formatted = num === 0 ? '' : formatNumber(num);
         /* Preserve a trailing empty state so the field feels natural to clear */
         textarea.value = digits === '' ? '' : formatted;
     });
 
-    /* Enter key → submit instead of newline, but only when no modal is open */
+    textarea.addEventListener('paste', (e) => {
+        if (amountLocked || textarea.readOnly) e.preventDefault();
+    });
+
+    /* Enter key → submit instead of newline, but only when no modal is open.
+       While locked, block all other keystrokes so nothing mutates the amount. */
     textarea.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -780,6 +826,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.stopPropagation(); /* consumed here — don't let document handler also fire */
                 check_total();
             }
+            return;
+        }
+        if (amountLocked || textarea.readOnly) {
+            e.preventDefault();
         }
     });
 

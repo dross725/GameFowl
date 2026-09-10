@@ -63,6 +63,10 @@ def test_wrong_punch_guard_is_wired_in_bet_entry():
     assert 'recordAndShowWrongPunch' in wagers_script
     assert 'isRecordingWrongPunch' in wagers_script
     assert "result.error === \"wrong_punch\"" in wagers_script
+    assert "setAmountSource('button')" in wagers_script
+    assert "setAmountSource('manual')" in wagers_script
+    assert "name='amount_source'" in user_template
+    assert "name='amount_source'" in admin_template
     assert 'wrongpunchModal' in user_template
     assert 'wrongpunchModal' in admin_template
     assert 'wrongpunchwinnermodal' in admin_template

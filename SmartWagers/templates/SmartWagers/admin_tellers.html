@@ -54,6 +54,55 @@
     margin-top: 2px;
   }
 
+  #close-admin-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .close-admin-status {
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    max-width: 360px;
+    line-height: 1.35;
+  }
+
+  .close-admin-status.pending {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+  }
+
+  .close-admin-status.counted {
+    color: #2ecc71;
+    background: rgba(46, 204, 113, 0.12);
+    border: 1px solid rgba(46, 204, 113, 0.30);
+  }
+
+  #btn-close-admin {
+    background: linear-gradient(135deg, #1a5276, #2874a6);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  #btn-close-admin:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .count-cash-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   #pre-event-funding {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -417,8 +466,92 @@
   }
 
   .pending-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
     font-size: 10px;
-    color: rgba(255,255,255,0.28);
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.55);
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+
+  .edited-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    background: linear-gradient(135deg, #2980b9, #1a5276);
+    color: white;
+  }
+
+  .cancelled-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    background: rgba(149, 165, 166, 0.25);
+    color: rgba(255,255,255,0.55);
+    border: 1px solid rgba(149, 165, 166, 0.35);
+    text-decoration: line-through;
+  }
+
+  .history-table tbody tr.row-cancelled {
+    opacity: 0.55;
+  }
+
+  .history-table tbody tr.row-cancelled td.amount-remit,
+  .history-table tbody tr.row-cancelled td.amount-collect {
+    text-decoration: line-through;
+  }
+
+  .txn-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  .txn-action-btn {
+    border: none;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 9px;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: opacity 0.15s;
+  }
+
+  .txn-action-btn:hover { opacity: 0.85; }
+  .txn-action-btn:disabled { opacity: 0.4; cursor: default; }
+
+  .txn-action-btn.edit-btn {
+    background: rgba(41, 128, 185, 0.25);
+    color: #5dade2;
+    border: 1px solid rgba(41, 128, 185, 0.40);
+  }
+
+  .txn-action-btn.receive-btn {
+    background: rgba(212, 172, 13, 0.22);
+    color: #f1c40f;
+    border: 1px solid rgba(212, 172, 13, 0.45);
+  }
+
+  .txn-action-btn.cancel-btn {
+    background: rgba(231, 76, 60, 0.18);
+    color: #e74c3c;
+    border: 1px solid rgba(231, 76, 60, 0.35);
+  }
+
+  .txn-action-none {
+    font-size: 10px;
+    color: rgba(255,255,255,0.22);
   }
 
   .closeout-badge {
@@ -818,6 +951,35 @@
         {% endif %}
       </div>
     </div>
+    {% if active_event %}
+    <div id="close-admin-wrap">
+      {% if closeout_readiness.admin_cash_counted %}
+        <div id="close-admin-status" class="close-admin-status counted">
+          Admin cash counted
+          · Expected ₱ {{ closeout_readiness.expected_admin_cash|floatformat:2|intcomma }}
+          · Actual ₱ {{ closeout_readiness.actual_admin_cash|floatformat:2|intcomma }}
+          {% if closeout_readiness.admin_cash_variance is not None %}
+            · Var ₱ {{ closeout_readiness.admin_cash_variance|floatformat:2|intcomma }}
+          {% endif %}
+        </div>
+      {% else %}
+        <div id="close-admin-status" class="close-admin-status pending">
+          {% if closeout_readiness.all_stations_closed %}
+            All stations closed — count admin cash
+          {% else %}
+            Waiting for stations to close
+            ({{ closeout_readiness.stations_closed }}/{{ closeout_readiness.stations_total }})
+          {% endif %}
+        </div>
+      {% endif %}
+      <button type="button" id="btn-close-admin"
+              {% if not closeout_readiness.can_close_admin %}disabled{% endif %}
+              title="{% if closeout_readiness.can_close_admin %}Enter actual admin cash on hand{% elif closeout_readiness.admin_cash_counted %}Admin cash already counted{% else %}Available after all tellers close their stations{% endif %}"
+              onclick="openCloseAdminModal()">
+        Close Admin
+      </button>
+    </div>
+    {% endif %}
   </div>
 
   {% if not active_event %}
@@ -885,6 +1047,7 @@
                         data-teller-name="{{ td.display_name|escapejs }}"
                         data-expected="{{ td.close_out.expected_cash_on_hand }}"
                         data-fightnum="{{ td.close_out.fightnum }}"
+                        {% if not closeout_readiness.can_count_teller_cash %}disabled title="Available after admin cash is counted"{% endif %}
                         onclick="openCountCashModalFromButton(event, this)">
                   Count Cash
                 </button>
@@ -951,11 +1114,17 @@
                   <th>Timestamp</th>
                   <th>Amount</th>
                   <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="history-body-{{ td.user.pk }}">
                 {% for txn in td.transactions %}
-                <tr class="row-{{ txn.transaction_type|lower }}" id="txn-row-{{ txn.transaction_id }}">
+                <tr class="row-{{ txn.transaction_type|lower }}{% if txn.cancelled %} row-cancelled{% endif %}"
+                    id="txn-row-{{ txn.transaction_id }}"
+                    data-txn-id="{{ txn.transaction_id }}"
+                    data-txn-type="{{ txn.transaction_type }}"
+                    data-amount="{{ txn.amount }}"
+                    data-status="{% if txn.cancelled %}cancelled{% elif txn.transaction_type == 'REMIT' and txn.received %}received{% elif txn.edited %}edited{% elif txn.transaction_type == 'REMIT' %}pending{% else %}issued{% endif %}">
                   <td style="color:rgba(255,255,255,0.28);font-size:10px;">{{ forloop.counter }}</td>
                   <td class="td-txid-h">{{ txn.transaction_id }}</td>
                   <td>
@@ -964,17 +1133,39 @@
                     </span>
                   </td>
                   <td class="td-ts">{{ txn.created_at|date:"Y-m-d" }} {{ txn.created_at|time:"H:i:s" }}</td>
-                  <td class="amount-{{ txn.transaction_type|lower }}">₱ {{ txn.amount|floatformat:0|intcomma }}</td>
-                  <td>
-                    {% if txn.transaction_type == 'REMIT' %}
-                      {% if txn.received %}
-                        <span class="received-badge">Received</span>
-                      {% else %}
-                        <span class="pending-badge" id="status-{{ txn.transaction_id }}">—</span>
-                      {% endif %}
+                  <td class="amount-{{ txn.transaction_type|lower }}" id="amount-{{ txn.transaction_id }}">₱ {{ txn.amount|floatformat:0|intcomma }}</td>
+                  <td id="status-cell-{{ txn.transaction_id }}">
+                    {% if txn.cancelled %}
+                      <span class="cancelled-badge">Cancelled</span>
+                    {% elif txn.transaction_type == 'REMIT' and txn.received %}
+                      <span class="received-badge">Received</span>
+                    {% elif txn.edited %}
+                      <span class="edited-badge">Edited</span>
+                    {% elif txn.transaction_type == 'REMIT' %}
+                      <span class="pending-badge">Pending</span>
                     {% else %}
-                      <span class="pending-badge">—</span>
+                      <span class="pending-badge">Issued</span>
                     {% endif %}
+                  </td>
+                  <td>
+                    <div class="txn-actions" id="actions-{{ txn.transaction_id }}">
+                      {% if txn.transaction_type == 'REMIT' and not txn.received and not txn.cancelled %}
+                        <button type="button" class="txn-action-btn receive-btn"
+                                onclick="receiveRemit(event, '{{ txn.transaction_id }}', {{ td.user.pk }})">
+                          Receive
+                        </button>
+                        <button type="button" class="txn-action-btn edit-btn"
+                                onclick="openEditRemitModal(event, '{{ txn.transaction_id }}', {{ td.user.pk }}, '{{ td.display_name|escapejs }}', {{ txn.amount }})">
+                          Edit
+                        </button>
+                        <button type="button" class="txn-action-btn cancel-btn"
+                                onclick="cancelRemit(event, '{{ txn.transaction_id }}', {{ td.user.pk }})">
+                          Cancel
+                        </button>
+                      {% else %}
+                        <span class="txn-action-none">—</span>
+                      {% endif %}
+                    </div>
                   </td>
                 </tr>
                 {% endfor %}
@@ -1007,13 +1198,15 @@
 
     <input type="hidden" id="modal-teller-id" value="">
     <input type="hidden" id="modal-txn-type" value="COLLECT">
+    <input type="hidden" id="modal-mode" value="create">
+    <input type="hidden" id="modal-txn-id" value="">
 
     <div class="modal-field">
       <label>Amount (₱)</label>
       <input type="text" inputmode="numeric" id="collect-amount" placeholder="0" autocomplete="off">
     </div>
 
-    <label class="print-option">
+    <label class="print-option" id="collect-print-wrap">
       <input type="checkbox" id="collect-print" checked>
       Print receipt
     </label>
@@ -1061,16 +1254,50 @@
   </div>
 </div>
 
+<!-- ── Close Admin Modal ─────────────────────────────────────────── -->
+<div class="modal-overlay" id="close-admin-modal-overlay" onclick="closeCloseAdminModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div>
+      <div class="modal-title">Close Admin</div>
+      <div class="modal-teller-name">Count shared admin cash on hand</div>
+    </div>
+
+    <div class="modal-field">
+      <label>Expected Admin Cash (before teller counts) (₱)</label>
+      <div id="close-admin-expected" style="color:#f1c40f;font-weight:800;font-size:18px;">₱ 0.00</div>
+    </div>
+
+    <div class="modal-field">
+      <label>Actual Cash On Hand (₱)</label>
+      <input type="text" inputmode="decimal" id="close-admin-amount" placeholder="0.00" autocomplete="off"
+             onkeydown="if(event.key==='Enter')submitCloseAdmin()">
+    </div>
+
+    <div class="modal-status" id="close-admin-modal-status"></div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel-modal" onclick="closeCloseAdminModal()">Cancel</button>
+      <button class="btn-confirm-collect is-remit" id="btn-close-admin-confirm" onclick="submitCloseAdmin()">Register Admin Count</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const TELLER_TXN_URL      = "{% url 'admin-teller-txn' %}";
+const TELLER_EDIT_URL     = "{% url 'admin-edit-teller-txn' %}";
+const TELLER_CANCEL_URL   = "{% url 'admin-cancel-teller-txn' %}";
+const MARK_RECEIVED_URL   = "{% url 'admin-mark-received' %}";
 const TELLER_ONLINE_URL   = "{% url 'admin-teller-online-toggle' %}";
 const COUNT_CASH_URL      = "{% url 'admin-teller-closeout-count' %}";
+const CLOSE_ADMIN_URL     = "{% url 'admin-cash-count' %}";
+const ADMIN_FUND_STATUS_URL = "{% url 'admin-fund-status' %}";
 const REOPEN_STATION_URL  = "{% url 'admin-teller-closeout-reopen' %}";
 const PRINT_AGENT_URL     = "http://127.0.0.1:8765/print-remit";
 const CSRF_TOKEN          = "{{ csrf_token }}";
 const TELLER_MAX_BALANCE  = {{ teller_max_balance|floatformat:2 }};
 const TELLER_MIN_BALANCE  = {{ teller_min_balance|floatformat:2 }};
 const EVENT_ACTIVE        = {{ active_event|yesno:"true,false" }};
+const CLOSE_ADMIN_EXPECTED = {{ closeout_readiness.expected_admin_cash|floatformat:2 }};
 const TELLER_INITIAL_FUND = {{ teller_initial_fund|floatformat:2 }};
 const ADMIN_INITIAL_FUND  = {{ admin_initial_fund|floatformat:2 }};
 
@@ -1119,20 +1346,51 @@ function openTxnModal(event, tellerId, tellerName, txnType) {
   event.stopPropagation();
 
   const isRemit = txnType === 'REMIT';
+  document.getElementById('modal-mode').value = 'create';
+  document.getElementById('modal-txn-id').value = '';
   document.getElementById('modal-teller-id').value  = tellerId;
   document.getElementById('modal-txn-type').value   = txnType;
   document.getElementById('modal-teller-name').textContent = tellerName;
   document.getElementById('modal-title').textContent = isRemit ? 'Issue Advance' : 'Issue Borrow';
   document.getElementById('collect-amount').value   = '';
+  document.getElementById('collect-print-wrap').style.display = '';
 
   const confirmBtn = document.getElementById('btn-collect-confirm');
   confirmBtn.textContent = isRemit ? 'Confirm Advance' : 'Confirm Borrow';
   confirmBtn.classList.toggle('is-remit', isRemit);
+  confirmBtn.onclick = submitTxn;
 
   setStatus('', '');
   attachModalAmountFormatters();
   document.getElementById('collect-modal-overlay').classList.add('active');
   setTimeout(() => document.getElementById('collect-amount').focus(), 80);
+}
+
+function openEditRemitModal(event, txnId, tellerId, tellerName, currentAmount) {
+  event.stopPropagation();
+
+  document.getElementById('modal-mode').value = 'edit';
+  document.getElementById('modal-txn-id').value = txnId;
+  document.getElementById('modal-teller-id').value = tellerId;
+  document.getElementById('modal-txn-type').value = 'REMIT';
+  document.getElementById('modal-teller-name').textContent = `${tellerName} · ${txnId}`;
+  document.getElementById('modal-title').textContent = 'Edit Advance';
+  document.getElementById('collect-amount').value = Number(currentAmount).toLocaleString('en-US');
+  document.getElementById('collect-print-wrap').style.display = 'none';
+
+  const confirmBtn = document.getElementById('btn-collect-confirm');
+  confirmBtn.textContent = 'Save Changes';
+  confirmBtn.classList.add('is-remit');
+  confirmBtn.onclick = submitEditRemit;
+
+  setStatus('', '');
+  attachModalAmountFormatters();
+  document.getElementById('collect-modal-overlay').classList.add('active');
+  setTimeout(() => {
+    const input = document.getElementById('collect-amount');
+    input.focus();
+    input.select();
+  }, 80);
 }
 
 function closeCollectModal(event) {
@@ -1145,6 +1403,14 @@ function setStatus(type, msg) {
   const el = document.getElementById('collect-status');
   el.className = 'modal-status' + (type ? ` ${type}` : '');
   el.textContent = msg;
+}
+
+function statusBadgeHtml(status) {
+  if (status === 'cancelled') return '<span class="cancelled-badge">Cancelled</span>';
+  if (status === 'received') return '<span class="received-badge">Received</span>';
+  if (status === 'edited') return '<span class="edited-badge">Edited</span>';
+  if (status === 'pending') return '<span class="pending-badge">Pending</span>';
+  return '<span class="pending-badge">Issued</span>';
 }
 
 /* ── Submit transaction ────────────────────────────── */
@@ -1161,6 +1427,7 @@ async function submitTxn() {
 
   if (txnType === 'REMIT') {
     const cashOnHand = Number(TELLER_BALANCES[tellerId]?.balance ?? 0);
+    // Server also reserves pending Advances; this is a soft client check only.
     if (amount > cashOnHand + 0.001) {
       setStatus('error', 'Advance amount cannot exceed cash on hand.');
       return;
@@ -1218,6 +1485,125 @@ async function submitTxn() {
   }
 }
 
+async function submitEditRemit() {
+  const tellerId = document.getElementById('modal-teller-id').value;
+  const txnId = document.getElementById('modal-txn-id').value;
+  const amount = parseFloat(stripCommas(document.getElementById('collect-amount').value));
+
+  if (!amount || amount <= 0 || isNaN(amount)) {
+    setStatus('error', 'Please enter a valid amount.');
+    return;
+  }
+
+  const btn = document.getElementById('btn-collect-confirm');
+  btn.disabled = true;
+  setStatus('', '');
+
+  const fd = new FormData();
+  fd.append('transaction_id', txnId);
+  fd.append('amount', amount);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(TELLER_EDIT_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (!data.ok) {
+      const messages = {
+        exceeds_cash_on_hand: 'Advance amount cannot exceed cash on hand.',
+        already_received: 'This advance was already received and cannot be edited.',
+        cancelled: 'This advance was already cancelled.',
+        not_found: 'Advance not found.',
+        invalid_amount: 'Please enter a valid amount.',
+      };
+      setStatus('error', messages[data.error] || `Error: ${data.error || 'Unknown error'}`);
+      if (data.balance !== undefined) {
+        updateTellerCard({
+          teller_id: Number(tellerId),
+          balance: data.balance,
+          grand_total: data.grand_total,
+        });
+      }
+      btn.disabled = false;
+      return;
+    }
+
+    updateTellerCard(data);
+    updateHistoryRow(data);
+    document.getElementById('collect-modal-overlay').classList.remove('active');
+    btn.disabled = false;
+  } catch (err) {
+    setStatus('error', 'Network error. Check connection.');
+    btn.disabled = false;
+  }
+}
+
+async function receiveRemit(event, txnId, tellerId) {
+  event.stopPropagation();
+  if (!confirm(`Mark advance ${txnId} as received?`)) {
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append('transaction_id', txnId);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(MARK_RECEIVED_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) {
+      const messages = {
+        already_received: 'This advance was already received.',
+        cancelled: 'This advance was cancelled and cannot be received.',
+        not_found: 'Advance not found.',
+        not_a_remit: 'Only ADVANCE transactions can be marked received.',
+      };
+      alert(messages[data.error] || `Error: ${data.error || 'Unknown error'}`);
+      return;
+    }
+    if (data.amount === undefined) {
+      const row = document.getElementById(`txn-row-${txnId}`);
+      if (row?.dataset?.amount) data.amount = Number(row.dataset.amount);
+    }
+    data.teller_id = data.teller_id || tellerId;
+    data.status = data.status || 'received';
+    data.received = true;
+    updateTellerCard(data);
+    updateHistoryRow(data);
+  } catch (err) {
+    alert('Network error. Check connection.');
+  }
+}
+
+async function cancelRemit(event, txnId, tellerId) {
+  event.stopPropagation();
+  if (!confirm(`Cancel advance ${txnId}? This pending advance will be voided.`)) {
+    return;
+  }
+
+  const fd = new FormData();
+  fd.append('transaction_id', txnId);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(TELLER_CANCEL_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) {
+      const messages = {
+        already_received: 'This advance was already received and cannot be cancelled.',
+        cancelled: 'This advance was already cancelled.',
+        not_found: 'Advance not found.',
+      };
+      alert(messages[data.error] || `Error: ${data.error || 'Unknown error'}`);
+      return;
+    }
+    updateTellerCard(data);
+    updateHistoryRow(data);
+  } catch (err) {
+    alert('Network error. Check connection.');
+  }
+}
+
 function updateTellerCard(data) {
   const tid = data.teller_id;
   const balEl = document.getElementById(`bal-${tid}`);
@@ -1239,28 +1625,80 @@ function updateTellerCard(data) {
   refreshWarningBanner();
 }
 
+function updateHistoryRow(data) {
+  const row = document.getElementById(`txn-row-${data.transaction_id}`);
+  if (!row) return;
+
+  const status = data.status
+    || (data.cancelled ? 'cancelled'
+      : data.received ? 'received'
+      : data.edited ? 'edited'
+      : data.transaction_type === 'REMIT' ? 'pending' : 'issued');
+
+  row.dataset.status = status;
+  row.dataset.amount = data.amount;
+  row.classList.toggle('row-cancelled', status === 'cancelled');
+
+  const amountEl = document.getElementById(`amount-${data.transaction_id}`);
+  if (amountEl) {
+    amountEl.textContent = `₱ ${fmtNum(data.amount)}`;
+  }
+
+  const statusCell = document.getElementById(`status-cell-${data.transaction_id}`);
+  if (statusCell) {
+    statusCell.innerHTML = statusBadgeHtml(status);
+  }
+
+  const actions = document.getElementById(`actions-${data.transaction_id}`);
+  if (actions) {
+    if (status === 'pending' || status === 'edited') {
+      const tellerName = TELLER_BALANCES[data.teller_id]?.name || '';
+      actions.innerHTML = pendingRemitActionsHtml(
+        data.transaction_id, data.teller_id, tellerName, data.amount,
+      );
+    } else {
+      actions.innerHTML = '<span class="txn-action-none">—</span>';
+    }
+  }
+}
+
 function prependHistoryRow(data) {
   const tid  = data.teller_id;
   const type = data.transaction_type.toLowerCase();
   const tbody    = document.getElementById(`history-body-${tid}`);
   const emptyDiv = document.getElementById(`history-empty-${tid}`);
 
-  const statusCell = type === 'remit'
-    ? `<span class="pending-badge" id="status-${escHtml(data.transaction_id)}">—</span>`
-    : `<span class="pending-badge">—</span>`;
+  const status = data.status
+    || (data.cancelled ? 'cancelled'
+      : data.received ? 'received'
+      : data.edited ? 'edited'
+      : data.transaction_type === 'REMIT' ? 'pending' : 'issued');
 
-  const displayType = data.transaction_type === 'COLLECT' ? 'BORROW' : data.transaction_type;
+  const displayType = data.transaction_type === 'COLLECT'
+    ? 'BORROW'
+    : (data.transaction_type === 'REMIT' ? 'ADVANCE' : data.transaction_type);
+
+  const tellerName = data.teller_name || TELLER_BALANCES[tid]?.name || '';
+  const canManage = data.transaction_type === 'REMIT' && (status === 'pending' || status === 'edited');
+  const actionsHtml = canManage
+    ? pendingRemitActionsHtml(data.transaction_id, tid, tellerName, data.amount)
+    : '<span class="txn-action-none">—</span>';
 
   const row = document.createElement('tr');
-  row.className = `row-${type}`;
+  row.className = `row-${type}${status === 'cancelled' ? ' row-cancelled' : ''}`;
   row.id = `txn-row-${data.transaction_id}`;
+  row.dataset.txnId = data.transaction_id;
+  row.dataset.txnType = data.transaction_type;
+  row.dataset.amount = data.amount;
+  row.dataset.status = status;
   row.innerHTML = `
     <td style="color:rgba(255,255,255,0.28);font-size:10px;">—</td>
     <td class="td-txid-h">${escHtml(data.transaction_id)}</td>
     <td><span class="type-badge ${type}">${escHtml(displayType)}</span></td>
     <td class="td-ts">${escHtml(data.created_at)}</td>
-    <td class="amount-${type}">₱ ${fmtNum(data.amount)}</td>
-    <td>${statusCell}</td>
+    <td class="amount-${type}" id="amount-${escHtml(data.transaction_id)}">₱ ${fmtNum(data.amount)}</td>
+    <td id="status-cell-${escHtml(data.transaction_id)}">${statusBadgeHtml(status)}</td>
+    <td><div class="txn-actions" id="actions-${escHtml(data.transaction_id)}">${actionsHtml}</div></td>
   `;
 
   if (tbody) {
@@ -1271,7 +1709,7 @@ function prependHistoryRow(data) {
       <table class="history-table">
         <thead>
           <tr>
-            <th>#</th><th>Transaction ID</th><th>Type</th><th>Timestamp</th><th>Amount</th><th>Status</th>
+            <th>#</th><th>Transaction ID</th><th>Type</th><th>Timestamp</th><th>Amount</th><th>Status</th><th>Actions</th>
           </tr>
         </thead>
         <tbody id="history-body-${tid}"></tbody>
@@ -1329,6 +1767,32 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function escJs(str) {
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/</g, '\\u003c');
+}
+
+function pendingRemitActionsHtml(txnId, tellerId, tellerName, amount) {
+  return `
+    <button type="button" class="txn-action-btn receive-btn"
+            onclick="receiveRemit(event, '${escJs(txnId)}', ${Number(tellerId)})">
+      Receive
+    </button>
+    <button type="button" class="txn-action-btn edit-btn"
+            onclick="openEditRemitModal(event, '${escJs(txnId)}', ${Number(tellerId)}, '${escJs(tellerName)}', ${Number(amount)})">
+      Edit
+    </button>
+    <button type="button" class="txn-action-btn cancel-btn"
+            onclick="cancelRemit(event, '${escJs(txnId)}', ${Number(tellerId)})">
+      Cancel
+    </button>
+  `;
+}
+
 function attachAmountFormatter(inputId, allowDecimals = false) {
   const input = document.getElementById(inputId);
   if (!input || input._fmtAttached) return;
@@ -1360,17 +1824,20 @@ function attachAmountFormatter(inputId, allowDecimals = false) {
 function attachModalAmountFormatters() {
   attachAmountFormatter('collect-amount', false);
   attachAmountFormatter('count-cash-amount', true);
+  attachAmountFormatter('close-admin-amount', true);
 }
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     document.getElementById('collect-modal-overlay').classList.remove('active');
     document.getElementById('count-cash-modal-overlay').classList.remove('active');
+    document.getElementById('close-admin-modal-overlay')?.classList.remove('active');
   }
 });
 
 function openCountCashModalFromButton(event, button) {
   event.stopPropagation();
+  if (button.disabled) return;
   openCountCashModal(
     event,
     button.dataset.closeOutId,
@@ -1378,6 +1845,83 @@ function openCountCashModalFromButton(event, button) {
     button.dataset.expected,
     button.dataset.fightnum,
   );
+}
+
+async function openCloseAdminModal() {
+  const btn = document.getElementById('btn-close-admin');
+  if (btn && btn.disabled) return;
+
+  const expectedEl = document.getElementById('close-admin-expected');
+  const amountEl = document.getElementById('close-admin-amount');
+  const statusEl = document.getElementById('close-admin-modal-status');
+  expectedEl.textContent = `₱ ${fmtMoney(CLOSE_ADMIN_EXPECTED)}`;
+  amountEl.value = '';
+  statusEl.textContent = '';
+  statusEl.style.color = '';
+  document.getElementById('btn-close-admin-confirm').disabled = false;
+  attachModalAmountFormatters();
+  document.getElementById('close-admin-modal-overlay').classList.add('active');
+
+  try {
+    const res = await fetch(ADMIN_FUND_STATUS_URL, {
+      headers: { 'Accept': 'application/json' },
+    });
+    const data = await res.json();
+    if (data.ok && data.active) {
+      expectedEl.textContent = `₱ ${fmtMoney(data.balance_before_closeouts)}`;
+    }
+  } catch (err) {
+    // Keep server-rendered expected value.
+  }
+  setTimeout(() => amountEl.focus(), 80);
+}
+
+function closeCloseAdminModal(event) {
+  if (event && event.target !== event.currentTarget && event.type === 'click') return;
+  document.getElementById('close-admin-modal-overlay').classList.remove('active');
+}
+
+async function submitCloseAdmin() {
+  const amountRaw = stripCommas(document.getElementById('close-admin-amount').value.trim());
+  const statusEl = document.getElementById('close-admin-modal-status');
+  const btn = document.getElementById('btn-close-admin-confirm');
+  const amount = Number(amountRaw);
+
+  if (!Number.isFinite(amount) || amount < 0 || !amountRaw) {
+    statusEl.style.color = '#e74c3c';
+    statusEl.textContent = 'Enter a valid non-negative cash amount.';
+    return;
+  }
+
+  btn.disabled = true;
+  statusEl.style.color = '';
+  statusEl.textContent = 'Saving admin cash count…';
+
+  const fd = new FormData();
+  fd.append('actual_admin_cash', amount.toString());
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(CLOSE_ADMIN_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) {
+      const msgs = {
+        no_active_event: 'No active event.',
+        tellers_not_closed: 'All tellers must close their stations first.',
+        already_counted: 'Admin cash already counted and teller cash collection has started.',
+        invalid_actual_admin_cash: 'Enter a valid non-negative cash amount.',
+      };
+      statusEl.style.color = '#e74c3c';
+      statusEl.textContent = msgs[data.error] || ('Error: ' + data.error);
+      btn.disabled = false;
+      return;
+    }
+    window.location.reload();
+  } catch (err) {
+    statusEl.style.color = '#e74c3c';
+    statusEl.textContent = 'Network error. Check connection.';
+    btn.disabled = false;
+  }
 }
 
 function openCountCashModal(event, closeOutId, tellerName, expectedAmount, fightnum) {
@@ -1428,6 +1972,8 @@ async function submitCountCash() {
       const messages = {
         close_out_not_found: 'Close-out record not found.',
         already_counted: 'Cash has already been counted for this teller.',
+        admin_cash_not_counted: 'Count admin cash (Close Admin) before collecting teller cash.',
+        no_active_event: 'No active event — cannot count teller cash.',
         invalid_amount: 'Invalid amount.',
         transaction_id_exhausted: 'Cannot create advance — transaction ID limit reached. Contact support.',
         invalid_params: 'Invalid cash count submission. Check amount and try again.',

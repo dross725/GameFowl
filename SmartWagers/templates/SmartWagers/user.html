@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=28">
+    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=30">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=10">
 {% endblock css_files %}
 
@@ -14,7 +14,7 @@
         window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
     </script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=wrong-punch-4"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=preset-lock-2"></script>
     <script src="{% static 'SmartWagers/user.js' %}?v=txn-messages-1"></script>
 {% endblock script_files %}
 
@@ -45,9 +45,7 @@
                 </div>
                 
                 <div id='bet-text-input'>
-                    <textarea id='bet_textinput'
-                        onfocus="if(this.value==='0')this.value=''"
-                        onblur="if(this.value.trim()==='')this.value='0'">0</textarea>
+                    <textarea id='bet_textinput' placeholder='Place bet here'></textarea>
                 </div>
                 <section class='bet-buttons'>
                     <section id='buttons_section1'>
@@ -95,6 +93,7 @@
         <input type='hidden' name='wager_value' id='wager_value'></input>
         <input type='hidden' name='wager_id' id='wager_id'></input>
         <input type='hidden' name='client_request_id' id='client_request_id'></input>
+        <input type='hidden' name='amount_source' id='amount_source'></input>
     </form>
 
     <div id='confirmationModal' class='modal'>

@@ -69,6 +69,15 @@ const administratorSocket = _isAdminPage
     ? new WebSocket(`${administratorWebsocketProtocol}://${window.location.host}/ws/administrator/`)
     : { readyState: WebSocket.CLOSED, send() {}, set onopen(_) {}, set onerror(_) {}, set onclose(_) {}, set onmessage(_) {} };
 
+// Refresh End Event gating when returning to the admin tab after Tellers closeout.
+if (_isAdminPage) {
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            get_fightstatus();
+        }
+    });
+}
+
 // Initialize the WebSocket connection
 administratorSocket.onopen = () => {
     console.log("WebSocket connected! onopen");
@@ -768,7 +777,7 @@ async function get_fightstatus(){
     const w_status     = data.wala_status;
     const event_active = data.event_active;
 
-    applyEventState(event_active);
+    applyEventState(event_active, data.can_end_event);
 
     if (event_active) {
         get_status_for_display(fight_num, fight_status, m_status, w_status);
@@ -777,19 +786,27 @@ async function get_fightstatus(){
     }
 }
 
-function applyEventState(event_active) {
+function applyEventState(event_active, can_end_event) {
     const startLink = document.querySelector('.start-event-action');
     const endLink   = document.querySelector('.end-event-action');
+    const allowEnd = Boolean(event_active) && Boolean(can_end_event);
 
     if (event_active) {
-        // Event running: disable Start Event, enable End Event
+        // Event running: disable Start Event; End Event only when cash is collected.
         if (startLink) {
             startLink.classList.add('nav-event-disabled');
             startLink.onclick = e => e.preventDefault();
         }
         if (endLink) {
-            endLink.classList.remove('nav-event-disabled');
-            endLink.onclick = e => { e.preventDefault(); openEndEventModal(); };
+            if (allowEnd) {
+                endLink.classList.remove('nav-event-disabled');
+                endLink.onclick = e => { e.preventDefault(); openEndEventModal(); };
+                endLink.title = '';
+            } else {
+                endLink.classList.add('nav-event-disabled');
+                endLink.onclick = e => e.preventDefault();
+                endLink.title = 'Collect admin cash and all teller cash first';
+            }
         }
     } else {
         // No active event: enable Start Event, disable End Event,
@@ -801,6 +818,7 @@ function applyEventState(event_active) {
         if (endLink) {
             endLink.classList.add('nav-event-disabled');
             endLink.onclick = e => e.preventDefault();
+            endLink.title = '';
         }
 
         document.querySelectorAll('.button:not(#tellers_button)').forEach(btn => {

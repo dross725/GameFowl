@@ -158,6 +158,7 @@ class TestAdminCashCount:
     ):
         _place_bet(teller_user, 2000.0)
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
 
         result = services.register_teller_cash_count(close_out.pk, 1950.0, admin_user)
 
@@ -173,6 +174,7 @@ class TestAdminCashCount:
     ):
         _place_bet(teller_user, 1000.0)
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
 
         response = admin_client.post(
             '/administrator/teller-closeout/count/',
@@ -188,6 +190,7 @@ class TestAdminCashCount:
     ):
         _place_bet(teller_user, 1000.0)
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
 
         response = admin_client.post(
             '/administrator/teller-closeout/count/',
@@ -204,6 +207,7 @@ class TestAdminCashCount:
 
         _place_bet(teller_user, 500.0)
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
         TransactionSequence.objects.filter(key=TransactionSequence.TELLER).update(
             value=2026000047,
         )
@@ -213,6 +217,39 @@ class TestAdminCashCount:
         assert result.actual_cash_counted == 500.0
         assert result.remit_transaction is not None
         assert result.remit_transaction.transaction_id == 'R000000'
+
+    def test_teller_count_blocked_until_admin_cash_counted(
+        self, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        with pytest.raises(services.AdminCashNotCountedError):
+            services.register_teller_cash_count(close_out.pk, 0, admin_user)
+
+    def test_teller_count_rejected_when_event_inactive(
+        self, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
+        event_with_fight.is_active = False
+        event_with_fight.save(update_fields=['is_active'])
+
+        with pytest.raises(services.NoActiveEventError):
+            services.register_teller_cash_count(close_out.pk, 0, admin_user)
+
+    def test_close_admin_endpoint(
+        self, admin_client, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        services.close_teller_station(teller_user, event=event_with_fight)
+        response = admin_client.post(
+            '/administrator/admin-cash/count/',
+            {'actual_admin_cash': '99,950.25'},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['actual_admin_cash'] == 99950.25
+        event_with_fight.refresh_from_db()
+        assert event_with_fight.actual_admin_cash_counted == 99950.25
 
     def test_admin_cannot_reenable_before_count(
         self, admin_client, teller_user, event_with_fight, teller_status_online,
@@ -269,6 +306,7 @@ class TestAdminReopenStation:
         teller_status_online,
     ):
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
         services.register_teller_cash_count(close_out.pk, 0, admin_user)
 
         response = admin_client.post(
@@ -408,6 +446,7 @@ class TestEventReportCloseOut:
             teller_user,
             event=event_with_fight,
         )
+        services.register_admin_cash_count(100000, admin_user)
         services.register_teller_cash_count(
             close_out.pk,
             10450.0,
@@ -443,6 +482,7 @@ class TestEventReportCloseOut:
     ):
         _place_bet(teller_user, 3000.0)
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
         services.register_teller_cash_count(close_out.pk, 3100.0, admin_user)
 
         event_with_fight.is_active = False
@@ -737,6 +777,7 @@ class TestEventReportCloseOut:
         )
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
         counted_cash = close_out.expected_cash_on_hand
+        services.register_admin_cash_count(100000, admin_user)
         services.register_teller_cash_count(close_out.pk, counted_cash, admin_user)
 
         event_with_fight.is_active = False
@@ -834,8 +875,9 @@ class TestEventReportCloseOut:
             amount=5000.0,
         )
         close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(0.0, admin_user)
         services.register_teller_cash_count(close_out.pk, 1000.0, admin_user)
-        services.end_event(0.0, admin_user)
+        services.end_event(admin_user)
 
         response = admin_client.get(
             f'/administrator/event-report/?event_id={event_with_fight.pk}',
