@@ -249,6 +249,11 @@ textarea {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
 }
 
+#bet_textinput::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 600;
+}
+
 /* ── Chip button rows ────────────────────────────────────── */
 .bet-buttons {
   display: flex;
@@ -774,4 +779,13 @@ textarea {
   cursor: not-allowed;
   background: rgba(255,255,255,0.04);
   color: rgba(255,255,255,0.30);
+}
+
+/* Preset chip selected — amount is fixed until Reset */
+#bet_textinput.bet-amount-locked,
+#bet_textinput:read-only {
+  cursor: default;
+  caret-color: transparent;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.92);
 }

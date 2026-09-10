@@ -151,13 +151,42 @@ class TellerTransaction(models.Model):
     amount = models.FloatField()
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
+    cancelled = models.BooleanField(default=False)
+    edited = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['user', 'transaction_type']),
+            models.Index(fields=['cancelled', 'transaction_type']),
         ]
+
+    @property
+    def status_key(self):
+        """UI status for advance/borrow history rows."""
+        if self.cancelled:
+            return 'cancelled'
+        if self.transaction_type == self.REMIT and self.received:
+            return 'received'
+        if self.edited:
+            return 'edited'
+        if self.transaction_type == self.REMIT:
+            return 'pending'
+        return None
+
+    def is_pending_editable(self):
+        """Pending advances (not received, not cancelled) may be edited/cancelled."""
+        return (
+            self.transaction_type == self.REMIT
+            and not self.cancelled
+            and not self.received
+        )
+
+    def is_editable_by_admin(self):
+        """Alias kept for call sites; same rules as is_pending_editable."""
+        return self.is_pending_editable()
 
     def save(self, *args, **kwargs):
         if self.pk is not None:
@@ -375,6 +404,9 @@ class ArchivedTellerTransaction(models.Model):
     amount = models.FloatField()
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
+    cancelled = models.BooleanField(default=False)
+    edited = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField()
     event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='archived_teller_transactions')
     close_out = models.OneToOneField(

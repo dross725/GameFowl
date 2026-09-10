@@ -2,7 +2,7 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=23">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=25">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
@@ -239,7 +239,7 @@
     window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
 </script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=wrong-punch-4"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=preset-lock-2"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
@@ -262,7 +262,7 @@
                         <li><a href="{% url 'admin-print-agent' %}">Print Agent</a></li>
                         <li class="nav-dropdown-divider"></li>
                         <li><a href="#" class="nav-dropdown-action start-event-action" onclick="event.preventDefault();openStartEventModal()">▶ Start Event</a></li>
-                        <li><a href="#" class="nav-dropdown-action end-event-action" onclick="event.preventDefault();openEndEventModal()">■ End Event</a></li>
+                        <li><a href="#" class="nav-dropdown-action end-event-action nav-event-disabled" onclick="event.preventDefault()">■ End Event</a></li>
                     </ul>
                 </li>
                 <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
@@ -293,9 +293,7 @@
                     </label>
                 </div>
                 <div id='bet-text-input'>
-                    <textarea id='bet_textinput'
-                        onfocus="if(this.value==='0')this.value=''"
-                        onblur="if(this.value.trim()==='')this.value='0'">0</textarea>
+                    <textarea id='bet_textinput' placeholder='Place bet here'></textarea>
                 </div>
                 <section class='bet-buttons'>
                     <section id='buttons_section1'>
@@ -360,6 +358,7 @@
         <input type='hidden' name='wager_value' id='wager_value'></input>
         <input type='hidden' name='wager_id' id='wager_id'></input>
         <input type='hidden' name='client_request_id' id='client_request_id'></input>
+        <input type='hidden' name='amount_source' id='amount_source'></input>
     </form>
 
     <div id='confirmationModal' class='modal'>
@@ -389,7 +388,7 @@
         <div class='modal-content'>
             <h2>Wrong Punch</h2>
             <br>
-            <p id='wrongpunch-message'>Wrong punch! Finger slipped on 3 or 6 before Enter. That one goes on the shame board — re-enter the bet.</p>
+            <p id='wrongpunch-message'>Wrong punch! Finger slipped on 3 or 6 before Enter. Re-enter the bet.</p>
             <br>
             <p id='wrongpunch-score' style='display:none;font-size:1.15em;font-weight:700;'>
                 Wrong punches this event: <strong id='wrongpunch-count'>0</strong>
@@ -602,17 +601,14 @@
         <div class='modal-content'>
             <h2>End Event</h2>
             <br>
-            <p>Count the shared admin cash before closing the event.</p>
+            <p>End the event after admin cash and all teller cash have been collected.</p>
             <br>
-            <p>Expected cash on hand (before teller counts):
-                <strong id='endevent_expected_cash'>Loading…</strong>
+            <p>Admin cash:
+                <strong id='endevent_admin_cash_status'>Loading…</strong>
             </p>
-            <br>
-            <label for='endevent_actual_cash'>Actual cash on hand</label>
-            <input type='text' id='endevent_actual_cash' inputmode='decimal'
-                   placeholder='0.00' autocomplete='off'
-                   style='width:100%;box-sizing:border-box;'
-                   onkeydown="if(event.key==='Enter')submitEndEvent()">
+            <p>Teller cash collected:
+                <strong id='endevent_teller_cash_status'>Loading…</strong>
+            </p>
             <br>
             <p id='endevent_status_msg' style='min-height:1.2em;'></p>
             <br>
@@ -831,6 +827,7 @@
                     not_found:        'Transaction ID not found.',
                     not_a_remit:      'Only ADVANCE transactions can be marked received.',
                     already_received: 'This transaction was already marked received.',
+                    cancelled:        'This advance was cancelled and cannot be marked received.',
                 };
                 statusEl.style.color = '#e74c3c';
                 statusEl.innerText = msgs[data.error] || ('Error: ' + data.error);
@@ -906,47 +903,55 @@
     }
 
     async function openEndEventModal() {
-        const actualInput = document.getElementById('endevent_actual_cash');
-        const expectedEl = document.getElementById('endevent_expected_cash');
-        actualInput.value = '';
-        expectedEl.textContent = 'Loading…';
-        document.getElementById('endevent_status_msg').innerText = '';
-        document.getElementById('endevent_status_msg').style.color = '';
-        document.getElementById('endevent_confirm_btn').disabled = false;
+        const adminStatusEl = document.getElementById('endevent_admin_cash_status');
+        const tellerStatusEl = document.getElementById('endevent_teller_cash_status');
+        const statusEl = document.getElementById('endevent_status_msg');
+        const confirmBtn = document.getElementById('endevent_confirm_btn');
+        adminStatusEl.textContent = 'Loading…';
+        tellerStatusEl.textContent = 'Loading…';
+        statusEl.innerText = '';
+        statusEl.style.color = '';
+        confirmBtn.disabled = true;
         document.getElementById('endeventmodal').style.display = 'flex';
         try {
-            const res = await fetch(ADMIN_FUND_STATUS_URL, {
-                headers: { 'Accept': 'application/json' },
-            });
+            const res = await fetch('/get_fight_status_view/');
             const data = await res.json();
-            expectedEl.textContent = data.ok && data.active
-                ? formatAdminFund(data.balance_before_closeouts)
-                : 'Unavailable';
+            const closeout = data.closeout || {};
+            adminStatusEl.textContent = closeout.admin_cash_counted
+                ? 'Counted'
+                : 'Not counted yet — use Close Admin on Tellers';
+            const counted = closeout.stations_counted || 0;
+            const total = closeout.stations_total || 0;
+            tellerStatusEl.textContent = closeout.all_teller_cash_collected
+                ? `All collected (${counted}/${total})`
+                : `Pending (${counted}/${total})`;
+            if (data.can_end_event) {
+                confirmBtn.disabled = false;
+                statusEl.style.color = '';
+                statusEl.innerText = 'Ready to end the event.';
+            } else {
+                confirmBtn.disabled = true;
+                statusEl.style.color = '#e74c3c';
+                statusEl.innerText = 'Collect admin cash and all teller cash before ending the event.';
+            }
         } catch (err) {
-            expectedEl.textContent = 'Unavailable';
+            adminStatusEl.textContent = 'Unavailable';
+            tellerStatusEl.textContent = 'Unavailable';
+            confirmBtn.disabled = true;
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Could not load closeout status.';
         }
-        setTimeout(() => actualInput.focus(), 80);
     }
 
     async function submitEndEvent() {
         const statusEl = document.getElementById('endevent_status_msg');
         const btn      = document.getElementById('endevent_confirm_btn');
-        const actualInput = document.getElementById('endevent_actual_cash');
-        const actualCash = Number(actualInput.value.replace(/,/g, ''));
-
-        if (!Number.isFinite(actualCash) || actualCash < 0 || !actualInput.value.trim()) {
-            statusEl.style.color = '#e74c3c';
-            statusEl.innerText = 'Enter a valid non-negative cash amount.';
-            actualInput.focus();
-            return;
-        }
 
         btn.disabled = true;
         statusEl.style.color = '';
         statusEl.innerText = 'Ending event…';
 
         const fd = new FormData();
-        fd.append('actual_admin_cash', actualCash.toString());
         fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
 
         try {
@@ -956,7 +961,8 @@
             if (!data.ok) {
                 const msgs = {
                     no_active_event: 'No active event to end.',
-                    invalid_actual_admin_cash: 'Enter a valid non-negative cash amount.',
+                    admin_cash_not_counted: 'Count admin cash on the Tellers page first.',
+                    teller_cash_not_collected: 'Collect all teller cash before ending the event.',
                 };
                 statusEl.style.color = '#e74c3c';
                 statusEl.innerText = msgs[data.error] || ('Error: ' + data.error);
@@ -1032,7 +1038,7 @@
                         + '<span>' + row.count + '</span>'
                         + '</div>';
                 }).join('');
-                boardEl.innerHTML = '<div style="opacity:0.45;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Hall of Shame</div>' + rows;
+                boardEl.innerHTML = '<div style="opacity:0.45;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Hall of Wrong punches</div>' + rows;
             }
         }
 

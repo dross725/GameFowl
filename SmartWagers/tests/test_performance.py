@@ -159,10 +159,11 @@ def test_teller_balance_with_500_transactions(default_settings, teller_user):
             fightnum=1, side='MERON', wager=100,
             cashier=teller_user.username, registered=True,
         )
-    # 150 REMIT at 50 each = 7,500
+    # 150 REMIT at 50 each = 7,500 (received so they leave the teller balance)
     for _ in range(150):
         TellerTransaction.objects.create(
             user=teller_user, transaction_type=TellerTransaction.REMIT, amount=50,
+            received=True,
         )
     # 100 COLLECT at 50 each = 5,000
     for _ in range(100):

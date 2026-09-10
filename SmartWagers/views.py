@@ -300,6 +300,7 @@ def get_fight_results_view(request):
 def get_fight_status_view(request):
     overall_status, meron_status, wala_status, fightnum = services.get_fight_status()
     active_event = services.get_active_event()
+    readiness = services.get_event_closeout_readiness(event=active_event)
     return JsonResponse({
         "overall_status": overall_status,
         "meron_status": meron_status,
@@ -307,6 +308,15 @@ def get_fight_status_view(request):
         "fightnum": fightnum,
         "event_active": active_event is not None,
         "event_name": active_event.name if active_event else "",
+        "can_end_event": readiness['can_end_event'],
+        "closeout": {
+            "all_stations_closed": readiness['all_stations_closed'],
+            "admin_cash_counted": readiness['admin_cash_counted'],
+            "all_teller_cash_collected": readiness['all_teller_cash_collected'],
+            "stations_total": readiness['stations_total'],
+            "stations_closed": readiness['stations_closed'],
+            "stations_counted": readiness['stations_counted'],
+        },
     })
 
 @login_required
@@ -584,6 +594,7 @@ def Main_admin(request):
                 cashier=str(request.user),
                 require_side_open=False,
                 client_request_id=request.POST.get('client_request_id'),
+                amount_source=request.POST.get('amount_source'),
             )
         except services.BettingClosedError:
             return JsonResponse({
@@ -806,6 +817,7 @@ def Teller(request):
                 cashier=str(request.user),
                 require_side_open=True,
                 client_request_id=request.POST.get('client_request_id'),
+                amount_source=request.POST.get('amount_source'),
             )
         except services.BettingClosedError:
             return JsonResponse({
@@ -880,6 +892,15 @@ def teller_report(request):
     ) if event_scope else None
     wrong_punch = services.get_wrong_punch_stats(request.user, event=event_scope)
 
+    txn_qs = TellerTransaction.objects.filter(user=request.user)
+    if event_scope is not None:
+        txn_qs = reporting.filter_transactions_for_teller(
+            txn_qs, request.user, event_scope, apply_end_bound,
+        )
+    fund_transactions = txn_qs.exclude(
+        transaction_type=TellerTransaction.PAYOUT,
+    ).order_by('-created_at')
+
     return render(request, 'SmartWagers/teller_report.html', {
         'wagers': wagers,
         'total_amount': total_amount,
@@ -894,6 +915,7 @@ def teller_report(request):
         'balance_breakdown': balance_breakdown,
         'current_fightnum': current_fightnum,
         'wrong_punch': wrong_punch,
+        'fund_transactions': fund_transactions,
     })
 
 
@@ -945,7 +967,8 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True, include_arch
     include_archived adds archived ledger rows for historical event reports.
 
     grand_total = raw sum of registered bets in scope.
-    balance     = grand_total − remits + collects (in scope).
+    balance     = grand_total − received remits + collects − payouts (in scope).
+    Pending (unreceived) Advances do not reduce balance until marked received.
     """
     from SmartWagers import reporting
 
@@ -976,19 +999,28 @@ def _compute_teller_balance(user, event=None, apply_end_bound=True, include_arch
         )
 
     grand_total = reporting.sum_wagers(wager_qs, archived_wager_qs)
+    # Only received Advances leave the teller's balance; pending remits stay
+    # on-hand until an admin marks them received.
     remit_total = reporting.sum_teller_amounts(
-        txn_qs.filter(transaction_type=TellerTransaction.REMIT),
-        archived_txn_qs.filter(transaction_type=TellerTransaction.REMIT)
-        if archived_txn_qs is not None else None,
+        txn_qs.filter(
+            transaction_type=TellerTransaction.REMIT,
+            cancelled=False,
+            received=True,
+        ),
+        archived_txn_qs.filter(
+            transaction_type=TellerTransaction.REMIT,
+            cancelled=False,
+            received=True,
+        ) if archived_txn_qs is not None else None,
     )
     collect_total = reporting.sum_teller_amounts(
-        txn_qs.filter(transaction_type=TellerTransaction.COLLECT),
-        archived_txn_qs.filter(transaction_type=TellerTransaction.COLLECT)
+        txn_qs.filter(transaction_type=TellerTransaction.COLLECT, cancelled=False),
+        archived_txn_qs.filter(transaction_type=TellerTransaction.COLLECT, cancelled=False)
         if archived_txn_qs is not None else None,
     )
     payout_total = reporting.sum_teller_amounts(
-        txn_qs.filter(transaction_type=TellerTransaction.PAYOUT),
-        archived_txn_qs.filter(transaction_type=TellerTransaction.PAYOUT)
+        txn_qs.filter(transaction_type=TellerTransaction.PAYOUT, cancelled=False),
+        archived_txn_qs.filter(transaction_type=TellerTransaction.PAYOUT, cancelled=False)
         if archived_txn_qs is not None else None,
     )
 
@@ -1062,18 +1094,25 @@ def _build_event_user_stats(
 
     txn_stats = {
         'remit_total': reporting.sum_teller_amounts(
-            txn_qs.filter(transaction_type=TellerTransaction.REMIT),
-            archived_txn_qs.filter(transaction_type=TellerTransaction.REMIT)
-            if archived_txn_qs is not None else None,
+            txn_qs.filter(
+                transaction_type=TellerTransaction.REMIT,
+                cancelled=False,
+                received=True,
+            ),
+            archived_txn_qs.filter(
+                transaction_type=TellerTransaction.REMIT,
+                cancelled=False,
+                received=True,
+            ) if archived_txn_qs is not None else None,
         ),
         'collect_total': reporting.sum_teller_amounts(
-            txn_qs.filter(transaction_type=TellerTransaction.COLLECT),
-            archived_txn_qs.filter(transaction_type=TellerTransaction.COLLECT)
+            txn_qs.filter(transaction_type=TellerTransaction.COLLECT, cancelled=False),
+            archived_txn_qs.filter(transaction_type=TellerTransaction.COLLECT, cancelled=False)
             if archived_txn_qs is not None else None,
         ),
         'payout_total': reporting.sum_teller_amounts(
-            txn_qs.filter(**payout_filter),
-            archived_txn_qs.filter(**payout_filter)
+            txn_qs.filter(**payout_filter, cancelled=False),
+            archived_txn_qs.filter(**payout_filter, cancelled=False)
             if archived_txn_qs is not None else None,
         ),
     }
@@ -1124,15 +1163,43 @@ def _build_event_user_stats(
     }
 
 
-def _remit_exceeds_cash_on_hand(user, amount, event=None, apply_end_bound=True):
+def _pending_remit_total(user, event=None, apply_end_bound=True, exclude_pk=None):
+    """Sum of unreceived, non-cancelled Advances still reserved against cash."""
+    from SmartWagers import reporting
+
+    txn_qs = TellerTransaction.objects.filter(
+        user=user,
+        transaction_type=TellerTransaction.REMIT,
+        cancelled=False,
+    ).exclude(received=True)
+    if exclude_pk is not None:
+        txn_qs = txn_qs.exclude(pk=exclude_pk)
+    txn_qs = reporting.filter_transactions_for_teller(
+        txn_qs, user, event, apply_end_bound,
+    )
+    return float(txn_qs.aggregate(total=Sum('amount'))['total'] or 0.0)
+
+
+def _remit_exceeds_cash_on_hand(
+    user, amount, event=None, apply_end_bound=True, exclude_pending_pk=None,
+):
     """Return (exceeds, balance, grand_total) for a proposed REMIT amount.
 
+    Balance only drops when an Advance is received, but pending Advances still
+    reserve cash so the teller cannot remittance the same funds twice.
     Amounts are compared at 2 decimal places (currency precision).
     """
     balance, grand_total = _compute_teller_balance(
         user, event=event, apply_end_bound=apply_end_bound,
     )
-    exceeds = round(amount, 2) > round(balance, 2)
+    pending = _pending_remit_total(
+        user,
+        event=event,
+        apply_end_bound=apply_end_bound,
+        exclude_pk=exclude_pending_pk,
+    )
+    available = round(balance - pending, 2)
+    exceeds = round(amount, 2) > available
     return exceeds, balance, grand_total
 
 
@@ -1398,6 +1465,9 @@ def admin_tellers(request):
         'online_teller_count': online_teller_count,
         'planned_teller_funds': planned_teller_funds,
         'planned_bank_funds': planned_bank_funds,
+        'closeout_readiness': services.get_event_closeout_readiness(
+            event=active_event,
+        ),
     })
 
 
@@ -1507,6 +1577,10 @@ def admin_teller_txn(request):
         'teller_id': teller.pk,
         'amount': amount,
         'transaction_type': transaction_type,
+        'status': txn.status_key,
+        'received': bool(txn.received),
+        'edited': txn.edited,
+        'cancelled': txn.cancelled,
         'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
         'admin_fund_balance': services.get_admin_fund_summary()['balance'],
     })
@@ -1523,6 +1597,8 @@ def admin_mark_received(request):
         return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
 
     active_event = services.get_active_event()
+    scope, apply_end_bound = services.get_event_scope()
+
     qs = TellerTransaction.objects.select_related('user').filter(transaction_id=transaction_id)
     if active_event:
         qs = qs.filter(created_at__gte=active_event.started_at)
@@ -1533,25 +1609,286 @@ def admin_mark_received(request):
     if txn.transaction_type != TellerTransaction.REMIT:
         return JsonResponse({'ok': False, 'error': 'not_a_remit'}, status=400)
 
-    if txn.received:
-        return JsonResponse({
-            'ok': False,
-            'error': 'already_received',
-            'transaction_id': txn.transaction_id,
-            'teller_id': txn.user.pk,
-        }, status=409)
+    with db_transaction.atomic():
+        # Same lock order as edit/cancel: teller row, then remit row.
+        User.objects.select_for_update().get(pk=txn.user_id)
+        locked = TellerTransaction.objects.select_for_update().select_related('user').get(pk=txn.pk)
 
-    txn.received = True
-    txn.save(update_fields=['received'])
+        if locked.cancelled:
+            return JsonResponse({
+                'ok': False,
+                'error': 'cancelled',
+                'transaction_id': locked.transaction_id,
+                'teller_id': locked.user.pk,
+            }, status=409)
+
+        if locked.received:
+            return JsonResponse({
+                'ok': False,
+                'error': 'already_received',
+                'transaction_id': locked.transaction_id,
+                'teller_id': locked.user.pk,
+            }, status=409)
+
+        locked.received = True
+        locked.save(update_fields=['received'])
+        teller = locked.user
+        amount = locked.amount
+        edited = locked.edited
+        txn_id = locked.transaction_id
+        teller_id = teller.pk
+        txn_type = locked.transaction_type
+
+    balance, grand_total = _compute_teller_balance(
+        teller, event=scope, apply_end_bound=apply_end_bound,
+    )
 
     return JsonResponse({
         'ok': True,
-        'transaction_id': txn.transaction_id,
-        'teller_id': txn.user.pk,
+        'transaction_id': txn_id,
+        'teller_id': teller_id,
+        'amount': amount,
+        'transaction_type': txn_type,
+        'status': 'received',
+        'received': True,
+        'edited': edited,
+        'cancelled': False,
+        'balance': balance,
+        'grand_total': grand_total,
         'admin_fund_balance': services.get_admin_fund_summary(
             event=active_event,
         )['balance'],
     })
+
+
+def _pending_remit_or_error(transaction_id, *, owner=None):
+    """Load a pending (editable) REMIT or return a JsonResponse error.
+
+    When *owner* is set, only that user's remittance may be loaded (teller self-service).
+    """
+    tid = (transaction_id or '').strip().upper()
+    if not tid:
+        return None, JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
+
+    active_event = services.get_active_event()
+    qs = TellerTransaction.objects.select_related('user').filter(transaction_id=tid)
+    if owner is not None:
+        qs = qs.filter(user=owner)
+    if active_event:
+        qs = qs.filter(created_at__gte=active_event.started_at)
+    txn = qs.first()
+    if txn is None:
+        return None, JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+
+    if txn.transaction_type != TellerTransaction.REMIT:
+        return None, JsonResponse({'ok': False, 'error': 'not_a_remit'}, status=400)
+
+    if txn.cancelled:
+        return None, JsonResponse({
+            'ok': False,
+            'error': 'cancelled',
+            'transaction_id': txn.transaction_id,
+        }, status=409)
+
+    if txn.received:
+        return None, JsonResponse({
+            'ok': False,
+            'error': 'already_received',
+            'transaction_id': txn.transaction_id,
+        }, status=409)
+
+    return txn, None
+
+
+def _edit_pending_remit(request, txn, *, actor_label):
+    """Apply amount edit on a pending REMIT; returns JsonResponse."""
+    try:
+        amount = float(request.POST.get('amount', 0))
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_params'}, status=400)
+
+    if amount <= 0:
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    scope, apply_end_bound = services.get_event_scope()
+    teller = txn.user
+
+    with db_transaction.atomic():
+        User.objects.select_for_update().get(pk=teller.pk)
+        locked = TellerTransaction.objects.select_for_update().get(pk=txn.pk)
+        if not locked.is_pending_editable():
+            if locked.cancelled:
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'cancelled',
+                    'transaction_id': locked.transaction_id,
+                }, status=409)
+            return JsonResponse({
+                'ok': False,
+                'error': 'already_received',
+                'transaction_id': locked.transaction_id,
+            }, status=409)
+
+        exceeds, balance, grand_total = _remit_exceeds_cash_on_hand(
+            teller,
+            amount,
+            event=scope,
+            apply_end_bound=apply_end_bound,
+            exclude_pending_pk=locked.pk,
+        )
+        if exceeds:
+            pending = _pending_remit_total(
+                teller,
+                event=scope,
+                apply_end_bound=apply_end_bound,
+                exclude_pk=locked.pk,
+            )
+            available = round(balance - pending, 2)
+            return JsonResponse({
+                'ok': False,
+                'error': 'exceeds_cash_on_hand',
+                'balance': balance,
+                'grand_total': grand_total,
+                'available': available,
+            }, status=400)
+
+        old_amount = locked.amount
+        locked.amount = amount
+        locked.edited = True
+        locked.updated_at = now()
+        locked.save(update_fields=['amount', 'edited', 'updated_at'])
+        txn = locked
+
+    balance, grand_total = _compute_teller_balance(
+        teller, event=scope, apply_end_bound=apply_end_bound,
+    )
+    logger.info(
+        "%s EDIT REMIT: txn_id=%s old=%.2f new=%.2f teller=%s by=%s",
+        actor_label, txn.transaction_id, old_amount, amount,
+        teller.username, request.user.username,
+    )
+
+    return JsonResponse({
+        'ok': True,
+        'transaction_id': txn.transaction_id,
+        'teller_id': teller.pk,
+        'amount': txn.amount,
+        'transaction_type': txn.transaction_type,
+        'status': txn.status_key,
+        'edited': True,
+        'cancelled': False,
+        'received': bool(txn.received),
+        'balance': balance,
+        'grand_total': grand_total,
+        'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        'updated_at': txn.updated_at.strftime('%Y-%m-%d %H:%M:%S') if txn.updated_at else None,
+    })
+
+
+def _cancel_pending_remit(request, txn, *, actor_label):
+    """Cancel a pending REMIT; returns JsonResponse."""
+    scope, apply_end_bound = services.get_event_scope()
+    teller = txn.user
+
+    with db_transaction.atomic():
+        User.objects.select_for_update().get(pk=teller.pk)
+        locked = TellerTransaction.objects.select_for_update().get(pk=txn.pk)
+        if not locked.is_pending_editable():
+            if locked.cancelled:
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'cancelled',
+                    'transaction_id': locked.transaction_id,
+                }, status=409)
+            return JsonResponse({
+                'ok': False,
+                'error': 'already_received',
+                'transaction_id': locked.transaction_id,
+            }, status=409)
+
+        locked.cancelled = True
+        locked.updated_at = now()
+        locked.save(update_fields=['cancelled', 'updated_at'])
+        txn = locked
+
+    balance, grand_total = _compute_teller_balance(
+        teller, event=scope, apply_end_bound=apply_end_bound,
+    )
+    logger.info(
+        "%s CANCEL REMIT: txn_id=%s amount=%.2f teller=%s by=%s",
+        actor_label, txn.transaction_id, txn.amount,
+        teller.username, request.user.username,
+    )
+
+    return JsonResponse({
+        'ok': True,
+        'transaction_id': txn.transaction_id,
+        'teller_id': teller.pk,
+        'amount': txn.amount,
+        'transaction_type': txn.transaction_type,
+        'status': txn.status_key,
+        'edited': txn.edited,
+        'cancelled': True,
+        'received': False,
+        'balance': balance,
+        'grand_total': grand_total,
+        'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        'updated_at': txn.updated_at.strftime('%Y-%m-%d %H:%M:%S') if txn.updated_at else None,
+    })
+
+
+@group_required('admin')
+def admin_edit_teller_txn(request):
+    """Admin endpoint: edit amount on a pending (unreceived) REMIT/Advance."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    txn, err = _pending_remit_or_error(request.POST.get('transaction_id', ''))
+    if err is not None:
+        return err
+    return _edit_pending_remit(request, txn, actor_label='ADMIN')
+
+
+@group_required('admin')
+def admin_cancel_teller_txn(request):
+    """Admin endpoint: cancel a pending (unreceived) REMIT/Advance."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    txn, err = _pending_remit_or_error(request.POST.get('transaction_id', ''))
+    if err is not None:
+        return err
+    return _cancel_pending_remit(request, txn, actor_label='ADMIN')
+
+
+@group_required('teller')
+def teller_edit_txn(request):
+    """Teller endpoint: edit own pending (unreceived) REMIT/Advance."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    txn, err = _pending_remit_or_error(
+        request.POST.get('transaction_id', ''),
+        owner=request.user,
+    )
+    if err is not None:
+        return err
+    return _edit_pending_remit(request, txn, actor_label='TELLER')
+
+
+@group_required('teller')
+def teller_cancel_txn(request):
+    """Teller endpoint: cancel own pending (unreceived) REMIT/Advance."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    txn, err = _pending_remit_or_error(
+        request.POST.get('transaction_id', ''),
+        owner=request.user,
+    )
+    if err is not None:
+        return err
+    return _cancel_pending_remit(request, txn, actor_label='TELLER')
 
 
 @group_required('admin')
@@ -1591,21 +1928,18 @@ def end_event_view(request):
         return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
 
     try:
-        actual_admin_cash = _parse_currency_amount(
-            request.POST.get('actual_admin_cash'),
-        )
-    except (ValueError, TypeError):
+        event = services.end_event(request.user)
+    except services.AdminCashNotCountedError:
         return JsonResponse(
-            {'ok': False, 'error': 'invalid_actual_admin_cash'},
-            status=400,
+            {'ok': False, 'error': 'admin_cash_not_counted'},
+            status=409,
         )
-    if not math.isfinite(actual_admin_cash) or actual_admin_cash < 0:
+    except services.TellerCashNotFullyCollectedError:
         return JsonResponse(
-            {'ok': False, 'error': 'invalid_actual_admin_cash'},
-            status=400,
+            {'ok': False, 'error': 'teller_cash_not_collected'},
+            status=409,
         )
 
-    event = services.end_event(actual_admin_cash, request.user)
     if event is None:
         logger.warning("END EVENT (view): no active event found — admin=%s", request.user.username)
         return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=404)
@@ -1622,6 +1956,57 @@ def end_event_view(request):
         'ended_at': event.ended_at.strftime('%Y-%m-%d %H:%M:%S'),
         'report_url': reverse('admin-event-report') + f'?event_id={event.id}',
         'wrong_punch': wrong_punch,
+    })
+
+
+@group_required('admin')
+def admin_register_admin_cash_count(request):
+    """Admin endpoint: count shared admin drawer cash before collecting tellers."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    try:
+        actual_admin_cash = _parse_currency_amount(
+            request.POST.get('actual_admin_cash'),
+        )
+    except (ValueError, TypeError):
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_actual_admin_cash'},
+            status=400,
+        )
+    if not math.isfinite(actual_admin_cash) or actual_admin_cash < 0:
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_actual_admin_cash'},
+            status=400,
+        )
+
+    try:
+        event = services.register_admin_cash_count(actual_admin_cash, request.user)
+    except services.NoActiveEventError:
+        return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=404)
+    except services.TellerStationsNotClosedError:
+        return JsonResponse(
+            {'ok': False, 'error': 'tellers_not_closed'},
+            status=409,
+        )
+    except services.AdminCashAlreadyCountedError:
+        return JsonResponse(
+            {'ok': False, 'error': 'already_counted'},
+            status=409,
+        )
+    except ValueError:
+        return JsonResponse(
+            {'ok': False, 'error': 'invalid_actual_admin_cash'},
+            status=400,
+        )
+
+    readiness = services.get_event_closeout_readiness(event=event)
+    return JsonResponse({
+        'ok': True,
+        'expected_admin_cash': event.expected_admin_cash_on_hand,
+        'actual_admin_cash': event.actual_admin_cash_counted,
+        'admin_cash_variance': event.admin_cash_variance,
+        'closeout': readiness,
     })
 
 
@@ -2287,6 +2672,10 @@ def admin_register_teller_cash_count(request):
         return JsonResponse({'ok': False, 'error': 'close_out_not_found'}, status=404)
     except services.CloseOutAlreadyCountedError:
         return JsonResponse({'ok': False, 'error': 'already_counted'}, status=409)
+    except services.AdminCashNotCountedError:
+        return JsonResponse({'ok': False, 'error': 'admin_cash_not_counted'}, status=409)
+    except services.NoActiveEventError:
+        return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=409)
     except services.RolloverBlockedError as exc:
         return JsonResponse({
             'ok': False,

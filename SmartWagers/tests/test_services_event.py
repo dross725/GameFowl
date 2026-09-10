@@ -13,6 +13,7 @@ from SmartWagers.models import (
     AdminBankTransaction, Event, TellerStatus, TellerTransaction, Wagers,
 )
 from SmartWagers import services
+from SmartWagers.tests.conftest import closeout_and_end_event
 
 
 # ---------------------------------------------------------------------------
@@ -82,27 +83,37 @@ class TestStartEvent:
 class TestEndEvent:
 
     def test_end_event_marks_inactive(self, active_event, admin_user):
-        services.end_event(100000, admin_user)
+        services.register_admin_cash_count(100000, admin_user)
+        services.end_event(admin_user)
         active_event.refresh_from_db()
         assert active_event.is_active is False
 
     def test_end_event_sets_ended_at(self, active_event, admin_user):
-        services.end_event(100000, admin_user)
+        services.register_admin_cash_count(100000, admin_user)
+        services.end_event(admin_user)
         active_event.refresh_from_db()
         assert active_event.ended_at is not None
 
     def test_end_event_returns_event_object(self, active_event, admin_user):
-        result = services.end_event(100000, admin_user)
+        services.register_admin_cash_count(100000, admin_user)
+        result = services.end_event(admin_user)
         assert result is not None
         assert result.pk == active_event.pk
 
     def test_end_event_returns_none_when_no_active_event(self, admin_user):
-        result = services.end_event(100000, admin_user)
+        result = services.end_event(admin_user)
         assert result is None
 
-    def test_end_event_snapshots_admin_cash_and_variance(
+    def test_end_event_requires_admin_cash_count(self, active_event, admin_user):
+        with pytest.raises(services.AdminCashNotCountedError):
+            services.end_event(admin_user)
+        active_event.refresh_from_db()
+        assert active_event.is_active is True
+
+    def test_end_event_preserves_prior_admin_cash_snapshot(
             self, active_event, admin_user):
-        result = services.end_event(99950.25, admin_user)
+        services.register_admin_cash_count(99950.25, admin_user)
+        result = services.end_event(admin_user)
 
         result.refresh_from_db()
         assert result.expected_admin_cash_on_hand == 100000
@@ -111,11 +122,30 @@ class TestEndEvent:
         assert result.admin_cash_counted_by == admin_user
         assert result.admin_cash_counted_at is not None
 
-    def test_end_event_rejects_negative_cash(self, active_event, admin_user):
+
+@pytest.mark.django_db
+class TestRegisterAdminCashCount:
+
+    def test_snapshots_admin_cash_and_variance(self, active_event, admin_user):
+        result = services.register_admin_cash_count(99950.25, admin_user)
+        result.refresh_from_db()
+        assert result.expected_admin_cash_on_hand == 100000
+        assert result.actual_admin_cash_counted == 99950.25
+        assert result.admin_cash_variance == -49.75
+        assert result.admin_cash_counted_by == admin_user
+        assert result.admin_cash_counted_at is not None
+
+    def test_rejects_negative_cash(self, active_event, admin_user):
         with pytest.raises(ValueError):
-            services.end_event(-1, admin_user)
+            services.register_admin_cash_count(-1, admin_user)
         active_event.refresh_from_db()
-        assert active_event.is_active is True
+        assert active_event.actual_admin_cash_counted is None
+
+    def test_blocked_until_participating_tellers_close(
+            self, active_event, admin_user, teller_user, teller_status_online,
+    ):
+        with pytest.raises(services.TellerStationsNotClosedError):
+            services.register_admin_cash_count(100000, admin_user)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +209,7 @@ class TestGetTellerOutstandingBalance:
         )
         TellerTransaction.objects.create(
             user=teller_user, transaction_type=TellerTransaction.REMIT, amount=200,
+            received=True,
         )
         TellerTransaction.objects.create(
             user=teller_user, transaction_type=TellerTransaction.COLLECT, amount=100,
@@ -329,7 +360,7 @@ class TestTellerActivityScope:
             fightnum=1, side='MERON', wager=8000,
             cashier='cashier1', registered=True,
         )
-        services.end_event(0, admin_user)
+        closeout_and_end_event(admin_user)
 
         new_teller = User.objects.create_user(username='cashier1')
         new_teller.groups.add(teller_group)
@@ -352,7 +383,7 @@ class TestTellerActivityScope:
             fightnum=1, side='MERON', wager=5000,
             cashier='cashier2', registered=True,
         )
-        services.end_event(0, admin_user)
+        closeout_and_end_event(admin_user)
 
         new_teller = User.objects.create_user(username='cashier2')
         new_teller.groups.add(teller_group)
@@ -563,7 +594,7 @@ class TestResetTellerBalances:
             fightnum=1, side='MERON', wager=2500,
             cashier=teller_user.username, registered=True,
         )
-        ended = services.end_event(0, admin_user)
+        ended = closeout_and_end_event(admin_user)
         Event.objects.filter(pk=ended.pk).update(
             ended_at=now() - timedelta(hours=1),
         )
@@ -644,7 +675,9 @@ class TestOnlineTellerFreshBalanceOnEventStart:
             fightnum=1, side='MERON', wager=5000,
             cashier=teller_user.username, registered=True,
         )
-        services.end_event(0, admin_user)
+        closeout_and_end_event(admin_user)
+        # Closeout marks the teller offline; bring them back online for the next event.
+        TellerStatus.objects.filter(user=teller_user).update(is_online=True)
         event_c = services.start_event('Event C')
         balance = services._get_teller_outstanding_balance(
             teller_user, event=event_c,

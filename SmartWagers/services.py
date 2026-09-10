@@ -13,7 +13,7 @@ from .models import TellerStatus
 from .models import TellerCloseOut
 from . import reporting
 from .transaction_ids import RolloverBlockedError
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from datetime import timedelta
 from django.conf import settings
 from django.utils.timezone import now
@@ -46,6 +46,14 @@ def normalize_client_request_id(raw):
     if not value or not _CLIENT_REQUEST_ID_RE.match(value):
         return None
     return value.lower()
+
+
+def normalize_amount_source(raw):
+    """Return 'button', 'manual', or 'unknown' for bet amount entry source."""
+    value = str(raw or '').strip().lower()
+    if value in ('button', 'manual'):
+        return value
+    return 'unknown'
 
 
 def _lookup_idempotent_wager(client_request_id):
@@ -240,8 +248,24 @@ class CloseOutNotFoundError(Exception):
     """Raised when a close-out record cannot be found."""
 
 
+class AdminCashAlreadyCountedError(Exception):
+    """Raised when admin cash has already been counted and cannot be changed."""
+
+
+class AdminCashNotCountedError(Exception):
+    """Raised when teller cash count requires a prior admin cash count."""
+
+
+class TellerStationsNotClosedError(Exception):
+    """Raised when Close Admin is attempted before all tellers close."""
+
+
+class TellerCashNotFullyCollectedError(Exception):
+    """Raised when End Event is attempted before all teller cash is collected."""
+
+
 def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open=True,
-              client_request_id=None):
+              client_request_id=None, amount_source=None):
     """Register a wager and update pot totals.
 
     Returns ``(wager, created)`` where *created* is False when an idempotent
@@ -252,6 +276,10 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
       submission (double-click, Enter repeat, slow network) return the
       original wager without creating a duplicate or updating totals again.
 
+    *amount_source*:
+      How the teller entered the amount: ``button`` (preset chip), ``manual``
+      (typed/edited in the text box), or unknown when not provided.
+
     *require_side_open*:
       True  (tellers) — overall match OPEN and the specific side OPEN.
       False (admins)  — overall match OPEN only; per-side CLOSE does not block.
@@ -259,6 +287,7 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
       Close Betting button sets overall status to CLOSED.
     """
     client_request_id = normalize_client_request_id(client_request_id)
+    amount_source = normalize_amount_source(amount_source)
 
     with db_transaction.atomic():
         if client_request_id:
@@ -302,8 +331,10 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
             )
             if existing:
                 logger.warning(
-                    "DUPLICATE BET BLOCKED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-                    existing.transactionid, fightnum, side, amount, cashier,
+                    "DUPLICATE BET BLOCKED: txn=%s fight=%s side=%s amount=%.2f "
+                    "source=%s cashier=%s",
+                    existing.transactionid, fightnum, side, amount,
+                    amount_source, cashier,
                 )
                 log_teller_action(
                     'bet',
@@ -314,6 +345,7 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
                     fight=fightnum,
                     side=side,
                     amount=f"{amount:.2f}",
+                    amount_source=amount_source,
                 )
                 return existing, False
 
@@ -349,8 +381,8 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
             raise
         add_total(amount, side)
     logger.info(
-        "BET PLACED: txn=%s fight=%s side=%s amount=%.2f cashier=%s",
-        addwager.transactionid, fightnum, side, amount, cashier,
+        "BET PLACED: txn=%s fight=%s side=%s amount=%.2f source=%s cashier=%s",
+        addwager.transactionid, fightnum, side, amount, amount_source, cashier,
     )
     log_teller_action(
         'bet',
@@ -360,6 +392,7 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
         fight=fightnum,
         side=side,
         amount=f"{amount:.2f}",
+        amount_source=amount_source,
     )
     return addwager, True
 
@@ -721,16 +754,22 @@ def get_admin_fund_summary(event=None, apply_end_bound=True, include_archived=No
         teller_txn_qs.filter(
             transaction_type=TellerTransaction.REMIT,
             received=True,
+            cancelled=False,
         ),
         archived_teller_txn_qs.filter(
             transaction_type=TellerTransaction.REMIT,
             received=True,
+            cancelled=False,
         ) if archived_teller_txn_qs is not None else None,
     )
     teller_borrows = reporting.sum_teller_amounts(
-        teller_txn_qs.filter(transaction_type=TellerTransaction.COLLECT),
+        teller_txn_qs.filter(
+            transaction_type=TellerTransaction.COLLECT,
+            cancelled=False,
+        ),
         archived_teller_txn_qs.filter(
             transaction_type=TellerTransaction.COLLECT,
+            cancelled=False,
         ) if archived_teller_txn_qs is not None else None,
     )
     closeout_remit_qs = TellerCloseOut.objects.filter(
@@ -984,15 +1023,21 @@ def get_event_cash_reconciliation(
         if archived_txn_qs is not None:
             archived_txn_qs = archived_txn_qs.filter(created_at__lte=event.ended_at)
 
-    remit_qs = txn_qs.filter(transaction_type=TellerTransaction.REMIT)
+    remit_qs = txn_qs.filter(transaction_type=TellerTransaction.REMIT, cancelled=False)
     archived_remit_qs = (
-        archived_txn_qs.filter(transaction_type=TellerTransaction.REMIT)
+        archived_txn_qs.filter(transaction_type=TellerTransaction.REMIT, cancelled=False)
         if archived_txn_qs is not None else None
     )
-    teller_remits_all = reporting.sum_teller_amounts(remit_qs, archived_remit_qs)
+    teller_remits_all = reporting.sum_teller_amounts(
+        remit_qs.filter(received=True),
+        archived_remit_qs.filter(received=True)
+        if archived_remit_qs is not None else None,
+    )
+    # Pending remits remain on teller cash until received, so only received
+    # remits that do not affect the admin fund need this reconciling add-back.
     remits_not_in_admin = reporting.sum_teller_amounts(
-        remit_qs.exclude(received=True, affects_admin_fund=True),
-        archived_remit_qs.exclude(received=True, affects_admin_fund=True)
+        remit_qs.filter(received=True, affects_admin_fund=False),
+        archived_remit_qs.filter(received=True, affects_admin_fund=False)
         if archived_remit_qs is not None else None,
     )
     total_payouts = reporting.sum_teller_amounts(
@@ -1082,9 +1127,17 @@ def _get_teller_outstanding_balance(user, event=None, apply_end_bound=True):
     )
 
     grand_total   = wager_qs.aggregate(t=Sum('wager'))['t']  or 0.0
-    remit_total   = txn_qs.filter(transaction_type=TellerTransaction.REMIT  ).aggregate(t=Sum('amount'))['t'] or 0.0
-    collect_total = txn_qs.filter(transaction_type=TellerTransaction.COLLECT).aggregate(t=Sum('amount'))['t'] or 0.0
-    payout_total  = txn_qs.filter(transaction_type=TellerTransaction.PAYOUT ).aggregate(t=Sum('amount'))['t'] or 0.0
+    remit_total   = txn_qs.filter(
+        transaction_type=TellerTransaction.REMIT,
+        cancelled=False,
+        received=True,
+    ).aggregate(t=Sum('amount'))['t'] or 0.0
+    collect_total = txn_qs.filter(
+        transaction_type=TellerTransaction.COLLECT, cancelled=False,
+    ).aggregate(t=Sum('amount'))['t'] or 0.0
+    payout_total  = txn_qs.filter(
+        transaction_type=TellerTransaction.PAYOUT, cancelled=False,
+    ).aggregate(t=Sum('amount'))['t'] or 0.0
 
     return grand_total - remit_total + collect_total - payout_total
 
@@ -1108,12 +1161,14 @@ def compute_teller_balance_breakdown(user, event=None, apply_end_bound=True):
     grand_total = wager_qs.aggregate(total=Sum('wager'))['total'] or 0.0
     remit_total = txn_qs.filter(
         transaction_type=TellerTransaction.REMIT,
+        cancelled=False,
+        received=True,
     ).aggregate(total=Sum('amount'))['total'] or 0.0
     collect_total = txn_qs.filter(
-        transaction_type=TellerTransaction.COLLECT,
+        transaction_type=TellerTransaction.COLLECT, cancelled=False,
     ).aggregate(total=Sum('amount'))['total'] or 0.0
     payout_total = txn_qs.filter(
-        transaction_type=TellerTransaction.PAYOUT,
+        transaction_type=TellerTransaction.PAYOUT, cancelled=False,
     ).aggregate(total=Sum('amount'))['total'] or 0.0
     balance = grand_total - remit_total + collect_total - payout_total
 
@@ -1213,6 +1268,188 @@ def reopen_teller_station(close_out_id, admin_user):
     return teller
 
 
+def get_non_admin_tellers():
+    """Return teller-group users who are not also admins."""
+    try:
+        teller_group = Group.objects.get(name='teller')
+    except Group.DoesNotExist:
+        return User.objects.none()
+    admin_ids = User.objects.filter(
+        groups__name='admin',
+    ).values_list('pk', flat=True)
+    return teller_group.user_set.exclude(pk__in=admin_ids).order_by('username')
+
+
+def _teller_participates_in_event(teller, event, *, close_out=None, status=None):
+    """True when a teller must close/count before admin closeout can finish."""
+    if close_out is not None:
+        return True
+    if status is None:
+        status = TellerStatus.objects.filter(user=teller).first()
+    if status is not None and status.is_online:
+        return True
+    return teller_has_opening_fund_for_event(teller, event)
+
+
+def get_event_closeout_readiness(event=None):
+    """Return gating status for Close Admin → Count Cash → End Event."""
+    if event is None:
+        event = get_active_event()
+    empty = {
+        'active': False,
+        'all_stations_closed': False,
+        'admin_cash_counted': False,
+        'all_teller_cash_collected': False,
+        'can_close_admin': False,
+        'can_count_teller_cash': False,
+        'can_end_event': False,
+        'stations_total': 0,
+        'stations_closed': 0,
+        'stations_counted': 0,
+        'expected_admin_cash': 0.0,
+        'actual_admin_cash': None,
+        'admin_cash_variance': None,
+    }
+    if event is None:
+        return empty
+
+    tellers = list(get_non_admin_tellers())
+    teller_ids = [t.pk for t in tellers]
+    close_outs = {
+        co.user_id: co
+        for co in TellerCloseOut.objects.filter(event=event, user_id__in=teller_ids)
+    }
+    statuses = {
+        ts.user_id: ts
+        for ts in TellerStatus.objects.filter(user_id__in=teller_ids)
+    }
+    opening_fund_user_ids = set()
+    if teller_ids:
+        opening_fund_user_ids = set(
+            reporting.active_teller_transactions_for_event(event).filter(
+                user_id__in=teller_ids,
+                transaction_type=TellerTransaction.COLLECT,
+                affects_admin_fund=False,
+                cancelled=False,
+            ).values_list('user_id', flat=True)
+        )
+
+    participating_ids = []
+    for teller in tellers:
+        close_out = close_outs.get(teller.pk)
+        if close_out is not None:
+            participating_ids.append(teller.pk)
+            continue
+        status = statuses.get(teller.pk)
+        if status is not None and status.is_online:
+            participating_ids.append(teller.pk)
+            continue
+        if teller.pk in opening_fund_user_ids:
+            participating_ids.append(teller.pk)
+
+    stations_total = len(participating_ids)
+    stations_closed = sum(1 for tid in participating_ids if tid in close_outs)
+    stations_counted = sum(
+        1 for tid in participating_ids
+        if tid in close_outs and close_outs[tid].actual_cash_counted is not None
+    )
+    all_stations_closed = stations_closed == stations_total
+    admin_cash_counted = event.actual_admin_cash_counted is not None
+    all_teller_cash_collected = (
+        all_stations_closed and stations_counted == stations_total
+    )
+    any_teller_counted = stations_counted > 0
+
+    expected_admin_cash = (
+        float(event.expected_admin_cash_on_hand)
+        if admin_cash_counted and event.expected_admin_cash_on_hand is not None
+        else get_admin_fund_summary(event=event)['balance_before_closeouts']
+    )
+
+    return {
+        'active': bool(event.is_active),
+        'all_stations_closed': all_stations_closed,
+        'admin_cash_counted': admin_cash_counted,
+        'all_teller_cash_collected': all_teller_cash_collected,
+        'can_close_admin': (
+            bool(event.is_active)
+            and all_stations_closed
+            and (not admin_cash_counted or not any_teller_counted)
+        ),
+        'can_count_teller_cash': bool(event.is_active) and admin_cash_counted,
+        'can_end_event': (
+            bool(event.is_active)
+            and admin_cash_counted
+            and all_teller_cash_collected
+        ),
+        'stations_total': stations_total,
+        'stations_closed': stations_closed,
+        'stations_counted': stations_counted,
+        'expected_admin_cash': round(float(expected_admin_cash), 2),
+        'actual_admin_cash': (
+            float(event.actual_admin_cash_counted)
+            if admin_cash_counted else None
+        ),
+        'admin_cash_variance': (
+            float(event.admin_cash_variance)
+            if admin_cash_counted and event.admin_cash_variance is not None
+            else None
+        ),
+    }
+
+
+def register_admin_cash_count(actual_admin_cash, counted_by):
+    """Snapshot admin drawer cash after all participating tellers have closed."""
+    actual_admin_cash = float(actual_admin_cash)
+    if not math.isfinite(actual_admin_cash) or actual_admin_cash < 0:
+        raise ValueError('actual_admin_cash must be a non-negative amount')
+
+    with db_transaction.atomic():
+        event = Event.objects.select_for_update().filter(
+            is_active=True,
+        ).order_by('-started_at').first()
+        if event is None:
+            raise NoActiveEventError()
+
+        readiness = get_event_closeout_readiness(event=event)
+        if not readiness['all_stations_closed']:
+            raise TellerStationsNotClosedError()
+        if readiness['admin_cash_counted'] and readiness['stations_counted'] > 0:
+            raise AdminCashAlreadyCountedError()
+
+        expected_admin_cash = get_admin_fund_summary(
+            event=event,
+            apply_end_bound=True,
+        )['balance_before_closeouts']
+        actual_admin_cash = round(actual_admin_cash, 2)
+        event.expected_admin_cash_on_hand = expected_admin_cash
+        event.actual_admin_cash_counted = actual_admin_cash
+        event.admin_cash_variance = round(
+            actual_admin_cash - expected_admin_cash,
+            2,
+        )
+        event.admin_cash_counted_by = counted_by
+        event.admin_cash_counted_at = now()
+        event.save(update_fields=[
+            'expected_admin_cash_on_hand',
+            'actual_admin_cash_counted',
+            'admin_cash_variance',
+            'admin_cash_counted_by',
+            'admin_cash_counted_at',
+        ])
+
+    logger.info(
+        "ADMIN CASH COUNTED: event=%s expected=%.2f actual=%.2f variance=%.2f "
+        "counted_by=%s",
+        event.id,
+        event.expected_admin_cash_on_hand,
+        event.actual_admin_cash_counted,
+        event.admin_cash_variance,
+        counted_by.username,
+    )
+    return event
+
+
 def register_teller_cash_count(close_out_id, actual_amount, admin_user):
     """Record physically counted cash and create a REMIT for the actual amount."""
     if actual_amount < 0:
@@ -1226,6 +1463,13 @@ def register_teller_cash_count(close_out_id, actual_amount, admin_user):
             raise CloseOutNotFoundError()
         if close_out.actual_cash_counted is not None:
             raise CloseOutAlreadyCountedError()
+
+        # Lock the event row so admin-cash gating cannot race with Close Admin.
+        event = Event.objects.select_for_update().filter(pk=close_out.event_id).first()
+        if event is None or not event.is_active:
+            raise NoActiveEventError()
+        if event.actual_admin_cash_counted is None:
+            raise AdminCashNotCountedError()
 
         variance = round(actual_amount, 2) - round(close_out.expected_cash_on_hand, 2)
         remit_txn = TellerTransaction.objects.create(
@@ -1365,6 +1609,7 @@ def teller_has_opening_fund_for_event(teller, event):
     return txn_qs.filter(
         transaction_type=TellerTransaction.COLLECT,
         affects_admin_fund=False,
+        cancelled=False,
     ).exists()
 
 
@@ -1611,12 +1856,8 @@ def start_event(name):
     return event
 
 
-def end_event(actual_admin_cash, counted_by):
-    """End the active event and snapshot the shared admin cash count."""
-    actual_admin_cash = float(actual_admin_cash)
-    if not math.isfinite(actual_admin_cash) or actual_admin_cash < 0:
-        raise ValueError('actual_admin_cash must be a non-negative amount')
-
+def end_event(counted_by):
+    """End the active event after admin cash and all teller cash are collected."""
     with db_transaction.atomic():
         event = Event.objects.select_for_update().filter(
             is_active=True,
@@ -1625,34 +1866,19 @@ def end_event(actual_admin_cash, counted_by):
             logger.warning("END EVENT called but no active event found")
             return None
 
-        expected_admin_cash = get_admin_fund_summary(
-            event=event,
-            apply_end_bound=True,
-        )['balance_before_closeouts']
-        actual_admin_cash = round(actual_admin_cash, 2)
+        readiness = get_event_closeout_readiness(event=event)
+        if not readiness['admin_cash_counted']:
+            raise AdminCashNotCountedError()
+        if not readiness['all_teller_cash_collected']:
+            raise TellerCashNotFullyCollectedError()
+
         event.is_active = False
         event.ended_at = now()
-        event.expected_admin_cash_on_hand = expected_admin_cash
-        event.actual_admin_cash_counted = actual_admin_cash
-        event.admin_cash_variance = round(
-            actual_admin_cash - expected_admin_cash,
-            2,
-        )
-        event.admin_cash_counted_by = counted_by
-        event.admin_cash_counted_at = now()
-        event.save(update_fields=[
-            'is_active',
-            'ended_at',
-            'expected_admin_cash_on_hand',
-            'actual_admin_cash_counted',
-            'admin_cash_variance',
-            'admin_cash_counted_by',
-            'admin_cash_counted_at',
-        ])
+        event.save(update_fields=['is_active', 'ended_at'])
 
     logger.info(
         "EVENT ENDED: id=%s name=%r ended_at=%s expected_admin_cash=%.2f "
-        "actual_admin_cash=%.2f variance=%.2f counted_by=%s",
+        "actual_admin_cash=%.2f variance=%.2f ended_by=%s",
         event.id,
         event.name,
         event.ended_at,
@@ -2586,6 +2812,7 @@ def lookup_remit_for_reprint(transaction_id, user=None):
     qs = TellerTransaction.objects.select_related('user').filter(
         transaction_id=tid,
         transaction_type=TellerTransaction.REMIT,
+        cancelled=False,
     )
     if user is not None:
         qs = qs.filter(user=user)
