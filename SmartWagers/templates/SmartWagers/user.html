@@ -13,6 +13,7 @@
         window.TELLER_STATION_CLOSED = {{ teller_station_closed|yesno:"true,false" }};
         window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
     </script>
+<script src="{% static 'SmartWagers/print_client.js' %}?v=mobile-print-1"></script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=preset-lock-2"></script>
     <script src="{% static 'SmartWagers/user.js' %}?v=txn-messages-1"></script>

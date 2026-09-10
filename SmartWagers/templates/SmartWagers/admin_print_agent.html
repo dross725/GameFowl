@@ -182,12 +182,12 @@
 {% block content %}
 <div id="pa-wrapper">
   <div>
-    <div id="pa-title">Local Print Agent</div>
-    <div id="pa-subtitle">Download the offline package for Windows teller / cashier PCs.</div>
+    <div id="pa-title">Print Agents</div>
+    <div id="pa-subtitle">Windows USB agent and Android / iOS Bluetooth companion apps.</div>
   </div>
 
   <div class="pa-panel">
-    <div class="pa-panel-title">Download</div>
+    <div class="pa-panel-title">Windows — Download</div>
     <div class="pa-status">
       {% if not agent_dir_exists %}
         <span class="pa-badge pa-badge-warn">Agent folder missing</span>
@@ -221,13 +221,13 @@
           once, then refresh this page and download again.
         </p>
       {% endif %}
-      <a class="pa-download-btn" href="{% url 'admin-print-agent-download' %}">Download Print Agent</a>
+      <a class="pa-download-btn" href="{% url 'admin-print-agent-download' %}">Download Windows Print Agent</a>
       <p class="pa-note">Local teller settings (<span class="pa-code">config.json</span>, logs) are not included in the zip.</p>
     {% endif %}
   </div>
 
   <div class="pa-panel">
-    <div class="pa-panel-title">Install on a teller PC</div>
+    <div class="pa-panel-title">Windows — Install on a teller PC</div>
     <ol class="pa-steps">
       <li>Install the USB receipt printer driver in Windows.</li>
       <li>Set that printer as the <strong>Windows default printer</strong>.</li>
@@ -240,6 +240,45 @@
       Leave <span class="pa-code">printer_name</span> empty in config.json to always use the Windows default.
       Set it only if the receipt printer is not the default.
     </p>
+  </div>
+
+  <div class="pa-panel">
+    <div class="pa-panel-title">Android / iOS — Bluetooth companion</div>
+    <div class="pa-status">
+      {% if android_apk_ready %}
+        <span class="pa-badge pa-badge-ok">Android APK ready</span>
+      {% elif mobile_dir_exists %}
+        <span class="pa-badge pa-badge-warn">APK not built yet</span>
+      {% else %}
+        <span class="pa-badge pa-badge-warn">mobile_print_agent missing</span>
+      {% endif %}
+    </div>
+    <p class="pa-text">
+      Mobile tellers use the SmartWagers website in the phone browser. A small companion app
+      stays signed in, claims queued receipts, and prints over Bluetooth ESC/POS.
+    </p>
+    <p class="pa-text">
+      <strong>Android:</strong> Classic Bluetooth SPP (pair the printer in system settings first).<br>
+      <strong>iOS:</strong> BLE / dual-mode printers only — Classic-SPP-only units will not work on iPhone.
+    </p>
+    {% if android_apk_ready %}
+      <a class="pa-download-btn" href="{% url 'admin-print-agent-android-download' %}">Download Android APK</a>
+      <p class="pa-note">File: <span class="pa-code">{{ android_apk_name }}</span></p>
+    {% else %}
+      <a class="pa-download-btn is-disabled" href="#">Android APK unavailable</a>
+      <p class="pa-note">
+        Build from <span class="pa-code">mobile_print_agent/</span> and copy
+        <span class="pa-code">SmartWagers-PrintCompanion.apk</span> into
+        <span class="pa-code">mobile_print_agent/dist/</span>. See that folder’s README.
+      </p>
+    {% endif %}
+    <ol class="pa-steps">
+      <li>Install the companion (Android sideload APK, or iOS TestFlight / Ad Hoc).</li>
+      <li>Open the app → enter the SmartWagers server URL → sign in as the teller.</li>
+      <li>Scan / select the Bluetooth printer → Test print.</li>
+      <li>Tap <strong>Start service</strong> and leave the app running.</li>
+      <li>Use the phone browser for betting; receipts print through the companion.</li>
+    </ol>
   </div>
 </div>
 {% endblock content %}

@@ -346,6 +346,9 @@ function showClosedBettingModal(side) {
 }
 
 function getLocalPrintAgentUrl() {
+    if (window.SmartWagersPrint && typeof window.SmartWagersPrint.getLocalPrintAgentUrl === "function") {
+        return window.SmartWagersPrint.getLocalPrintAgentUrl();
+    }
     return (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
 }
 
@@ -491,92 +494,23 @@ async function consumePendingPrints() {
 }
 
 async function printWagerReceipt(receipt, options) {
-    // Thermal printers / Windows spoolers can be slow; keep a generous timeout.
-    const keepalive = Boolean(options && options.keepalive);
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    try {
-        const response = await fetch(`${getLocalPrintAgentUrl()}/print-wager`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(receipt),
-            signal: controller.signal,
-            keepalive: keepalive,
-        });
-        let result = {};
-        try {
-            result = await response.json();
-        } catch (error) {
-            result = {};
-        }
-
-        if (!response.ok || !result.ok) {
-            return {
-                ok: false,
-                message: result.error || `Local print agent returned HTTP ${response.status}.`,
-            };
-        }
-
-        return {
-            ok: true,
-            message: result.message || "Bet receipt sent to local printer.",
-        };
-    } catch (error) {
-        return {
-            ok: false,
-            message: error.name === "AbortError"
-                ? "Local print agent did not respond in time."
-                : "Local print agent is not running or is blocked.",
-        };
-    } finally {
-        clearTimeout(timeoutId);
+    if (window.SmartWagersPrint && typeof window.SmartWagersPrint.printWagerReceipt === "function") {
+        return window.SmartWagersPrint.printWagerReceipt(receipt, options);
     }
+    return {
+        ok: false,
+        message: "Print client is not loaded.",
+    };
 }
 
 async function printRemitReceipt(receipt) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    try {
-        const response = await fetch(`${getLocalPrintAgentUrl()}/print-remit`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(receipt),
-            signal: controller.signal,
-        });
-        let result = {};
-        try {
-            result = await response.json();
-        } catch (error) {
-            result = {};
-        }
-
-        if (!response.ok || !result.ok) {
-            return {
-                ok: false,
-                message: result.error || `Local print agent returned HTTP ${response.status}.`,
-            };
-        }
-
-        return {
-            ok: true,
-            message: result.message || "Advance receipt sent to local printer.",
-        };
-    } catch (error) {
-        return {
-            ok: false,
-            message: error.name === "AbortError"
-                ? "Local print agent did not respond in time."
-                : "Local print agent is not running or is blocked.",
-        };
-    } finally {
-        clearTimeout(timeoutId);
+    if (window.SmartWagersPrint && typeof window.SmartWagersPrint.printRemitReceipt === "function") {
+        return window.SmartWagersPrint.printRemitReceipt(receipt);
     }
+    return {
+        ok: false,
+        message: "Print client is not loaded.",
+    };
 }
 
 async function isBettingOpen(side) {

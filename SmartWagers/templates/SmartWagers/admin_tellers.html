@@ -1282,6 +1282,7 @@
   </div>
 </div>
 
+<script src="{% static 'SmartWagers/print_client.js' %}?v=mobile-print-1"></script>
 <script>
 const TELLER_TXN_URL      = "{% url 'admin-teller-txn' %}";
 const TELLER_EDIT_URL     = "{% url 'admin-edit-teller-txn' %}";
@@ -1292,7 +1293,6 @@ const COUNT_CASH_URL      = "{% url 'admin-teller-closeout-count' %}";
 const CLOSE_ADMIN_URL     = "{% url 'admin-cash-count' %}";
 const ADMIN_FUND_STATUS_URL = "{% url 'admin-fund-status' %}";
 const REOPEN_STATION_URL  = "{% url 'admin-teller-closeout-reopen' %}";
-const PRINT_AGENT_URL     = "http://127.0.0.1:8765/print-remit";
 const CSRF_TOKEN          = "{{ csrf_token }}";
 const TELLER_MAX_BALANCE  = {{ teller_max_balance|floatformat:2 }};
 const TELLER_MIN_BALANCE  = {{ teller_min_balance|floatformat:2 }};
@@ -1728,18 +1728,25 @@ function prependHistoryRow(data) {
 function triggerPrint(data) {
   // Always print the server transaction timestamp — never the browser clock,
   // which can disagree with the server and produce mismatched receipt dates.
-  fetch(PRINT_AGENT_URL, {
+  const receipt = {
+    transaction_type: data.transaction_type,
+    transaction_id:   data.transaction_id,
+    amount:           data.amount,
+    balance:          data.balance,
+    grand_total:      data.grand_total,
+    cashier:          data.cashier,
+    date:             data.created_at,
+  };
+  if (window.SmartWagersPrint && typeof window.SmartWagersPrint.printRemitReceipt === 'function') {
+    window.SmartWagersPrint.printRemitReceipt(receipt).catch(() => {});
+    return;
+  }
+  // Fallback: local agent only (legacy).
+  const url = (localStorage.getItem('smartwagersPrintAgentUrl') || 'http://127.0.0.1:8765').replace(/\/$/, '') + '/print-remit';
+  fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      transaction_type: data.transaction_type,
-      transaction_id:   data.transaction_id,
-      amount:           data.amount,
-      balance:          data.balance,
-      grand_total:      data.grand_total,
-      cashier:          data.cashier,
-      date:             data.created_at,
-    }),
+    body: JSON.stringify(receipt),
   }).catch(() => { /* print agent unavailable — silently ignore */ });
 }
 

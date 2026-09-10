@@ -95,6 +95,7 @@ static/
 └── app.css             # Global styles
 
 local_print_agent/      # Windows localhost print agent for remote cashier USB printers
+mobile_print_agent/     # Android/iOS Bluetooth companion (Expo) for ESC/POS printers
 ```
 
 ---
@@ -303,24 +304,23 @@ The app will be available at `http://localhost:8000/`.
 
 ## Local Payout Receipt Printing
 
-Remote cashier devices cannot silently print to USB printers through the browser alone. Each Windows cashier PC should run the local print agent in `local_print_agent/`.
+Remote cashier devices cannot silently print through the browser alone.
 
-On each cashier PC:
+### Windows (USB)
 
-```bat
-py -m pip install pywin32
-copy config.example.json config.json
-run_print_agent.bat
-```
+Each Windows cashier PC should run the local print agent in `local_print_agent/`.
+See that folder’s README, or download the package from **Admin → Print Agent**.
 
-Set `printer_name` in `local_print_agent/config.json` to the exact Windows printer queue name, or leave it empty to use the Windows default printer. With the agent running, use these local URLs on the cashier PC:
+When a bet/payout is placed, the browser POSTs receipt JSON to
+`http://127.0.0.1:8765/print-wager` (or `/print-payout`). The agent accepts only
+localhost requests and prints via the Windows queue / ESC/POS RAW mode.
 
-```text
-http://127.0.0.1:8765/health
-http://127.0.0.1:8765/printers
-```
+### Android / iOS (Bluetooth)
 
-When a bet is placed, the SmartWagers page sends receipt JSON to `http://127.0.0.1:8765/print-wager`. When a payout is approved, it sends receipt JSON to `http://127.0.0.1:8765/print-payout`. The agent accepts only localhost requests, renders the receipt with barcode text, and sends it to the cashier's configured USB printer.
+Use the companion app in `mobile_print_agent/`. The web UI stays in the phone
+browser; when the Windows agent is unreachable, receipts are queued to
+`/api/print-jobs/` and the companion prints over Bluetooth ESC/POS
+(Classic SPP on Android; BLE on iOS — dual-mode printers recommended for iPhone).
 
 ---
 
@@ -331,7 +331,7 @@ When a bet is placed, the SmartWagers page sends receipt JSON to `http://127.0.0
 - **Production requires PostgreSQL.** With `DJANGO_DEBUG=False`, startup fails unless `DJANGO_DB_ENGINE=postgresql` and all required `POSTGRES_*` variables are configured.
 - **`Fight_Status` assumes `id=1`** — the app expects a single row to always exist; it will error if the row is missing or there are multiple rows.
 - **Bet receipt PDFs use a fixed filename** (`receipt_with_barcode.pdf`) and will be overwritten on each print; concurrent users on the same server can collide.
-- **Silent local payout printing requires the Windows local print agent** to be running on every cashier PC.
+- **Silent local payout printing on Windows** requires the local print agent on each cashier PC. **Mobile Bluetooth printing** requires the companion app in `mobile_print_agent/` (iOS needs BLE/dual-mode printers).
 - **`signals.py` is not connected** — it references a model table (`bets_bet`) that does not match current models and is not imported in `apps.py`, so its handlers never fire.
 - **`USE_TZ = False`** with timezone set to `Asia/Manila` — be aware of DST edge cases if the app runs across midnight.
 - **Session expires after 15 minutes** of inactivity (`SESSION_COOKIE_AGE = 900`).

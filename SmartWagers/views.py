@@ -2996,6 +2996,27 @@ def _print_agent_dir() -> Path:
     return Path(settings.BASE_DIR) / 'local_print_agent'
 
 
+def _mobile_print_agent_dir() -> Path:
+    return Path(settings.BASE_DIR) / 'mobile_print_agent'
+
+
+def _mobile_print_agent_runtime_info():
+    mobile_dir = _mobile_print_agent_dir()
+    dist_dir = mobile_dir / 'dist'
+    apk_candidates = [
+        dist_dir / 'SmartWagers-PrintCompanion.apk',
+        dist_dir / 'app-release.apk',
+    ]
+    apk_path = next((path for path in apk_candidates if path.is_file()), None)
+    return {
+        'mobile_dir': mobile_dir,
+        'mobile_dir_exists': mobile_dir.is_dir(),
+        'android_apk_ready': apk_path is not None,
+        'android_apk_path': apk_path,
+        'android_apk_name': apk_path.name if apk_path else 'SmartWagers-PrintCompanion.apk',
+    }
+
+
 def _print_agent_runtime_info():
     agent_dir = _print_agent_dir()
     python_dir = agent_dir / 'python'
@@ -3377,10 +3398,14 @@ admin_create_user = admin_users
 def admin_print_agent(request):
     """Admin page: download offline local print agent package for teller PCs."""
     info = _print_agent_runtime_info()
+    mobile_info = _mobile_print_agent_runtime_info()
     return render(request, 'SmartWagers/admin_print_agent.html', {
         'python_ready': info['python_ready'],
         'version_text': info['version_text'],
         'agent_dir_exists': info['agent_dir_exists'],
+        'android_apk_ready': mobile_info['android_apk_ready'],
+        'android_apk_name': mobile_info['android_apk_name'],
+        'mobile_dir_exists': mobile_info['mobile_dir_exists'],
     })
 
 
@@ -3422,3 +3447,32 @@ def admin_print_agent_download(request):
         info['python_ready'],
     )
     return response
+
+@group_required('admin')
+@require_GET
+def admin_print_agent_android_download(request):
+    """Stream the Android companion APK when present under mobile_print_agent/dist/."""
+    info = _mobile_print_agent_runtime_info()
+    apk_path = info.get('android_apk_path')
+    if apk_path is None or not Path(apk_path).is_file():
+        return HttpResponse(
+            'Android companion APK is not available on this server. '
+            'Build mobile_print_agent and copy SmartWagers-PrintCompanion.apk '
+            'into mobile_print_agent/dist/.',
+            status=404,
+            content_type='text/plain',
+        )
+    apk_path = Path(apk_path)
+    response = FileResponse(
+        apk_path.open('rb'),
+        as_attachment=True,
+        filename=info['android_apk_name'],
+        content_type='application/vnd.android.package-archive',
+    )
+    logger.info(
+        'PRINT_AGENT_ANDROID_DOWNLOAD: admin=%s file=%s',
+        request.user.username,
+        apk_path.name,
+    )
+    return response
+

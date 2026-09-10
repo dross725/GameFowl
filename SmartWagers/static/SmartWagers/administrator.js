@@ -1,5 +1,11 @@
 const administratorWebsocketProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-const localPrintAgentUrl = (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
+function getAdminLocalPrintAgentUrl() {
+    if (window.SmartWagersPrint && typeof window.SmartWagersPrint.getLocalPrintAgentUrl === "function") {
+        return window.SmartWagersPrint.getLocalPrintAgentUrl();
+    }
+    return (localStorage.getItem("smartwagersPrintAgentUrl") || "http://127.0.0.1:8765").replace(/\/$/, "");
+}
+const localPrintAgentUrl = getAdminLocalPrintAgentUrl();
 
 /** Normalize a wager or remit transaction id typed or scanned by a teller.
  *  Bet IDs are zero-padded to 6 digits; remit IDs are R + 6 digits.
@@ -183,46 +189,13 @@ async function printPayoutReceipt(data) {
         cashier: data.cashier,
         date: data.receipt_date,
     };
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-    try {
-        const response = await fetch(`${localPrintAgentUrl}/print-payout`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(receipt),
-            signal: controller.signal,
-        });
-        let result = {};
-        try {
-            result = await response.json();
-        } catch (error) {
-            result = {};
-        }
-
-        if (!response.ok || !result.ok) {
-            return {
-                ok: false,
-                message: result.error || `Local print agent returned HTTP ${response.status}.`,
-            };
-        }
-
-        return {
-            ok: true,
-            message: result.message || "Receipt sent to local printer.",
-        };
-    } catch (error) {
-        return {
-            ok: false,
-            message: error.name === "AbortError"
-                ? "Local print agent did not respond."
-                : "Local print agent is not running or is blocked.",
-        };
-    } finally {
-        clearTimeout(timeoutId);
+    if (window.SmartWagersPrint && typeof window.SmartWagersPrint.printPayoutReceipt === "function") {
+        return window.SmartWagersPrint.printPayoutReceipt({ receipt: receipt });
     }
+    return {
+        ok: false,
+        message: "Print client is not loaded.",
+    };
 }
 
 let payoutReprintReceipt = null;

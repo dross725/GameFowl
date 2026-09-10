@@ -471,3 +471,91 @@ class ArchivedAdminBankTransaction(models.Model):
 
     def __str__(self):
         return f"archived {self.transaction_id} {self.event}"
+
+class PrintDevice(models.Model):
+    PLATFORM_ANDROID = 'android'
+    PLATFORM_IOS = 'ios'
+    PLATFORM_CHOICES = (
+        (PLATFORM_ANDROID, 'Android'),
+        (PLATFORM_IOS, 'iOS'),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='print_devices')
+    device_id = models.CharField(max_length=64)
+    platform = models.CharField(max_length=16, choices=PLATFORM_CHOICES)
+    auth_token = models.CharField(max_length=64, unique=True, db_index=True)
+    printer_name = models.CharField(max_length=128, blank=True, default='')
+    printer_address = models.CharField(max_length=128, blank=True, default='')
+    last_seen = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'device_id'],
+                name='printdevice_user_device_id_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'last_seen']),
+        ]
+
+    def __str__(self):
+        return f"{self.platform}:{self.device_id} ({self.user})"
+
+
+class PrintJob(models.Model):
+    ENDPOINT_WAGER = 'wager'
+    ENDPOINT_PAYOUT = 'payout'
+    ENDPOINT_REMIT = 'remit'
+    ENDPOINT_CHOICES = (
+        (ENDPOINT_WAGER, 'Wager'),
+        (ENDPOINT_PAYOUT, 'Payout'),
+        (ENDPOINT_REMIT, 'Remit'),
+    )
+
+    STATUS_PENDING = 'pending'
+    STATUS_SENT = 'sent'
+    STATUS_PRINTED = 'printed'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SENT, 'Sent'),
+        (STATUS_PRINTED, 'Printed'),
+        (STATUS_FAILED, 'Failed'),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='print_jobs')
+    device = models.ForeignKey(
+        PrintDevice,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='jobs',
+    )
+    endpoint = models.CharField(max_length=16, choices=ENDPOINT_CHOICES)
+    receipt_type = models.CharField(max_length=32, blank=True, default='')
+    transaction_id = models.CharField(max_length=32, blank=True, default='')
+    payload_json = models.JSONField(default=dict)
+    escpos_bytes = models.BinaryField()
+    status = models.CharField(
+        max_length=16,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+    error_text = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['user', 'status', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"PrintJob {self.pk} {self.endpoint} {self.status}"
+
