@@ -12,6 +12,17 @@ function formatNumber(n) {
     return Number(n).toLocaleString('en-US');
 }
 
+/** Set a modal line as label + bold monetary amount (safe text nodes). */
+function setModalMoneyMessage(el, label, amountText) {
+    if (!el) return;
+    el.replaceChildren();
+    if (label) el.append(document.createTextNode(label));
+    const money = document.createElement('strong');
+    money.className = 'modal-money';
+    money.textContent = amountText;
+    el.append(money);
+}
+
 function stripCommas(str) {
     return String(str).replace(/,/g, '');
 }
@@ -221,7 +232,7 @@ function openConfirmationModal(total, side) {
     const summaryValue = document.getElementById('summaryValue');
     const confirmside = document.getElementById('confirmside');
     confirmside.innerText = wager_id;
-    summaryValue.innerText = 'Total: ₱ ' + formatNumber(wager_value);
+    setModalMoneyMessage(summaryValue, 'Total: ', '₱ ' + formatNumber(wager_value));
     /* Deactivate the bet textbox while confirming so it cannot stay focused
        or accept edits behind the modal. */
     setBetTextInputActive(false);

@@ -139,7 +139,11 @@ administratorSocket.onmessage = async (event) => {
             console.log("Cancel bet success:", data);
             document.getElementById('payout_success_header').innerText = "Cancel bet request valid!";
             document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
-            document.getElementById('payout_message2').innerText = "Please refund: " + data.amount;
+            setModalMoneyMessage(
+                document.getElementById('payout_message2'),
+                'Please refund: ',
+                String(data.amount),
+            );
             document.getElementById('payout_message3').innerText = "";
             document.getElementById('payout_print_modal').style.display = 'flex';
             if (data.receipt && data.print_required !== false) {
@@ -571,25 +575,30 @@ async function handlePayoutMessage(data) {
     } else if ("transaction_id" in data && "Total_Payout" in data) {
         document.getElementById('payout_success_header').innerText = "Payout request valid!";
         document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
-        document.getElementById('payout_message2').innerText = "Total Payout Amount: " + data.Total_Payout;
+        setModalMoneyMessage(
+            document.getElementById('payout_message2'),
+            'Total Payout Amount: ',
+            '₱ ' + formatNumber(stripCommas(data.Total_Payout)),
+        );
         document.getElementById('payout_print_modal').style.display = 'flex';
 
         if (data.print_required !== false) {
-            document.getElementById('payout_message3').innerText = formatTransactionMessage(
-                "Sending receipt to local printer...",
-                data.transaction_id,
-            );
+            document.getElementById('payout_message3').innerText = "Sending receipt to local printer...";
             const printResult = await printPayoutReceipt(data);
             document.getElementById('payout_message3').innerText = printResult.ok
-                ? formatTransactionMessage(printResult.message, data.transaction_id)
-                : formatTransactionMessage("Receipt print failed: " + printResult.message, data.transaction_id);
+                ? (printResult.message || "Receipt sent to printer.")
+                : ("Receipt print failed: " + printResult.message);
         } else {
             document.getElementById('payout_message3').innerText = "";
         }
     } else if ("side" in data && data.side === "CANCELLED") {
         document.getElementById('payout_success_header').innerText = "Bet Cancelled!";
         document.getElementById('payout_message1').innerText = "Transaction ID: " + (data.transaction_id || "—");
-        document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
+        setModalMoneyMessage(
+            document.getElementById('payout_message2'),
+            'Amount to Refund: ',
+            String(data.wager),
+        );
         document.getElementById('payout_print_modal').style.display = 'flex';
 
         if (data.receipt && data.print_required !== false) {
@@ -604,7 +613,11 @@ async function handlePayoutMessage(data) {
     } else if ("side" in data && data.side === "DRAW") {
         document.getElementById('payout_success_header').innerText = "Draw - Bet Refund!";
         document.getElementById('payout_message1').innerText = "Transaction ID: " + (data.transaction_id || "—");
-        document.getElementById('payout_message2').innerText = "Amount to Refund: " + data.wager;
+        setModalMoneyMessage(
+            document.getElementById('payout_message2'),
+            'Amount to Refund: ',
+            String(data.wager),
+        );
         document.getElementById('payout_print_modal').style.display = 'flex';
 
         if (data.receipt && data.print_required !== false) {
