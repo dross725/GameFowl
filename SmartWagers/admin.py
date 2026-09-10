@@ -6,6 +6,7 @@ from .models import (
     Wagers, Totals, Settings, Fight_Results, Fight_Status, SessionLog,
     TellerTransaction, AdminBankTransaction, ArchivedWager,
     ArchivedTellerTransaction, ArchivedAdminBankTransaction, TellerStatus,
+    TellerWrongPunch,
 )
 
 # Register your models here.
@@ -21,6 +22,7 @@ admin.site.register(ArchivedWager)
 admin.site.register(ArchivedTellerTransaction)
 admin.site.register(ArchivedAdminBankTransaction)
 admin.site.register(TellerStatus)
+admin.site.register(TellerWrongPunch)
 
 
 def _strip_superuser_fields(fieldsets):

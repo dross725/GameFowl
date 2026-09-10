@@ -241,6 +241,7 @@ class TestPayoutRequestErrors:
             user=teller_user,
             transaction_type=TellerTransaction.REMIT,
             amount=100,
+            received=True,
         )
         _make_fight_result(1, 'MERON', event=active_event, mpayout=95.0)
         result = services.payout_request(
@@ -264,6 +265,7 @@ class TestPayoutRequestErrors:
             user=teller_user,
             transaction_type=TellerTransaction.REMIT,
             amount=100,
+            received=True,
         )
         _make_fight_result(1, 'MERON', event=active_event, mpayout=95.0)
         with patch('SmartWagers.services.logger.warning') as mock_warn:
@@ -283,6 +285,7 @@ class TestPayoutRequestErrors:
             user=teller_user,
             transaction_type=TellerTransaction.REMIT,
             amount=400,
+            received=True,
         )
         Fight_Results.objects.create(
             fightnum=1, side='CANCELLED', mtotal=400, wtotal=0,

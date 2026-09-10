@@ -2,7 +2,7 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=23">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=25">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=9">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
@@ -235,8 +235,11 @@
 {% endblock css_files %}
 
 {% block script_files %}
+<script>
+    window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
+</script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=bet-textbox-deactivate-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=preset-lock-2"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
@@ -259,7 +262,7 @@
                         <li><a href="{% url 'admin-print-agent' %}">Print Agent</a></li>
                         <li class="nav-dropdown-divider"></li>
                         <li><a href="#" class="nav-dropdown-action start-event-action" onclick="event.preventDefault();openStartEventModal()">▶ Start Event</a></li>
-                        <li><a href="#" class="nav-dropdown-action end-event-action" onclick="event.preventDefault();openEndEventModal()">■ End Event</a></li>
+                        <li><a href="#" class="nav-dropdown-action end-event-action nav-event-disabled" onclick="event.preventDefault()">■ End Event</a></li>
                     </ul>
                 </li>
                 <li><a href="{% url 'admin-event-report' %}">Reports</a></li>
@@ -290,9 +293,7 @@
                     </label>
                 </div>
                 <div id='bet-text-input'>
-                    <textarea id='bet_textinput'
-                        onfocus="if(this.value==='0')this.value=''"
-                        onblur="if(this.value.trim()==='')this.value='0'">0</textarea>
+                    <textarea id='bet_textinput' placeholder='Place bet here'></textarea>
                 </div>
                 <section class='bet-buttons'>
                     <section id='buttons_section1'>
@@ -357,6 +358,7 @@
         <input type='hidden' name='wager_value' id='wager_value'></input>
         <input type='hidden' name='wager_id' id='wager_id'></input>
         <input type='hidden' name='client_request_id' id='client_request_id'></input>
+        <input type='hidden' name='amount_source' id='amount_source'></input>
     </form>
 
     <div id='confirmationModal' class='modal'>
@@ -379,6 +381,21 @@
             <p id='invalidtotal-message'>Please make sure the bet amount is a valid number.</p>
             <br>
             <button onclick='closeInvalidTotalModal()'>Close</button>
+        </div>
+    </div>
+
+    <div id='wrongpunchModal' class='modal'>
+        <div class='modal-content'>
+            <h2>Wrong Punch</h2>
+            <br>
+            <p id='wrongpunch-message'>Wrong punch! Finger slipped on 3 or 6 before Enter. Re-enter the bet.</p>
+            <br>
+            <p id='wrongpunch-score' style='display:none;font-size:1.15em;font-weight:700;'>
+                Wrong punches this event: <strong id='wrongpunch-count'>0</strong>
+            </p>
+            <p id='wrongpunch-rank' style='display:none;margin-top:8px;opacity:0.85;'></p>
+            <br>
+            <button id='wrongpunch-close-button' onclick='closeWrongPunchModal()'>Close</button>
         </div>
     </div>
 
@@ -584,22 +601,33 @@
         <div class='modal-content'>
             <h2>End Event</h2>
             <br>
-            <p>Count the shared admin cash before closing the event.</p>
+            <p>End the event after admin cash and all teller cash have been collected.</p>
             <br>
-            <p>Expected cash on hand (before teller counts):
-                <strong id='endevent_expected_cash'>Loading…</strong>
+            <p>Admin cash:
+                <strong id='endevent_admin_cash_status'>Loading…</strong>
             </p>
-            <br>
-            <label for='endevent_actual_cash'>Actual cash on hand</label>
-            <input type='text' id='endevent_actual_cash' inputmode='decimal'
-                   placeholder='0.00' autocomplete='off'
-                   style='width:100%;box-sizing:border-box;'
-                   onkeydown="if(event.key==='Enter')submitEndEvent()">
+            <p>Teller cash collected:
+                <strong id='endevent_teller_cash_status'>Loading…</strong>
+            </p>
             <br>
             <p id='endevent_status_msg' style='min-height:1.2em;'></p>
             <br>
             <button id='endevent_confirm_btn' onclick='submitEndEvent()'>End Event &amp; View Report</button>
             <button onclick='closemodal("endeventmodal")'>Cancel</button>
+        </div>
+    </div>
+
+    <div id='wrongpunchwinnermodal' class='modal'>
+        <div class='modal-content' style='max-width:440px;'>
+            <h2>Butterfingers Champion</h2>
+            <br>
+            <p id='wp-winner-event' style='opacity:0.7;'></p>
+            <br>
+            <div id='wp-winner-announce' style='font-size:1.15em;font-weight:800;line-height:1.4;'></div>
+            <br>
+            <div id='wp-winner-board' style='text-align:left;max-height:220px;overflow-y:auto;font-size:13px;'></div>
+            <br>
+            <button id='wp-winner-continue' onclick='continueToEventReport()'>View Final Report</button>
         </div>
     </div>
 
@@ -799,6 +827,7 @@
                     not_found:        'Transaction ID not found.',
                     not_a_remit:      'Only ADVANCE transactions can be marked received.',
                     already_received: 'This transaction was already marked received.',
+                    cancelled:        'This advance was cancelled and cannot be marked received.',
                 };
                 statusEl.style.color = '#e74c3c';
                 statusEl.innerText = msgs[data.error] || ('Error: ' + data.error);
@@ -874,47 +903,55 @@
     }
 
     async function openEndEventModal() {
-        const actualInput = document.getElementById('endevent_actual_cash');
-        const expectedEl = document.getElementById('endevent_expected_cash');
-        actualInput.value = '';
-        expectedEl.textContent = 'Loading…';
-        document.getElementById('endevent_status_msg').innerText = '';
-        document.getElementById('endevent_status_msg').style.color = '';
-        document.getElementById('endevent_confirm_btn').disabled = false;
+        const adminStatusEl = document.getElementById('endevent_admin_cash_status');
+        const tellerStatusEl = document.getElementById('endevent_teller_cash_status');
+        const statusEl = document.getElementById('endevent_status_msg');
+        const confirmBtn = document.getElementById('endevent_confirm_btn');
+        adminStatusEl.textContent = 'Loading…';
+        tellerStatusEl.textContent = 'Loading…';
+        statusEl.innerText = '';
+        statusEl.style.color = '';
+        confirmBtn.disabled = true;
         document.getElementById('endeventmodal').style.display = 'flex';
         try {
-            const res = await fetch(ADMIN_FUND_STATUS_URL, {
-                headers: { 'Accept': 'application/json' },
-            });
+            const res = await fetch('/get_fight_status_view/');
             const data = await res.json();
-            expectedEl.textContent = data.ok && data.active
-                ? formatAdminFund(data.balance_before_closeouts)
-                : 'Unavailable';
+            const closeout = data.closeout || {};
+            adminStatusEl.textContent = closeout.admin_cash_counted
+                ? 'Counted'
+                : 'Not counted yet — use Close Admin on Tellers';
+            const counted = closeout.stations_counted || 0;
+            const total = closeout.stations_total || 0;
+            tellerStatusEl.textContent = closeout.all_teller_cash_collected
+                ? `All collected (${counted}/${total})`
+                : `Pending (${counted}/${total})`;
+            if (data.can_end_event) {
+                confirmBtn.disabled = false;
+                statusEl.style.color = '';
+                statusEl.innerText = 'Ready to end the event.';
+            } else {
+                confirmBtn.disabled = true;
+                statusEl.style.color = '#e74c3c';
+                statusEl.innerText = 'Collect admin cash and all teller cash before ending the event.';
+            }
         } catch (err) {
-            expectedEl.textContent = 'Unavailable';
+            adminStatusEl.textContent = 'Unavailable';
+            tellerStatusEl.textContent = 'Unavailable';
+            confirmBtn.disabled = true;
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Could not load closeout status.';
         }
-        setTimeout(() => actualInput.focus(), 80);
     }
 
     async function submitEndEvent() {
         const statusEl = document.getElementById('endevent_status_msg');
         const btn      = document.getElementById('endevent_confirm_btn');
-        const actualInput = document.getElementById('endevent_actual_cash');
-        const actualCash = Number(actualInput.value.replace(/,/g, ''));
-
-        if (!Number.isFinite(actualCash) || actualCash < 0 || !actualInput.value.trim()) {
-            statusEl.style.color = '#e74c3c';
-            statusEl.innerText = 'Enter a valid non-negative cash amount.';
-            actualInput.focus();
-            return;
-        }
 
         btn.disabled = true;
         statusEl.style.color = '';
         statusEl.innerText = 'Ending event…';
 
         const fd = new FormData();
-        fd.append('actual_admin_cash', actualCash.toString());
         fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
 
         try {
@@ -924,7 +961,8 @@
             if (!data.ok) {
                 const msgs = {
                     no_active_event: 'No active event to end.',
-                    invalid_actual_admin_cash: 'Enter a valid non-negative cash amount.',
+                    admin_cash_not_counted: 'Count admin cash on the Tellers page first.',
+                    teller_cash_not_collected: 'Collect all teller cash before ending the event.',
                 };
                 statusEl.style.color = '#e74c3c';
                 statusEl.innerText = msgs[data.error] || ('Error: ' + data.error);
@@ -933,12 +971,86 @@
             }
 
             closemodal('endeventmodal');
-            window.location.href = data.report_url;
+            showWrongPunchWinnerModal(data);
 
         } catch (err) {
             statusEl.style.color = '#e74c3c';
             statusEl.innerText = 'Network error. Check connection.';
             btn.disabled = false;
+        }
+    }
+
+    let pendingEventReportUrl = '';
+
+    function showWrongPunchWinnerModal(data) {
+        pendingEventReportUrl = data.report_url || '';
+        const boardData = data.wrong_punch || {};
+        const eventLabel = document.getElementById('wp-winner-event');
+        const announce = document.getElementById('wp-winner-announce');
+        const boardEl = document.getElementById('wp-winner-board');
+
+        if (eventLabel) {
+            eventLabel.textContent = boardData.event_name
+                ? ('Event: ' + boardData.event_name)
+                : (data.event_name ? ('Event: ' + data.event_name) : '');
+        }
+
+        const winners = boardData.winners || [];
+        const bestCount = boardData.best_count;
+        if (!boardData.has_contestants || !winners.length) {
+            if (announce) {
+                announce.textContent = 'Nobody slipped on 3 or 6. Boringly perfect — no champion crowned.';
+            }
+            if (boardEl) boardEl.innerHTML = '';
+        } else if (bestCount === 0) {
+            if (announce) {
+                announce.innerHTML = 'Everyone kept their fingers under control.<br>'
+                    + '<span style="font-size:0.8em;font-weight:600;opacity:0.75;">No Butterfingers Champion this event. Try harder next time.</span>';
+            }
+            if (boardEl) boardEl.innerHTML = '';
+        } else {
+            const names = winners.map(w => w.username).join(', ');
+            const punchLabel = bestCount === 1 ? '1 glorious wrong punch' : (bestCount + ' glorious wrong punches');
+            if (announce) {
+                if (winners.length === 1) {
+                    announce.innerHTML = _escHtml(names) + ' takes the crown with '
+                        + '<strong>' + punchLabel + '</strong>!'
+                        + '<div style="margin-top:10px;font-size:0.78em;font-weight:600;opacity:0.75;line-height:1.35;">'
+                        + 'May their fingers rest — preferably far from Enter.'
+                        + '</div>';
+                } else {
+                    announce.innerHTML = 'Dead heat! ' + _escHtml(names) + ' share the butterfingers crown with '
+                        + '<strong>' + punchLabel + '</strong> each.'
+                        + '<div style="margin-top:10px;font-size:0.78em;font-weight:600;opacity:0.75;line-height:1.35;">'
+                        + 'Two (or more) Enter-key disasters. Historic.'
+                        + '</div>';
+                }
+            }
+            if (boardEl) {
+                const rows = (boardData.board || []).map((row, idx) => {
+                    const isWinner = winners.some(w => w.user_id === row.user_id);
+                    const style = isWinner
+                        ? 'font-weight:800;color:#f1c40f;'
+                        : 'color:rgba(255,255,255,0.80);';
+                    const badge = isWinner ? ' ★' : (row.count === 0 ? ' (angel)' : '');
+                    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06);' + style + '">'
+                        + '<span>#' + (idx + 1) + ' ' + _escHtml(row.username) + badge + '</span>'
+                        + '<span>' + row.count + '</span>'
+                        + '</div>';
+                }).join('');
+                boardEl.innerHTML = '<div style="opacity:0.45;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">Hall of Wrong punches</div>' + rows;
+            }
+        }
+
+        document.getElementById('wrongpunchwinnermodal').style.display = 'flex';
+        setTimeout(() => document.getElementById('wp-winner-continue')?.focus(), 80);
+    }
+
+    function continueToEventReport() {
+        const url = pendingEventReportUrl;
+        closemodal('wrongpunchwinnermodal');
+        if (url) {
+            window.location.href = url;
         }
     }
 

@@ -2,7 +2,10 @@ let bet_total = 0;
 let wager_value = 0;
 let wager_id = '';
 let clientRequestId = '';
+let amountSource = '';
+let amountLocked = false;
 let isSubmitting = false;
+let isRecordingWrongPunch = false;
 let tellerEnterAction = null;
 
 function formatNumber(n) {
@@ -13,15 +16,36 @@ function stripCommas(str) {
     return String(str).replace(/,/g, '');
 }
 
+function isBetAmountEmptyDisplay(value) {
+    const raw = String(value ?? '').trim();
+    return raw === '' || raw === '0';
+}
+
+function setBetAmountEmptyDisplay() {
+    const textarea = document.getElementById('bet_textinput');
+    if (!textarea) return;
+    textarea.value = '';
+}
+
 function getSelectedSide() {
     if (document.getElementById('radio_meron')?.checked) return 'MERON';
     if (document.getElementById('radio_wala')?.checked) return 'WALA';
     return null; /* neutral / no side chosen */
 }
 
+function setAmountLocked(locked) {
+    amountLocked = !!locked;
+    const textarea = document.getElementById('bet_textinput');
+    if (!textarea) return;
+    textarea.readOnly = amountLocked;
+    textarea.classList.toggle('bet-amount-locked', amountLocked);
+}
+
 function focusBetInput() {
     const textarea = document.getElementById('bet_textinput');
-    if (textarea && !textarea.disabled) textarea.focus();
+    /* Allow focus while preset-locked so Enter can still submit; typing is blocked. */
+    if (!textarea || textarea.disabled) return;
+    textarea.focus();
 }
 
 function setBetTextInputActive(active) {
@@ -53,17 +77,27 @@ function setClientRequestId(value) {
     if (hidden) hidden.value = clientRequestId;
 }
 
+function setAmountSource(value) {
+    amountSource = value || '';
+    const hidden = document.getElementById('amount_source');
+    if (hidden) hidden.value = amountSource;
+}
+
 function addValue(value) {
     bet_total = value;
+    setAmountSource('button');
     const textarea = document.getElementById('bet_textinput');
     if (textarea) textarea.value = formatNumber(bet_total);
+    /* Preset chips lock the editor so tellers cannot accidentally append digits. */
+    setAmountLocked(true);
     focusBetInput();
 }
 
 function resetBet() {
     bet_total = 0;
-    const textarea = document.getElementById('bet_textinput');
-    if (textarea) textarea.value = '0';
+    setBetAmountEmptyDisplay();
+    /* Unlock for manual entry; only Reset (or a full form reset) clears the lock. */
+    setAmountLocked(false);
     /* Return to neutral — no side selected */
     const noneRadio = document.getElementById('radio_none');
     if (noneRadio) noneRadio.checked = true;
@@ -77,7 +111,7 @@ function meron_addValue(value) { addValue(value); }
 function wala_addValue(value) { addValue(value); }
 
 function check_total(side) {
-    if (isSubmitting) return;
+    if (isSubmitting || isRecordingWrongPunch) return;
     if (typeof isTellerOffline === 'function' && isTellerOffline()) {
         if (typeof isTellerStationClosed === 'function' && isTellerStationClosed()) {
             if (typeof openTellerStationClosedModal === 'function') openTellerStationClosedModal();
@@ -97,12 +131,79 @@ function check_total(side) {
     const textarea = document.getElementById('bet_textinput');
     const raw = stripCommas(textarea ? textarea.value.trim() : '');
 
-    if (!raw || raw === '0' || isNaN(raw) || Number(raw) <= 0) {
+    if (isBetAmountEmptyDisplay(raw) || isNaN(raw) || Number(raw) <= 0) {
         resetBet();
         openInvalidTotalModal('Please make sure the bet amount is a valid number.');
         return;
     }
+
+    if (window.DISCARD_TRAILING_3_6 === true && isWrongPunchAmount(raw)) {
+        recordAndShowWrongPunch(raw, activeSide);
+        return;
+    }
+
     openConfirmationModal(raw, activeSide);
+}
+
+function isWrongPunchAmount(raw) {
+    const last = String(raw).slice(-1);
+    return last === '3' || last === '6';
+}
+
+function getCsrfToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+}
+
+async function recordAndShowWrongPunch(rawAmount, side) {
+    if (isRecordingWrongPunch || isSubmitting) return;
+    isRecordingWrongPunch = true;
+
+    const activeSide = side || getSelectedSide();
+    let stats = null;
+    let disabledOnServer = false;
+
+    try {
+        const fd = new FormData();
+        const csrf = getCsrfToken();
+        if (csrf) fd.append('csrfmiddlewaretoken', csrf);
+        const response = await fetch('/wrong_punch/', {
+            method: 'POST',
+            body: fd,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+        });
+        const contentType = response.headers.get('content-type') || '';
+        let data = {};
+        if (contentType.includes('application/json')) {
+            data = await response.json();
+        }
+
+        if (response.ok && data && data.ok) {
+            stats = {
+                count: data.count,
+                rank: data.rank,
+                tellers_counted: data.tellers_counted,
+                event_name: data.event_name,
+            };
+        } else if (data && data.error === 'disabled') {
+            /* Admin turned the guard off after this page loaded. */
+            window.DISCARD_TRAILING_3_6 = false;
+            disabledOnServer = true;
+        }
+    } catch (error) {
+        console.warn('Unable to record wrong punch:', error);
+    } finally {
+        isRecordingWrongPunch = false;
+    }
+
+    if (disabledOnServer) {
+        openConfirmationModal(rawAmount, activeSide);
+        return;
+    }
+
+    resetBet();
+    openWrongPunchModal(null, stats);
 }
 
 function resetTotal() {
@@ -110,6 +211,7 @@ function resetTotal() {
     document.getElementById('wager_value').value = '';
     document.getElementById('wager_id').value = '';
     setClientRequestId('');
+    setAmountSource('');
 }
 
 function openConfirmationModal(total, side) {
@@ -140,6 +242,58 @@ function openInvalidTotalModal(message) {
 
 function closeInvalidTotalModal() {
     document.getElementById('invalidtotalModal').style.display = 'none';
+    resetTotal();
+    focusBetInput();
+}
+
+function updateWrongPunchScore(stats) {
+    const scoreEl = document.getElementById('wrongpunch-score');
+    const countEl = document.getElementById('wrongpunch-count');
+    const rankEl = document.getElementById('wrongpunch-rank');
+
+    if (!stats || stats.count == null || !stats.event_name) {
+        if (scoreEl) scoreEl.style.display = 'none';
+        if (rankEl) {
+            rankEl.style.display = 'none';
+            rankEl.textContent = '';
+        }
+        return;
+    }
+
+    if (countEl) countEl.textContent = String(stats.count);
+    if (scoreEl) scoreEl.style.display = '';
+
+    if (rankEl) {
+        if (stats.rank && stats.tellers_counted) {
+            let rankText = 'Shame board #' + stats.rank + ' of ' + stats.tellers_counted
+                + ' — keep climbing!';
+            if (stats.rank === 1 && stats.tellers_counted > 1) {
+                rankText = 'Butterfingers lead! #1 of ' + stats.tellers_counted
+                    + ' — the Enter key fears you.';
+            } else if (stats.rank === stats.tellers_counted && stats.tellers_counted > 1) {
+                rankText = 'Last place (#' + stats.rank + ' of ' + stats.tellers_counted
+                    + ') — too accurate. Try harder.';
+            }
+            rankEl.textContent = rankText;
+            rankEl.style.display = '';
+        } else {
+            rankEl.style.display = 'none';
+            rankEl.textContent = '';
+        }
+    }
+}
+
+function openWrongPunchModal(message, stats) {
+    const msg = document.getElementById('wrongpunch-message');
+    if (msg && message) msg.textContent = message;
+    updateWrongPunchScore(stats || null);
+    const modal = document.getElementById('wrongpunchModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeWrongPunchModal() {
+    const modal = document.getElementById('wrongpunchModal');
+    if (modal) modal.style.display = 'none';
     resetTotal();
     focusBetInput();
 }
@@ -517,6 +671,7 @@ async function submitValue() {
         wager_side.value = wager_id;
 
         setClientRequestId(clientRequestId);
+        setAmountSource(amountSource);
 
         /* Reset textarea immediately — values already captured in the hidden fields above */
         resetBet();
@@ -557,6 +712,15 @@ async function submitValue() {
         if (!response.ok || !result.ok) {
             if (result.error === "betting_closed") {
                 showClosedBettingModal(result.blocked_betting_side || wager_id);
+                return;
+            }
+            if (result.error === "wrong_punch") {
+                openWrongPunchModal(null, {
+                    count: result.count,
+                    rank: result.rank,
+                    tellers_counted: result.tellers_counted,
+                    event_name: result.event_name,
+                });
                 return;
             }
             alert(result.error || "Unable to submit wager.");
@@ -613,6 +777,7 @@ window.addEventListener('load', () => {
     wagerValue.value = '';
     wagerId.value = '';
     setClientRequestId('');
+    setAmountSource('');
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -632,17 +797,27 @@ document.addEventListener('DOMContentLoaded', () => {
     /* Auto-focus on page load */
     textarea.focus();
 
-    /* Auto-format with commas as the user types */
+    /* Auto-format with commas as the user types (ignored while preset-locked). */
     textarea.addEventListener('input', () => {
+        if (amountLocked || textarea.readOnly) {
+            textarea.value = formatNumber(bet_total);
+            return;
+        }
         const digits = stripCommas(textarea.value).replace(/\D/g, '');
         const num = digits === '' ? 0 : parseInt(digits, 10);
         bet_total = num;
+        setAmountSource('manual');
         const formatted = num === 0 ? '' : formatNumber(num);
         /* Preserve a trailing empty state so the field feels natural to clear */
         textarea.value = digits === '' ? '' : formatted;
     });
 
-    /* Enter key → submit instead of newline, but only when no modal is open */
+    textarea.addEventListener('paste', (e) => {
+        if (amountLocked || textarea.readOnly) e.preventDefault();
+    });
+
+    /* Enter key → submit instead of newline, but only when no modal is open.
+       While locked, block all other keystrokes so nothing mutates the amount. */
     textarea.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -651,6 +826,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.stopPropagation(); /* consumed here — don't let document handler also fire */
                 check_total();
             }
+            return;
+        }
+        if (amountLocked || textarea.readOnly) {
+            e.preventDefault();
         }
     });
 
@@ -724,6 +903,8 @@ document.addEventListener('keydown', (e) => {
         ['ws_disconnected_modal',  null,                                  null],
         ['confirmationModal',      () => click('submitvalue'),            () => call(closeModal)],
         ['invalidtotalModal',      () => call(closeInvalidTotalModal),    () => call(closeInvalidTotalModal)],
+        ['wrongpunchModal',        () => call(closeWrongPunchModal),      () => call(closeWrongPunchModal)],
+        ['wrongpunchwinnermodal',  () => click('wp-winner-continue'),     () => click('wp-winner-continue')],
         ['control_confirmationModal', () => click('cm-yes-button'),       () => click('cm-no-button')],
         ['adminbetcontrol',        () => click('confirmopen'),            () => { if (typeof closemodal === 'function') closemodal('adminbetcontrol'); }],
         ['whowonmodal',            null,                                  () => { if (typeof closemodal === 'function') closemodal('whowonmodal'); }],

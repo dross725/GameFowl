@@ -81,6 +81,8 @@ class Settings (models.Model):
     teller_max_balance = models.FloatField(default=0.0, null=False, blank=False)
     teller_initial_fund = models.FloatField(default=10000.0, null=False, blank=False)
     teller_min_balance = models.FloatField(default=0.0, null=False, blank=False)
+    # Reject amounts ending in 3 or 6 (common accidental numpad punch before Enter).
+    discard_trailing_3_6 = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.plasada} {self.M_control_status} {self.W_control_status}"
@@ -149,13 +151,42 @@ class TellerTransaction(models.Model):
     amount = models.FloatField()
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
+    cancelled = models.BooleanField(default=False)
+    edited = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['user', 'transaction_type']),
+            models.Index(fields=['cancelled', 'transaction_type']),
         ]
+
+    @property
+    def status_key(self):
+        """UI status for advance/borrow history rows."""
+        if self.cancelled:
+            return 'cancelled'
+        if self.transaction_type == self.REMIT and self.received:
+            return 'received'
+        if self.edited:
+            return 'edited'
+        if self.transaction_type == self.REMIT:
+            return 'pending'
+        return None
+
+    def is_pending_editable(self):
+        """Pending advances (not received, not cancelled) may be edited/cancelled."""
+        return (
+            self.transaction_type == self.REMIT
+            and not self.cancelled
+            and not self.received
+        )
+
+    def is_editable_by_admin(self):
+        """Alias kept for call sites; same rules as is_pending_editable."""
+        return self.is_pending_editable()
 
     def save(self, *args, **kwargs):
         if self.pk is not None:
@@ -224,6 +255,26 @@ class TellerCloseOut(models.Model):
             f"{self.user} | {self.event} | fight {self.fightnum} | "
             f"expected={self.expected_cash_on_hand}"
         )
+
+
+class TellerWrongPunch(models.Model):
+    """Per-teller wrong-punch tally for an event (accidental trailing 3/6)."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='wrong_punches')
+    event = models.ForeignKey('Event', on_delete=models.CASCADE, related_name='wrong_punches')
+    count = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['count', 'user__username']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'event'],
+                name='one_wrong_punch_per_teller_per_event',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user} | {self.event} | wrong punches={self.count}"
 
 
 class Event(models.Model):
@@ -353,6 +404,9 @@ class ArchivedTellerTransaction(models.Model):
     amount = models.FloatField()
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
+    cancelled = models.BooleanField(default=False)
+    edited = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField()
     event = models.ForeignKey(Event, on_delete=models.PROTECT, related_name='archived_teller_transactions')
     close_out = models.OneToOneField(

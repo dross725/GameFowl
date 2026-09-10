@@ -254,8 +254,24 @@
     color: white;
   }
 
+  .summary-value.rank-best {
+    color: #2ecc71;
+  }
+
+  .summary-value.rank-warn {
+    color: #e67e22;
+  }
+
+  .summary-sub {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.45);
+    margin-top: 2px;
+  }
+
   /* ── Table container ───────────────────────────────────── */
-  #report-table-container {
+  #report-table-container,
+  .report-table-container {
     flex: 0 0 auto;
     max-height: min(70vh, 900px);
     overflow-y: auto;
@@ -265,19 +281,22 @@
   }
 
   /* ── Table ─────────────────────────────────────────────── */
-  #report-table {
+  #report-table,
+  #fund-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
   }
 
-  #report-table thead {
+  #report-table thead,
+  #fund-table thead {
     position: sticky;
     top: 0;
     z-index: 10;
   }
 
-  #report-table thead th {
+  #report-table thead th,
+  #fund-table thead th {
     background: #12151c;
     color: rgba(255, 255, 255, 0.50);
     font-size: 11px;
@@ -290,20 +309,24 @@
     white-space: nowrap;
   }
 
-  #report-table thead th:last-child {
+  #report-table thead th:last-child,
+  #fund-table thead th:last-child {
     text-align: center;
   }
 
-  #report-table tbody tr {
+  #report-table tbody tr,
+  #fund-table tbody tr {
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     transition: background 0.12s;
   }
 
-  #report-table tbody tr:last-child {
+  #report-table tbody tr:last-child,
+  #fund-table tbody tr:last-child {
     border-bottom: none;
   }
 
-  #report-table tbody tr:hover {
+  #report-table tbody tr:hover,
+  #fund-table tbody tr:hover {
     background: rgba(255, 255, 255, 0.04);
   }
 
@@ -325,14 +348,16 @@
     background: rgba(26, 107, 192, 0.12);
   }
 
-  #report-table td {
+  #report-table td,
+  #fund-table td {
     padding: 9px 14px;
     color: rgba(255, 255, 255, 0.88);
     vertical-align: middle;
     white-space: nowrap;
   }
 
-  #report-table td:last-child {
+  #report-table td:last-child,
+  #fund-table td:last-child {
     text-align: center;
     font-weight: normal;
     color: rgba(255, 255, 255, 0.88);
@@ -407,6 +432,155 @@
     color: rgba(255, 255, 255, 0.50) !important;
     font-variant-numeric: tabular-nums;
   }
+
+  /* ── Fund transactions (Advance / Borrow) ─────────────── */
+  .report-section-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.72);
+    letter-spacing: 0.4px;
+    margin: 4px 0 0;
+  }
+
+  .fund-type-badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .fund-type-badge.remit {
+    background: linear-gradient(135deg, #c0392b, #8e1a12);
+    color: white;
+  }
+
+  .fund-type-badge.collect {
+    background: linear-gradient(135deg, #27ae60, #1a6e3c);
+    color: white;
+  }
+
+  .fund-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+  }
+
+  .fund-status-badge.received {
+    background: linear-gradient(135deg, #d4ac0d, #9a7d0a);
+    color: white;
+  }
+
+  .fund-status-badge.pending {
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.55);
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+
+  .fund-status-badge.edited {
+    background: linear-gradient(135deg, #2980b9, #1a5276);
+    color: white;
+  }
+
+  .fund-status-badge.cancelled {
+    background: rgba(149, 165, 166, 0.25);
+    color: rgba(255,255,255,0.55);
+    border: 1px solid rgba(149, 165, 166, 0.35);
+    text-decoration: line-through;
+  }
+
+  .fund-status-badge.issued {
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.55);
+    border: 1px solid rgba(255,255,255,0.12);
+  }
+
+  #fund-table tbody tr.row-cancelled {
+    opacity: 0.55;
+  }
+
+  #fund-table tbody tr.row-cancelled .td-fund-amount {
+    text-decoration: line-through;
+  }
+
+  .td-fund-amount.remit { color: #e74c3c; font-weight: 700; }
+  .td-fund-amount.collect { color: #2ecc71; font-weight: 700; }
+
+  .fund-actions {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .fund-action-btn {
+    border: none;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 4px 9px;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+  }
+
+  .fund-action-btn.edit-btn {
+    background: rgba(41, 128, 185, 0.25);
+    color: #5dade2;
+    border: 1px solid rgba(41, 128, 185, 0.40);
+  }
+
+  .fund-action-btn.cancel-btn {
+    background: rgba(231, 76, 60, 0.18);
+    color: #e74c3c;
+    border: 1px solid rgba(231, 76, 60, 0.35);
+  }
+
+  .fund-action-none {
+    font-size: 10px;
+    color: rgba(255,255,255,0.22);
+  }
+
+  .edit-remit-field {
+    margin: 12px 0 4px;
+  }
+
+  .edit-remit-field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.40);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    margin-bottom: 6px;
+  }
+
+  .edit-remit-field input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-radius: 8px;
+    color: white;
+    font-size: 20px;
+    font-weight: 800;
+    padding: 10px 14px;
+    outline: none;
+    box-sizing: border-box;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #edit-remit-status {
+    min-height: 1.2em;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+
+  #edit-remit-status.error { color: #e74c3c; }
+  #edit-remit-status.success { color: #2ecc71; }
 
   /* ── Empty state ───────────────────────────────────────── */
   #report-empty {
@@ -544,6 +718,8 @@
 <script>
   window.TELLER_REPORT = {
     closeStationUrl: "{% url 'teller-close-station' %}",
+    editTxnUrl: "{% url 'teller-edit-txn' %}",
+    cancelTxnUrl: "{% url 'teller-cancel-txn' %}",
     stationClosed: {{ station_closed|yesno:"true,false" }},
     activeEvent: {% if active_event %}"{{ active_event.name|escapejs }}"{% else %}null{% endif %},
     currentFightnum: {{ current_fightnum|default:0 }},
@@ -568,8 +744,8 @@
     tellerName: "{{ teller_name|escapejs }}",
   };
 </script>
-<script src="{% static 'SmartWagers/submit_wagers.js' %}?v=bet-textbox-deactivate-1"></script>
-<script src="{% static 'SmartWagers/teller_report.js' %}?v=advance-labels-1"></script>
+<script src="{% static 'SmartWagers/submit_wagers.js' %}?v=preset-lock-2"></script>
+<script src="{% static 'SmartWagers/teller_report.js' %}?v=fund-txns-1"></script>
 <script>
 function reportTxnMessage(message, transactionId) {
     const txn = String(transactionId || "").trim();
@@ -678,10 +854,29 @@ function showReprintToast(message, type) {
       <div class="summary-label">Total Amount Collected</div>
       <div class="summary-value">₱ {{ total_amount|floatformat:0|intcomma }}</div>
     </div>
+    <div class="summary-card" id="wrong-punch-rank-card">
+      <div class="summary-label">Butterfingers Rank</div>
+      {% if not wrong_punch.event_name %}
+        <div class="summary-value neutral">—</div>
+        <div class="summary-sub">No event yet</div>
+      {% elif wrong_punch.count == 0 %}
+        <div class="summary-value neutral">Angel</div>
+        <div class="summary-sub">0 punches — suspiciously accurate</div>
+      {% else %}
+        <div class="summary-value {% if wrong_punch.rank == 1 %}rank-best{% elif wrong_punch.rank == wrong_punch.tellers_counted and wrong_punch.tellers_counted > 1 %}rank-warn{% else %}neutral{% endif %}">
+          {% if wrong_punch.rank %}#{{ wrong_punch.rank }}{% else %}—{% endif %}
+          {% if wrong_punch.tellers_counted %}<span style="font-size:14px;font-weight:700;opacity:0.55;"> / {{ wrong_punch.tellers_counted }}</span>{% endif %}
+        </div>
+        <div class="summary-sub">
+          {{ wrong_punch.count }} punch{{ wrong_punch.count|pluralize }} · more = more glory
+        </div>
+      {% endif %}
+    </div>
   </div>
 
+  <div class="report-section-title">Bets</div>
   {% if wagers %}
-  <div id="report-table-container">
+  <div class="report-table-container" id="report-table-container">
     <table id="report-table">
       <thead>
         <tr>
@@ -741,10 +936,100 @@ function showReprintToast(message, type) {
   </div>
   {% else %}
   <div id="report-empty">
-    <p>No transactions found for this account.</p>
+    <p>No bet transactions found for this account.</p>
   </div>
   {% endif %}
 
+  <div class="report-section-title">Advance &amp; Borrow</div>
+  {% if fund_transactions %}
+  <div class="report-table-container">
+    <table id="fund-table" class="fund-table">
+      <thead>
+        <tr>
+          <th style="text-align: left;">#</th>
+          <th style="text-align: left;">Transaction ID</th>
+          <th style="text-align: left;">Type</th>
+          <th style="text-align: left;">Timestamp</th>
+          <th style="text-align: right;">Amount</th>
+          <th style="text-align: center;">Status</th>
+          <th style="text-align: center;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for txn in fund_transactions %}
+        <tr class="{% if txn.cancelled %}row-cancelled{% endif %}"
+            id="fund-row-{{ txn.transaction_id }}"
+            data-txn-id="{{ txn.transaction_id }}"
+            data-amount="{{ txn.amount }}"
+            data-status="{% if txn.cancelled %}cancelled{% elif txn.transaction_type == 'REMIT' and txn.received %}received{% elif txn.edited %}edited{% elif txn.transaction_type == 'REMIT' %}pending{% else %}issued{% endif %}">
+          <td style="color: rgba(255,255,255,0.30); font-size:11px;">{{ forloop.counter }}</td>
+          <td class="td-txid">{{ txn.transaction_id }}</td>
+          <td>
+            <span class="fund-type-badge {{ txn.transaction_type|lower }}">
+              {% if txn.transaction_type == 'COLLECT' %}BORROW{% elif txn.transaction_type == 'REMIT' %}ADVANCE{% else %}{{ txn.transaction_type }}{% endif %}
+            </span>
+          </td>
+          <td class="td-timestamp">{{ txn.created_at|date:"Y-m-d" }} {{ txn.created_at|time:"H:i:s" }}</td>
+          <td class="td-fund-amount {{ txn.transaction_type|lower }}" id="fund-amount-{{ txn.transaction_id }}">
+            ₱ {{ txn.amount|floatformat:0|intcomma }}
+          </td>
+          <td style="text-align:center;" id="fund-status-{{ txn.transaction_id }}">
+            {% if txn.cancelled %}
+              <span class="fund-status-badge cancelled">Cancelled</span>
+            {% elif txn.transaction_type == 'REMIT' and txn.received %}
+              <span class="fund-status-badge received">Received</span>
+            {% elif txn.edited %}
+              <span class="fund-status-badge edited">Edited</span>
+            {% elif txn.transaction_type == 'REMIT' %}
+              <span class="fund-status-badge pending">Pending</span>
+            {% else %}
+              <span class="fund-status-badge issued">Issued</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="fund-actions" id="fund-actions-{{ txn.transaction_id }}">
+              {% if txn.transaction_type == 'REMIT' and not txn.received and not txn.cancelled %}
+                <button type="button" class="fund-action-btn edit-btn"
+                        onclick="openEditRemitModal('{{ txn.transaction_id }}', {{ txn.amount }})">
+                  Edit
+                </button>
+                <button type="button" class="fund-action-btn cancel-btn"
+                        onclick="cancelOwnRemit('{{ txn.transaction_id }}')">
+                  Cancel
+                </button>
+              {% else %}
+                <span class="fund-action-none">—</span>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div id="report-empty" style="padding:28px 20px;">
+    <p>No advance or borrow transactions yet.</p>
+  </div>
+  {% endif %}
+
+</div>
+
+<div id="edit-remit-modal" class="close-modal-overlay" onclick="closeEditRemitModal(event)">
+  <div class="close-modal-box" onclick="event.stopPropagation()">
+    <div class="close-modal-title">Edit Advance</div>
+    <div class="close-modal-sub" id="edit-remit-sub">Update pending advance amount</div>
+    <input type="hidden" id="edit-remit-txn-id" value="">
+    <div class="edit-remit-field">
+      <label>Amount (₱)</label>
+      <input type="text" inputmode="numeric" id="edit-remit-amount" placeholder="0" autocomplete="off">
+    </div>
+    <div id="edit-remit-status"></div>
+    <div class="close-modal-actions">
+      <button type="button" class="close-modal-cancel" onclick="closeEditRemitModal()">Cancel</button>
+      <button type="button" class="close-modal-confirm" id="edit-remit-confirm-btn" onclick="submitEditRemit()">Save Changes</button>
+    </div>
+  </div>
 </div>
 
 <div id="close-station-modal" class="close-modal-overlay" onclick="closeCloseStationModal(event)">

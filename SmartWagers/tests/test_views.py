@@ -276,28 +276,69 @@ class TestAdminActionGuards:
         default_settings.refresh_from_db()
         assert default_settings.admin_initial_fund == 125000.0
 
+    def test_admin_can_toggle_discard_trailing_3_6(
+            self, admin_user, default_settings):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/settings/', {
+            'action': 'update_discard_trailing_3_6',
+            'discard_trailing_3_6': 'false',
+        })
+        assert response.status_code == 200
+        assert response.json() == {
+            'ok': True,
+            'discard_trailing_3_6': False,
+        }
+        default_settings.refresh_from_db()
+        assert default_settings.discard_trailing_3_6 is False
+
+        response = client.post('/administrator/settings/', {
+            'action': 'update_discard_trailing_3_6',
+            'discard_trailing_3_6': 'true',
+        })
+        assert response.status_code == 200
+        assert response.json()['discard_trailing_3_6'] is True
+        default_settings.refresh_from_db()
+        assert default_settings.discard_trailing_3_6 is True
+
     def test_end_event_post_ends_active_event(self, admin_user, active_event):
         client = Client()
         client.force_login(admin_user)
-        response = client.post('/administrator/end-event/', {
-            'actual_admin_cash': '99,950.25',
-        })
+        services.register_admin_cash_count(99950.25, admin_user)
+        response = client.post('/administrator/end-event/')
         assert response.status_code == 200
         data = json.loads(response.content)
         assert data.get('ok') is True
+        assert 'wrong_punch' in data
+        assert data['wrong_punch']['event_name'] == active_event.name
         active_event.refresh_from_db()
         assert active_event.is_active is False
         assert active_event.actual_admin_cash_counted == 99950.25
         assert active_event.admin_cash_counted_by == admin_user
 
-    def test_end_event_requires_valid_admin_cash(self, admin_user, active_event):
+    def test_end_event_includes_wrong_punch_winner(
+            self, admin_user, teller_user, teller_user2, default_settings, active_event):
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user2)
+        client = Client()
+        client.force_login(admin_user)
+        services.register_admin_cash_count(100000, admin_user)
+        response = client.post('/administrator/end-event/')
+        assert response.status_code == 200
+        board = response.json()['wrong_punch']
+        assert board['has_contestants'] is True
+        assert board['best_count'] == 2
+        assert [w['username'] for w in board['winners']] == [teller_user.username]
+
+    def test_end_event_requires_admin_cash_count(self, admin_user, active_event):
         client = Client()
         client.force_login(admin_user)
 
         response = client.post('/administrator/end-event/')
 
-        assert response.status_code == 400
-        assert response.json()['error'] == 'invalid_actual_admin_cash'
+        assert response.status_code == 409
+        assert response.json()['error'] == 'admin_cash_not_counted'
         active_event.refresh_from_db()
         assert active_event.is_active is True
 
@@ -590,6 +631,8 @@ class TestTellerTransactionView:
         assert TellerTransaction.objects.filter(
             user=teller_user, transaction_type='REMIT', amount=1000
         ).exists()
+        # Pending Advances stay on the teller balance until received.
+        assert data['balance'] == 5000
 
     def test_remit_equal_to_cash_on_hand_succeeds(self, teller_user, default_settings):
         self._seed_cash_on_hand(teller_user, amount=1500)
@@ -601,7 +644,7 @@ class TestTellerTransactionView:
         assert response.status_code == 200
         data = json.loads(response.content)
         assert data['ok'] is True
-        assert data['balance'] == 0
+        assert data['balance'] == 1500
 
     def test_remit_response_contains_updated_balance(self, teller_user, default_settings):
         self._seed_cash_on_hand(teller_user, amount=5000)
@@ -613,12 +656,12 @@ class TestTellerTransactionView:
         data = json.loads(response.content)
         assert 'balance' in data
         assert 'transaction_id' in data
-        assert data['balance'] == 4500
+        assert data['balance'] == 5000
 
     def test_sequential_remits_second_fails_when_cash_exhausted(
         self, teller_user, default_settings,
     ):
-        """Logic test: after remitting all cash, a second remit must fail."""
+        """Pending remits reserve cash even though balance is unchanged."""
         self._seed_cash_on_hand(teller_user, amount=1000)
         client = Client()
         client.force_login(teller_user)
@@ -626,6 +669,7 @@ class TestTellerTransactionView:
             'transaction_type': 'REMIT', 'amount': '1000',
         })
         assert first.status_code == 200
+        assert first.json()['balance'] == 1000
         second = client.post('/teller_transaction/', {
             'transaction_type': 'REMIT', 'amount': '1',
         })
@@ -636,6 +680,25 @@ class TestTellerTransactionView:
             user=teller_user, transaction_type='REMIT',
         ).count() == 1
 
+    def test_mark_received_deducts_teller_balance(
+        self, admin_user, teller_user, default_settings, active_event,
+    ):
+        self._seed_cash_on_hand(teller_user, amount=5000)
+        client = Client()
+        client.force_login(teller_user)
+        created = client.post('/teller_transaction/', {
+            'transaction_type': 'REMIT', 'amount': '500',
+        }).json()
+        assert created['balance'] == 5000
+
+        client.force_login(admin_user)
+        received = client.post('/administrator/mark-received/', {
+            'transaction_id': created['transaction_id'],
+        })
+        assert received.status_code == 200
+        data = received.json()
+        assert data['balance'] == 4500
+        assert data['status'] == 'received'
 
 # ---------------------------------------------------------------------------
 # admin_teller_txn (REMIT / COLLECT)
@@ -840,6 +903,238 @@ class TestAdminFundViews:
         })
         assert response.status_code == 200
         assert response.json()['admin_fund_balance'] == 100500
+
+
+# ---------------------------------------------------------------------------
+# admin edit / cancel pending remits
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestAdminEditCancelRemit:
+
+    def _pending_remit(self, teller_user, amount=500):
+        return TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=amount,
+            received=None,
+        )
+
+    def test_edit_pending_remit_updates_amount_and_balance(
+            self, admin_user, teller_user, default_settings, active_event):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=2000,
+        )
+        txn = self._pending_remit(teller_user, amount=500)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/teller-txn/edit/', {
+            'transaction_id': txn.transaction_id,
+            'amount': '800',
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['amount'] == 800
+        assert data['status'] == 'edited'
+        # Pending remits do not change balance until received.
+        assert data['balance'] == 2000
+
+        txn.refresh_from_db()
+        assert txn.amount == 800
+        assert txn.edited is True
+        assert txn.cancelled is False
+        assert txn.received is None
+
+    def test_cancel_pending_remit_restores_balance(
+            self, admin_user, teller_user, default_settings, active_event):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=2000,
+        )
+        txn = self._pending_remit(teller_user, amount=500)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/teller-txn/cancel/', {
+            'transaction_id': txn.transaction_id,
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['status'] == 'cancelled'
+        assert data['balance'] == 2000
+
+        txn.refresh_from_db()
+        assert txn.cancelled is True
+        assert txn.received is None
+
+    def test_cannot_edit_or_cancel_received_remit(
+            self, admin_user, teller_user, default_settings, active_event):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=2000,
+        )
+        txn = TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=500,
+            received=True,
+        )
+        client = Client()
+        client.force_login(admin_user)
+
+        edit = client.post('/administrator/teller-txn/edit/', {
+            'transaction_id': txn.transaction_id,
+            'amount': '100',
+        })
+        assert edit.status_code == 409
+        assert edit.json()['error'] == 'already_received'
+
+        cancel = client.post('/administrator/teller-txn/cancel/', {
+            'transaction_id': txn.transaction_id,
+        })
+        assert cancel.status_code == 409
+        assert cancel.json()['error'] == 'already_received'
+
+    def test_cannot_mark_cancelled_remit_received(
+            self, admin_user, teller_user, active_event):
+        txn = self._pending_remit(teller_user, amount=500)
+        txn.cancelled = True
+        txn.save(update_fields=['cancelled'])
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/mark-received/', {
+            'transaction_id': txn.transaction_id,
+        })
+        assert response.status_code == 409
+        assert response.json()['error'] == 'cancelled'
+
+    def test_tellers_page_shows_status_and_actions(
+            self, admin_user, teller_user, default_settings, active_event):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=2000,
+        )
+        pending = self._pending_remit(teller_user, amount=300)
+        edited = self._pending_remit(teller_user, amount=200)
+        edited.edited = True
+        edited.save(update_fields=['edited'])
+        cancelled = self._pending_remit(teller_user, amount=100)
+        cancelled.cancelled = True
+        cancelled.save(update_fields=['cancelled'])
+        received = TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=50,
+            received=True,
+        )
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/administrator/tellers/')
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'Pending' in content
+        assert 'Edited' in content
+        assert 'Cancelled' in content
+        assert 'Received' in content
+        assert f"openEditRemitModal(event, '{pending.transaction_id}'" in content
+        assert f"cancelRemit(event, '{pending.transaction_id}'" in content
+        assert f"receiveRemit(event, '{pending.transaction_id}'" in content
+        assert f"openEditRemitModal(event, '{received.transaction_id}'" not in content
+        assert f"receiveRemit(event, '{received.transaction_id}'" not in content
+
+
+@pytest.mark.django_db
+class TestTellerReportFundTransactions:
+
+    def test_report_shows_only_own_fund_transactions(
+            self, teller_user, teller_user2, default_settings, active_event):
+        own = TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=300,
+        )
+        other = TellerTransaction.objects.create(
+            user=teller_user2,
+            transaction_type=TellerTransaction.REMIT,
+            amount=900,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=1000,
+        )
+
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/reports/')
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert 'Advance &amp; Borrow' in content
+        assert own.transaction_id in content
+        assert other.transaction_id not in content
+        assert 'BORROW' in content
+        assert f"openEditRemitModal('{own.transaction_id}'" in content
+
+    def test_teller_can_edit_and_cancel_own_pending_remit(
+            self, teller_user, default_settings, active_event):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=2000,
+        )
+        txn = TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=400,
+        )
+        client = Client()
+        client.force_login(teller_user)
+
+        edit = client.post('/teller_transaction/edit/', {
+            'transaction_id': txn.transaction_id,
+            'amount': '600',
+        })
+        assert edit.status_code == 200
+        assert edit.json()['status'] == 'edited'
+        txn.refresh_from_db()
+        assert txn.amount == 600
+        assert txn.edited is True
+
+        cancel = client.post('/teller_transaction/cancel/', {
+            'transaction_id': txn.transaction_id,
+        })
+        assert cancel.status_code == 200
+        assert cancel.json()['status'] == 'cancelled'
+        txn.refresh_from_db()
+        assert txn.cancelled is True
+
+    def test_teller_cannot_edit_another_tellers_remit(
+            self, teller_user, teller_user2, default_settings, active_event):
+        txn = TellerTransaction.objects.create(
+            user=teller_user2,
+            transaction_type=TellerTransaction.REMIT,
+            amount=400,
+        )
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/teller_transaction/edit/', {
+            'transaction_id': txn.transaction_id,
+            'amount': '100',
+        })
+        assert response.status_code == 404
+        assert response.json()['error'] == 'not_found'
+        txn.refresh_from_db()
+        assert txn.amount == 400
 
 
 # ---------------------------------------------------------------------------
@@ -1189,3 +1484,137 @@ class TestAdminUsers:
         assert response.status_code == 200
         assert 'transaction history' in response.context['error'].lower()
         assert teller_user.__class__.objects.filter(pk=teller_user.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# Wrong-punch bet rejection (trailing 3 / 6)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestWrongPunchBetRejection:
+
+    def test_teller_rejects_amount_ending_in_3(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'wager_value': '2003', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 400
+        assert response.json()['error'] == 'wrong_punch'
+        assert response.json()['count'] == 1
+        assert not Wagers.objects.filter(cashier=str(teller_user), wager=2003).exists()
+
+    def test_teller_rejects_amount_ending_in_6(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'wager_value': '2006', 'wager_id': 'WALA'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 400
+        assert response.json()['error'] == 'wrong_punch'
+        assert response.json()['count'] == 1
+
+    def test_teller_allows_trailing_3_when_disabled(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'wager_value': '2003', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        assert response.json()['ok'] is True
+        assert Wagers.objects.filter(cashier=str(teller_user), wager=2003).exists()
+
+    def test_admin_rejects_amount_ending_in_3(
+            self, admin_user, default_settings, active_event):
+        _open_fight()
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post(
+            '/administrator',
+            {'wager_value': '1003', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 400
+        assert response.json()['error'] == 'wrong_punch'
+        assert response.json()['count'] == 1
+
+    def test_record_wrong_punch_endpoint_increments(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/wrong_punch/',
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['count'] == 1
+        assert data['rank'] == 1
+
+        response = client.post(
+            '/wrong_punch/',
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.json()['count'] == 2
+
+    def test_record_wrong_punch_endpoint_respects_disabled_toggle(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/wrong_punch/',
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is False
+        assert data['error'] == 'disabled'
+        assert services.get_wrong_punch_count(teller_user) == 0
+
+
+@pytest.mark.django_db
+class TestTellerReportWrongPunchCard:
+
+    def test_report_shows_clean_sheet(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/reports/')
+        assert response.status_code == 200
+        assert response.context['wrong_punch']['count'] == 0
+        assert response.context['wrong_punch']['rank'] is None
+        assert b'Angel' in response.content
+        assert b'Butterfingers Rank' in response.content
+
+    def test_report_shows_rank_after_wrong_punches(
+            self, teller_user, teller_user2, default_settings,
+            teller_status_online, active_event):
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user)
+        services.record_wrong_punch(teller_user2)
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/reports/')
+        assert response.status_code == 200
+        punch = response.context['wrong_punch']
+        assert punch['count'] == 2
+        assert punch['rank'] == 1
+        assert punch['tellers_counted'] == 2
+        assert b'#1' in response.content
