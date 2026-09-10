@@ -106,6 +106,19 @@ localStorage.setItem("smartwagersPrintAgentUrl", "http://127.0.0.1:8766");
 
 Then refresh the SmartWagers page.
 
+To force the browser to use the mobile server print queue (or always use the
+Windows agent):
+
+```javascript
+localStorage.setItem("smartwagersPrintMode", "server"); // or "local" or "auto"
+```
+
+## Mobile Bluetooth
+
+Android/iOS Bluetooth printing is handled by the companion app in
+`../mobile_print_agent/` (not this Windows agent). See that README and
+**Admin → Print Agent** for APK / TestFlight install steps.
+
 ## Endpoints
 
 - `POST /print-wager` prints a bet receipt.

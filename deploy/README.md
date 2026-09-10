@@ -182,6 +182,20 @@ Test: open `http://127.0.0.1:8765/health` in a browser on the cashier PC.
 You can still copy the `local_print_agent\` folder via USB instead of downloading
 from the admin page — same install steps apply.
 
+### Mobile Bluetooth companion (Android / iOS)
+
+Windows USB printing is unchanged. For phones/tablets with Bluetooth ESC/POS printers:
+
+1. Build the Expo app in `mobile_print_agent/` (see that README).
+2. Place `SmartWagers-PrintCompanion.apk` in `mobile_print_agent/dist/` for Android sideload downloads from **Admin → Print Agent**.
+3. iOS: distribute via TestFlight / Ad Hoc (Apple Developer account required).
+4. Teller installs the companion, signs in, selects the BT printer, starts the print service, then uses the mobile browser for SmartWagers.
+
+**Printer note:** Android uses Classic Bluetooth SPP. iOS requires BLE or dual-mode printers — Classic-SPP-only units will not work on iPhone.
+
+When the Windows localhost agent is unreachable, the web UI queues receipts to
+`/api/print-jobs/` for the companion.
+
 ---
 
 ## Verification Checklist

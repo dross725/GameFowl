@@ -1,0 +1,52 @@
+{
+  "name": "smartwagers-print-companion",
+  "version": "1.0.0",
+  "private": true,
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "prebuild": "expo prebuild",
+    "typecheck": "tsc --noEmit",
+    "build:android": "CI=1 expo prebuild --platform android --no-install && cd android && ./gradlew assembleRelease && mkdir -p ../dist && cp -f app/build/outputs/apk/release/app-release.apk ../dist/SmartWagers-PrintCompanion.apk",
+    "build:ios:eas": "eas build --platform ios --profile preview",
+    "build:android:eas": "eas build --platform android --profile preview",
+    "lint": "echo \"no lint configured\"",
+    "postinstall": "patch-package"
+  },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-bluetooth-classic"
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "buffer": "^6.0.3",
+    "expo": "~52.0.0",
+    "expo-asset": "~11.0.5",
+    "expo-build-properties": "~0.13.3",
+    "expo-constants": "~17.0.0",
+    "expo-file-system": "~18.0.12",
+    "expo-font": "~13.0.4",
+    "expo-keep-awake": "~14.0.0",
+    "expo-status-bar": "~2.0.0",
+    "expo-system-ui": "~4.0.9",
+    "react": "18.3.1",
+    "react-native": "0.76.9",
+    "react-native-background-actions": "^4.1.0",
+    "react-native-ble-plx": "^3.2.1",
+    "react-native-bluetooth-classic": "^1.73.0-rc.13"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@types/react": "~18.3.12",
+    "eas-cli": "^24.0.0",
+    "patch-package": "^8.0.1",
+    "typescript": "^5.3.3"
+  }
+}

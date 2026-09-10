@@ -280,7 +280,7 @@ def escpos_receipt(
             height=barcode_height,
         )
 
-    output += b"\x1dV\x42\x00"  # Partial cut
+    output += escpos_feed_and_cut()
     return bytes(output)
 
 
@@ -600,6 +600,13 @@ def print_receipt(config, printer_name, receipt):
 
 TELLER_TRANSACTION_RECEIPT_COPIES = ("TELLERS COPY", "ADMIN COPY")
 ADMIN_BANK_RECEIPT_COPIES = ("ADMIN COPY", "BANK COPY")
+DEFAULT_CUT_FEED_LINES = 4
+
+
+def escpos_feed_and_cut(feed_lines=DEFAULT_CUT_FEED_LINES):
+    """Feed blank lines, then partial-cut (gap between dual copies / tear-off)."""
+    n = max(0, min(int(feed_lines), 255))
+    return (b"\n" * n) + bytes([0x1D, 0x56, 0x42, n])
 
 
 def transaction_receipt_copies(receipt):
@@ -660,7 +667,7 @@ def escpos_remit_receipt(
                 height=barcode_height,
             )
 
-        output += b"\x1dV\x42\x00"  # Partial cut between copies
+        output += escpos_feed_and_cut()
     return bytes(output)
 
 

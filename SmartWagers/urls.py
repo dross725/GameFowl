@@ -3,6 +3,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import path
 from django.views.generic import RedirectView
 from . import views
+from . import print_queue
 
 urlpatterns = [
     path('login', views.RoleBasedLoginView.as_view(template_name='SmartWagers/login.html'), name='login'),
@@ -55,6 +56,18 @@ urlpatterns = [
         views.admin_print_agent_download,
         name="admin-print-agent-download",
     ),
+    path(
+        "administrator/print-agent/android/",
+        views.admin_print_agent_android_download,
+        name="admin-print-agent-android-download",
+    ),
+    path("api/print-jobs/", print_queue.enqueue_print_job_view, name="api-print-jobs-enqueue"),
+    path("api/print-jobs/pending/", print_queue.print_jobs_pending, name="api-print-jobs-pending"),
+    path("api/print-jobs/<int:job_id>/", print_queue.print_job_status_view, name="api-print-jobs-status"),
+    path("api/print-jobs/<int:job_id>/ack/", print_queue.print_job_ack, name="api-print-jobs-ack"),
+    path("api/print-devices/login/", print_queue.print_device_login, name="api-print-devices-login"),
+    path("api/print-devices/register/", print_queue.print_device_register, name="api-print-devices-register"),
+    path("api/print-devices/health/", print_queue.print_device_health, name="api-print-devices-health"),
     path("administrator/teller-alerts/", views.admin_teller_alerts, name="admin-teller-alerts"),
     path("administrator/teller-online-toggle/", views.toggle_teller_online, name="admin-teller-online-toggle"),
     path("administrator/teller-closeout/count/", views.admin_register_teller_cash_count, name="admin-teller-closeout-count"),
