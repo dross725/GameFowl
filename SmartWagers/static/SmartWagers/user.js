@@ -164,7 +164,11 @@ async function handleUserSocketMessage(event) {
         } else if ("transaction_id" in data && "amount" in data) {
             document.getElementById('payout_success_header').innerText = "Cancel Bet";
             document.getElementById('payout_message1').innerText = "Transaction ID: " + data.transaction_id;
-            document.getElementById('payout_message2').innerText = "Please refund: ₱ " + data.amount;
+            setModalMoneyMessage(
+                document.getElementById('payout_message2'),
+                'Please refund: ',
+                '₱ ' + data.amount,
+            );
             document.getElementById('payout_message3').innerText = "";
             document.getElementById('payout_print_modal').style.display = 'flex';
             if (data.receipt && data.print_required !== false) {
@@ -186,6 +190,21 @@ async function handleUserSocketMessage(event) {
     if ("teller_online" in data && "teller_id" in data) {
         if (Number(data.teller_id) === Number(window.TELLER_ID)) {
             setTellerOnlineStatus(Boolean(data.teller_online));
+            // Opening float is issued server-side when marked online mid-event;
+            // refresh so the balance button / open advance modal are not stuck at ₱0.
+            if (data.teller_online) {
+                fetchTellerBalance().then((balanceData) => {
+                    if (!balanceData) return;
+                    const modal = document.getElementById('balancemodal');
+                    if (modal && modal.style.display === 'flex') {
+                        updateBalanceModal(
+                            balanceData.balance ?? 0,
+                            balanceData.grand_total ?? 0,
+                            balanceData.opening_fund ?? 0,
+                        );
+                    }
+                });
+            }
         }
     }
 }
@@ -672,14 +691,16 @@ function updateBalanceButton(balance) {
     if (btn) btn.innerText = formatBalance(balance);
 }
 
-function updateBalanceModal(balance, grandTotal) {
+function updateBalanceModal(balance, grandTotal, openingFund) {
     const display = document.getElementById('balance_display');
     const gtDisplay = document.getElementById('grand_total_display');
+    const openingDisplay = document.getElementById('opening_fund_display');
     if (display) {
         display.innerText = formatBalance(balance);
         display.dataset.balance = String(Number(balance) || 0);
     }
     if (gtDisplay) gtDisplay.innerText = formatBalance(grandTotal);
+    if (openingDisplay) openingDisplay.innerText = formatBalance(openingFund ?? 0);
 }
 
 async function fetchTellerBalance() {
@@ -731,7 +752,8 @@ async function openBalanceModal() {
     const data = await fetchTellerBalance();
     const balance = data?.balance ?? 0;
     const grandTotal = data?.grand_total ?? 0;
-    updateBalanceModal(balance, grandTotal);
+    const openingFund = data?.opening_fund ?? 0;
+    updateBalanceModal(balance, grandTotal, openingFund);
 
     const amountInput = document.getElementById('balance_amount');
     if (amountInput) {
@@ -791,7 +813,11 @@ async function submitTellerTransaction(type) {
             if (data.error === 'exceeds_cash_on_hand') {
                 statusMsg.innerText = 'Advance amount cannot exceed cash on hand.';
                 if (data.balance !== undefined) {
-                    updateBalanceModal(data.balance, data.grand_total ?? 0);
+                    updateBalanceModal(
+                        data.balance,
+                        data.grand_total ?? 0,
+                        data.opening_fund ?? 0,
+                    );
                 }
             } else if (data.error === 'invalid_amount') {
                 statusMsg.innerText = 'Please enter a valid amount greater than zero.';
@@ -809,7 +835,11 @@ async function submitTellerTransaction(type) {
         // Show the shared print-result modal while the job is in-flight
         document.getElementById('payout_success_header').innerText = `${label} Receipt`;
         document.getElementById('payout_message1').innerText = `Txn ID   : ${data.transaction_id}`;
-        document.getElementById('payout_message2').innerText = `${label} Amount : ₱ ${Number(data.amount).toLocaleString('en-PH')}`;
+        setModalMoneyMessage(
+            document.getElementById('payout_message2'),
+            `${label} Amount : `,
+            `₱ ${Number(data.amount).toLocaleString('en-PH')}`,
+        );
         document.getElementById('payout_print_modal').style.display = 'flex';
 
         if (data.print_required !== false) {

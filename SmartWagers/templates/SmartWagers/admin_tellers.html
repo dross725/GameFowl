@@ -2068,9 +2068,18 @@ async function handleOnlineToggle(checkbox) {
           updateTellerCard({
             teller_id: Number(tid),
             balance: data.balance,
-            grand_total: data.grand_total ?? TELLER_BALANCES[tid].balance,
+            grand_total: data.grand_total ?? TELLER_BALANCES[tid].grand_total ?? 0,
           });
         }
+      }
+      if (isOnline && data.fund_issued) {
+        const fund = typeof data.opening_fund === 'number'
+          ? data.opening_fund
+          : TELLER_INITIAL_FUND;
+        alert(`${name} is online. Opening fund of ₱ ${fmtNum(fund)} has been issued.`);
+        // History was empty before funding — reload so the COLLECT row appears.
+        window.location.reload();
+        return;
       }
       updatePreEventFunding();
       refreshWarningBanner();

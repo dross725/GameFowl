@@ -34,7 +34,7 @@
 }
 
 .modal-content h2 {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 800;
   letter-spacing: 0.5px;
   margin-bottom: 10px;
@@ -42,10 +42,40 @@
 }
 
 .modal-content p {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.65);
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.78);
   line-height: 1.5;
   margin-bottom: 6px;
+}
+
+/* Monetary amounts shown in modals */
+.modal-money,
+#summaryValue .modal-money,
+#payout_message2 .modal-money,
+#grand_total_display,
+#opening_fund_display,
+#balance_display {
+  font-weight: 800;
+  color: #ffffff;
+}
+
+#summaryValue {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+#payout_message2 {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+#payout_message2 .modal-money {
+  display: block;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  margin-top: 6px;
+  color: #ffffff;
 }
 
 .modal-content input {
@@ -79,7 +109,7 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.09);
   color: white;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.14s, transform 0.1s, box-shadow 0.14s;
@@ -117,7 +147,7 @@
 }
 
 .teller-offline-wait {
-  font-size: 12px;
+  font-size: 14px;
   color: rgba(255, 255, 255, 0.45);
   font-style: italic;
 }

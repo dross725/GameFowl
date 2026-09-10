@@ -1269,6 +1269,10 @@ def reopen_teller_station(close_out_id, admin_user):
         ts.is_online = True
         ts.save(update_fields=['is_online'])
 
+    # Ensure opening float exists if this teller never received it (e.g. was
+    # offline at event start, closed with zero activity, then reopened).
+    issue_teller_opening_fund_if_needed(teller)
+
     logger.info(
         "STATION REOPENED: teller=%s event=%s admin=%s",
         teller.username, event_id, admin_user.username,
@@ -1333,10 +1337,13 @@ def get_event_closeout_readiness(event=None):
     }
     opening_fund_user_ids = set()
     if teller_ids:
+        setting = Settings.objects.order_by('-id').first()
+        initial_fund = setting.teller_initial_fund if setting else 10000.0
         opening_fund_user_ids = set(
             reporting.active_teller_transactions_for_event(event).filter(
                 user_id__in=teller_ids,
                 transaction_type=TellerTransaction.COLLECT,
+                amount=round(float(initial_fund), 2),
                 affects_admin_fund=False,
                 cancelled=False,
             ).values_list('user_id', flat=True)
@@ -1675,18 +1682,11 @@ def _closing_event_for_settlement():
 def teller_has_opening_fund_for_event(teller, event):
     """Return True if *teller* already received opening float in *event*.
 
-    Matches any bank-sourced opening COLLECT (affects_admin_fund=False) in the
-    event window, not just the current settings amount.  That keeps issuance
-    idempotent if teller_initial_fund is changed mid-event.
+    Uses the configured teller_initial_fund amount so settlement COLLECTs
+    (also affects_admin_fund=False, used to clear negative rollover balances)
+    cannot falsely block mid-event opening-float issuance.
     """
-    if event is None:
-        return False
-    txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=teller)
-    return txn_qs.filter(
-        transaction_type=TellerTransaction.COLLECT,
-        affects_admin_fund=False,
-        cancelled=False,
-    ).exists()
+    return get_teller_opening_fund_total(teller, event) > 0
 
 
 def get_teller_opening_fund_total(teller, event, txn_qs=None, include_archived=False):
@@ -1712,6 +1712,7 @@ def get_teller_opening_fund_total(teller, event, txn_qs=None, include_archived=F
         'transaction_type': TellerTransaction.COLLECT,
         'amount': round(initial_fund, 2),
         'affects_admin_fund': False,
+        'cancelled': False,
     }
     total = txn_qs.filter(**filters).aggregate(total=Sum('amount'))['total'] or 0.0
     if archived_txn_qs is not None:
@@ -1877,6 +1878,7 @@ def start_event(name):
 
         # Settle all outstanding teller balances against the closing event
         # before it is deactivated so the entries stay in the old event scope.
+        closing_event = _closing_event_for_settlement()
         settlement_ids = _reset_teller_balances()
         ended_at = now()
         Event.objects.filter(is_active=True).update(
@@ -1888,6 +1890,11 @@ def start_event(name):
             TellerTransaction.objects.filter(pk__in=settlement_ids).update(
                 created_at=ended_at,
             )
+            # When the previous event was already ended, _reset_teller_balances
+            # may have bumped ended_at earlier than this stamp. Re-align so
+            # settlements are not orphaned between old ended_at and new start.
+            if closing_event is not None:
+                Event.objects.filter(pk=closing_event.pk).update(ended_at=ended_at)
 
         setting = Settings.objects.order_by('-id').first()
         admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
