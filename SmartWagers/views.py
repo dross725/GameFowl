@@ -2154,7 +2154,9 @@ def admin_event_report(request):
 
     close_outs = {
         co.user_id: co
-        for co in TellerCloseOut.objects.filter(event=event).select_related('user')
+        for co in TellerCloseOut.objects.filter(event=event).select_related(
+            'user', 'cash_count_edited_by', 'counted_by',
+        )
     }
 
     teller_grand_total_all = 0.0
@@ -2694,6 +2696,49 @@ def admin_register_teller_cash_count(request):
         'actual_cash_counted': close_out.actual_cash_counted,
         'expected_cash_on_hand': close_out.expected_cash_on_hand,
         'variance': close_out.variance,
+        'remit_transaction_id': (
+            close_out.remit_transaction.transaction_id
+            if close_out.remit_transaction else None
+        ),
+    })
+
+
+@group_required('admin')
+def admin_edit_teller_cash_count(request):
+    """Admin endpoint: correct a counted cash amount before the event ends."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    try:
+        close_out_id = int(str(request.POST.get('close_out_id', '')).strip())
+        actual_amount = _parse_currency_amount(request.POST.get('actual_amount'))
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_params'}, status=400)
+
+    if actual_amount < 0:
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    try:
+        close_out = services.edit_teller_cash_count(
+            close_out_id, actual_amount, request.user,
+        )
+    except services.CloseOutNotFoundError:
+        return JsonResponse({'ok': False, 'error': 'close_out_not_found'}, status=404)
+    except services.CloseOutNotCountedError:
+        return JsonResponse({'ok': False, 'error': 'not_counted'}, status=409)
+    except services.EventAlreadyEndedError:
+        return JsonResponse({'ok': False, 'error': 'event_closed'}, status=409)
+    except ValueError:
+        return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
+
+    return JsonResponse({
+        'ok': True,
+        'close_out_id': close_out.pk,
+        'actual_cash_counted': close_out.actual_cash_counted,
+        'previous_actual_cash_counted': close_out.previous_actual_cash_counted,
+        'expected_cash_on_hand': close_out.expected_cash_on_hand,
+        'variance': close_out.variance,
+        'cash_count_edited': close_out.cash_count_edited,
         'remit_transaction_id': (
             close_out.remit_transaction.transaction_id
             if close_out.remit_transaction else None

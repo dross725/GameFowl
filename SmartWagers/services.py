@@ -244,8 +244,16 @@ class CloseOutAlreadyCountedError(Exception):
     """Raised when admin tries to modify a reconciled close-out."""
 
 
+class CloseOutNotCountedError(Exception):
+    """Raised when editing cash requires an existing count."""
+
+
 class CloseOutNotFoundError(Exception):
     """Raised when a close-out record cannot be found."""
+
+
+class EventAlreadyEndedError(Exception):
+    """Raised when an operation is blocked because the event has ended."""
 
 
 class AdminCashAlreadyCountedError(Exception):
@@ -1495,6 +1503,74 @@ def register_teller_cash_count(close_out_id, actual_amount, admin_user):
     logger.info(
         "STATION RECONCILED: teller=%s close_out=%s actual=%.2f variance=%.2f admin=%s",
         close_out.user.username, close_out.pk, actual_amount, variance, admin_user.username,
+    )
+    return close_out
+
+
+def edit_teller_cash_count(close_out_id, actual_amount, admin_user):
+    """Correct a previously counted cash amount while the event is still open.
+
+    Updates the close-out actual/variance, syncs the linked close-out REMIT,
+    and records edit metadata for audit display.
+    """
+    if actual_amount < 0:
+        raise ValueError('actual_amount must be non-negative')
+
+    with db_transaction.atomic():
+        close_out = TellerCloseOut.objects.select_for_update().select_related(
+            'user', 'event',
+        ).filter(pk=close_out_id).first()
+        if close_out is None:
+            raise CloseOutNotFoundError()
+        if close_out.actual_cash_counted is None:
+            raise CloseOutNotCountedError()
+
+        event = Event.objects.select_for_update().filter(pk=close_out.event_id).first()
+        if event is None:
+            raise CloseOutNotFoundError()
+        if not event.is_active or event.ended_at is not None:
+            raise EventAlreadyEndedError()
+
+        old_amount = round(float(close_out.actual_cash_counted), 2)
+        new_amount = round(float(actual_amount), 2)
+        if new_amount == old_amount:
+            return close_out
+
+        variance = new_amount - round(float(close_out.expected_cash_on_hand), 2)
+        close_out.previous_actual_cash_counted = old_amount
+        close_out.actual_cash_counted = new_amount
+        close_out.variance = round(variance, 2)
+        close_out.cash_count_edited = True
+        close_out.cash_count_edited_by = admin_user
+        close_out.cash_count_edited_at = now()
+        close_out.save(update_fields=[
+            'previous_actual_cash_counted',
+            'actual_cash_counted',
+            'variance',
+            'cash_count_edited',
+            'cash_count_edited_by',
+            'cash_count_edited_at',
+        ])
+
+        if close_out.remit_transaction_id is not None:
+            locked_remit = TellerTransaction.objects.select_for_update().get(
+                pk=close_out.remit_transaction_id,
+            )
+            locked_remit.amount = new_amount
+            locked_remit.edited = True
+            locked_remit.updated_at = now()
+            locked_remit.save(update_fields=['amount', 'edited', 'updated_at'])
+            close_out.remit_transaction = locked_remit
+
+    logger.info(
+        "STATION CASH COUNT EDITED: teller=%s close_out=%s old=%.2f new=%.2f "
+        "variance=%.2f admin=%s",
+        close_out.user.username,
+        close_out.pk,
+        old_amount,
+        new_amount,
+        close_out.variance,
+        admin_user.username,
     )
     return close_out
 
