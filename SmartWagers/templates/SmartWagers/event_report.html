@@ -411,6 +411,141 @@
     border-color: rgba(231,76,60,0.50);
   }
 
+  .er-edited-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    background: rgba(241,196,15,0.14);
+    border: 1px solid rgba(241,196,15,0.35);
+    color: #f1c40f;
+    vertical-align: middle;
+    cursor: help;
+  }
+
+  .er-edit-cash-btn {
+    background: rgba(241,196,15,0.10);
+    border: 1px solid rgba(241,196,15,0.30);
+    border-radius: 6px;
+    color: #f1c40f;
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    padding: 3px 8px;
+    white-space: nowrap;
+    transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+  }
+  .er-edit-cash-btn:hover:not(:disabled) {
+    background: rgba(241,196,15,0.20);
+    border-color: rgba(241,196,15,0.50);
+  }
+  .er-edit-cash-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* ── Edit cash count modal ── */
+  #edit-cash-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    z-index: 9000;
+    align-items: center;
+    justify-content: center;
+  }
+  #edit-cash-box {
+    background: #1b1e27;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 28px 32px 24px;
+    width: 420px;
+    max-width: 95vw;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.70);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  #edit-cash-box h2 {
+    font-size: 16px;
+    font-weight: 900;
+    color: white;
+    margin: 0;
+  }
+  .edit-cash-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.45);
+  }
+  .edit-cash-meta strong { color: #f1c40f; }
+  .edit-cash-field label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.40);
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .edit-cash-field .edit-cash-value {
+    color: #f1c40f;
+    font-weight: 800;
+    font-size: 18px;
+  }
+  #edit-cash-amount {
+    width: 100%;
+    box-sizing: border-box;
+    background: #12151c;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    color: white;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 10px 12px;
+  }
+  #edit-cash-amount:focus {
+    outline: none;
+    border-color: rgba(241,196,15,0.55);
+  }
+  #edit-cash-status {
+    font-size: 12px;
+    min-height: 16px;
+  }
+  .edit-cash-btn-row {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+  .edit-cash-btn {
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 8px 16px;
+    border: 1px solid transparent;
+  }
+  .edit-cash-btn-secondary {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.14);
+    color: rgba(255,255,255,0.70);
+  }
+  .edit-cash-btn-primary {
+    background: rgba(241,196,15,0.18);
+    border-color: rgba(241,196,15,0.40);
+    color: #f1c40f;
+  }
+  .edit-cash-btn-primary:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   /* ── Old-ticket claim modal ── */
   #ot-modal {
     display: none;
@@ -977,7 +1112,7 @@
             <th class="th-group-header" colspan="4">Transactions</th>
             <th class="th-group-header" colspan="2">Unclaimed Wins</th>
             <th class="th-group-header">Balance</th>
-            <th class="th-group-header" colspan="7">Station Close-Out</th>
+            <th class="th-group-header" colspan="6">Station Close-Out</th>
           </tr>
           <tr>
             <th>Name</th>
@@ -993,11 +1128,10 @@
             <th class="num">On-Hand</th>
             <th class="num">Status</th>
             <th class="num">Fight #</th>
-            <th class="num">COH</th>
-            <th class="num">Petty</th>
             <th class="num">Expected</th>
             <th class="num">Actual</th>
             <th class="num">Variance</th>
+            <th class="num">Edit</th>
           </tr>
         </thead>
         <tbody>
@@ -1068,18 +1202,18 @@
             <td class="num">
               {% if t.close_out %}{{ t.close_out.fightnum }}{% else %}—{% endif %}
             </td>
-            <td class="num c-balance-pos" title="Expected cash plus initial bank fund">
-              {% if t.reporting_coh is not None %}₱ {{ t.reporting_coh|floatformat:2|intcomma }}{% else %}—{% endif %}
-            </td>
-            <td class="num c-collect" title="Initial teller fund from bank">
-              ₱ {{ t.initial_fund|floatformat:2|intcomma }}
-            </td>
             <td class="num">
               {% if t.close_out %}₱ {{ t.close_out.expected_cash_on_hand|floatformat:2|intcomma }}{% else %}—{% endif %}
             </td>
             <td class="num">
               {% if t.close_out and t.close_out.actual_cash_counted is not None %}
                 ₱ {{ t.close_out.actual_cash_counted|floatformat:2|intcomma }}
+                {% if t.close_out.cash_count_edited %}
+                  <span class="er-edited-badge"
+                        title="Previously ₱ {{ t.close_out.previous_actual_cash_counted|floatformat:2|intcomma }}{% if t.close_out.cash_count_edited_by %} · edited by {{ t.close_out.cash_count_edited_by.username }}{% endif %}{% if t.close_out.cash_count_edited_at %} · {{ t.close_out.cash_count_edited_at|date:'Y-m-d H:i' }}{% endif %}">
+                    Edited
+                  </span>
+                {% endif %}
               {% else %}—{% endif %}
             </td>
             <td class="num">
@@ -1092,6 +1226,26 @@
                   <span class="c-var-zero">Balanced</span>
                 {% endif %}
               {% else %}—{% endif %}
+            </td>
+            <td class="num">
+              {% if t.close_out and t.close_out.actual_cash_counted is not None %}
+                <button type="button"
+                        class="er-edit-cash-btn"
+                        {% if event_closed %}disabled title="Event is closed — cash count can no longer be edited"{% endif %}
+                        {% if not event_closed %}
+                        onclick="openEditCashModal(
+                          {{ t.close_out.pk }},
+                          '{{ t.display_name|escapejs }}',
+                          {{ t.close_out.expected_cash_on_hand|stringformat:'f' }},
+                          {{ t.close_out.actual_cash_counted|stringformat:'f' }},
+                          {{ t.close_out.fightnum }}
+                        )"
+                        {% endif %}>
+                  Edit
+                </button>
+              {% else %}
+                <span style="color:rgba(255,255,255,0.20);">—</span>
+              {% endif %}
             </td>
           </tr>
           {% endfor %}
@@ -1117,8 +1271,6 @@
             </td>
             <td></td>
             <td></td>
-            <td class="num">₱ {{ total_reporting_coh_all|floatformat:2|intcomma }}</td>
-            <td class="num">₱ {{ total_initial_fund_all|floatformat:2|intcomma }}</td>
             <td class="num">₱ {{ total_expected_all|floatformat:2|intcomma }}</td>
             <td class="num">₱ {{ total_actual_all|floatformat:2|intcomma }}</td>
             <td class="num {% if total_variance_all > 0 %}c-var-over{% elif total_variance_all < 0 %}c-var-short{% else %}c-var-zero{% endif %}">
@@ -1126,6 +1278,7 @@
                 {% if total_variance_all > 0 %}+{% endif %}₱ {{ total_variance_all|floatformat:2|intcomma }}
               {% else %}—{% endif %}
             </td>
+            <td></td>
           </tr>
         </tfoot>
       </table>
@@ -1447,6 +1600,44 @@
 
 </div>
 
+<!-- ── Edit cash count modal ── -->
+<div id="edit-cash-modal">
+  <div id="edit-cash-box">
+    <h2>Edit Cash Collected</h2>
+
+    <div class="edit-cash-meta">
+      <span>Teller: <strong id="edit-cash-teller-name"></strong></span>
+      <span>Closed Fight #: <strong id="edit-cash-fightnum"></strong></span>
+    </div>
+
+    <input type="hidden" id="edit-cash-close-out-id" value="">
+
+    <div class="edit-cash-field">
+      <label>Expected Cash On Hand (₱)</label>
+      <div class="edit-cash-value" id="edit-cash-expected"></div>
+    </div>
+
+    <div class="edit-cash-field">
+      <label>Current Actual (₱)</label>
+      <div class="edit-cash-value" id="edit-cash-current" style="color:#2ecc71;"></div>
+    </div>
+
+    <div class="edit-cash-field">
+      <label>Corrected Actual Amount (₱)</label>
+      <input type="text" inputmode="decimal" id="edit-cash-amount"
+             placeholder="0.00" autocomplete="off"
+             onkeydown="if(event.key==='Enter')submitEditCash()">
+    </div>
+
+    <div id="edit-cash-status"></div>
+
+    <div class="edit-cash-btn-row">
+      <button type="button" class="edit-cash-btn edit-cash-btn-secondary" onclick="closeEditCashModal()">Cancel</button>
+      <button type="button" class="edit-cash-btn edit-cash-btn-primary" id="btn-edit-cash-confirm" onclick="submitEditCash()">Save Correction</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Old-ticket claim modal ── -->
 <div id="ot-modal">
   <div id="ot-box">
@@ -1522,6 +1713,91 @@ function exportTableToExcel(tableId, filename) {
     document.body.removeChild(link);
     URL.revokeObjectURL(link.href);
 }
+
+// ── Edit cash collected ─────────────────────────────────────────────────
+const EDIT_CASH_URL = "{% url 'admin-teller-closeout-edit-count' %}";
+const EDIT_CASH_CSRF = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+function _fmtEditMoney(n) {
+    const num = Number(n);
+    if (!isFinite(num)) return '0.00';
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function openEditCashModal(closeOutId, tellerName, expectedAmount, currentAmount, fightnum) {
+    document.getElementById('edit-cash-close-out-id').value = closeOutId;
+    document.getElementById('edit-cash-teller-name').textContent = tellerName;
+    document.getElementById('edit-cash-fightnum').textContent = fightnum;
+    document.getElementById('edit-cash-expected').textContent = '₱ ' + _fmtEditMoney(expectedAmount);
+    document.getElementById('edit-cash-current').textContent = '₱ ' + _fmtEditMoney(currentAmount);
+    document.getElementById('edit-cash-amount').value = _fmtEditMoney(currentAmount);
+    document.getElementById('edit-cash-status').textContent = '';
+    document.getElementById('btn-edit-cash-confirm').disabled = false;
+    document.getElementById('edit-cash-modal').style.display = 'flex';
+    setTimeout(() => {
+        const input = document.getElementById('edit-cash-amount');
+        input.focus();
+        input.select();
+    }, 80);
+}
+
+function closeEditCashModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    document.getElementById('edit-cash-modal').style.display = 'none';
+}
+
+async function submitEditCash() {
+    const closeOutId = document.getElementById('edit-cash-close-out-id').value;
+    const amountRaw = document.getElementById('edit-cash-amount').value.trim().replace(/,/g, '');
+    const statusEl = document.getElementById('edit-cash-status');
+    const btn = document.getElementById('btn-edit-cash-confirm');
+    const amount = parseFloat(amountRaw);
+
+    if (!closeOutId || isNaN(amount) || amount < 0) {
+        statusEl.style.color = '#e74c3c';
+        statusEl.textContent = 'Enter a valid counted amount.';
+        return;
+    }
+
+    btn.disabled = true;
+    statusEl.style.color = '';
+    statusEl.textContent = 'Saving correction…';
+
+    const fd = new FormData();
+    fd.append('close_out_id', closeOutId);
+    fd.append('actual_amount', amountRaw);
+    fd.append('csrfmiddlewaretoken', EDIT_CASH_CSRF);
+
+    try {
+        const res = await fetch(EDIT_CASH_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!data.ok) {
+            const messages = {
+                close_out_not_found: 'Close-out record not found.',
+                not_counted: 'Cash has not been counted yet for this teller.',
+                event_closed: 'Event is closed — cash count can no longer be edited.',
+                invalid_amount: 'Invalid amount.',
+                invalid_params: 'Invalid submission. Check the amount and try again.',
+            };
+            statusEl.style.color = '#e74c3c';
+            statusEl.textContent = messages[data.error] || 'Failed to save correction.';
+            btn.disabled = false;
+            return;
+        }
+        window.location.reload();
+    } catch {
+        statusEl.style.color = '#e74c3c';
+        statusEl.textContent = 'Network error. Please try again.';
+        btn.disabled = false;
+    }
+}
+
+document.getElementById('edit-cash-modal').addEventListener('click', closeEditCashModal);
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && document.getElementById('edit-cash-modal').style.display === 'flex') {
+        closeEditCashModal();
+    }
+});
 
 // ── Old-ticket claim modal ──────────────────────────────────────────────
 const CLAIM_URL  = "{% url 'admin-claim-old-ticket' %}";

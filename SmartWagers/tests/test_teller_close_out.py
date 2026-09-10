@@ -264,6 +264,107 @@ class TestAdminCashCount:
 
 
 @pytest.mark.django_db
+class TestEditTellerCashCount:
+    def _counted_close_out(self, admin_user, teller_user, event, amount=1000.0):
+        _place_bet(teller_user, 1000.0)
+        close_out = services.close_teller_station(teller_user, event=event)
+        services.register_admin_cash_count(100000, admin_user)
+        return services.register_teller_cash_count(close_out.pk, amount, admin_user)
+
+    def test_edit_updates_actual_variance_and_remit(
+        self, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        close_out = self._counted_close_out(
+            admin_user, teller_user, event_with_fight, amount=1000.0,
+        )
+
+        result = services.edit_teller_cash_count(close_out.pk, 950.0, admin_user)
+
+        assert result.actual_cash_counted == 950.0
+        assert result.previous_actual_cash_counted == 1000.0
+        assert result.variance == -50.0
+        assert result.cash_count_edited is True
+        assert result.cash_count_edited_by == admin_user
+        assert result.cash_count_edited_at is not None
+        result.remit_transaction.refresh_from_db()
+        assert result.remit_transaction.amount == 950.0
+        assert result.remit_transaction.edited is True
+
+    def test_edit_endpoint(
+        self, admin_client, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        close_out = self._counted_close_out(
+            admin_user, teller_user, event_with_fight, amount=1000.0,
+        )
+
+        response = admin_client.post(
+            '/administrator/teller-closeout/edit-count/',
+            {'close_out_id': close_out.pk, 'actual_amount': '1,025.50'},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['actual_cash_counted'] == 1025.50
+        assert data['previous_actual_cash_counted'] == 1000.0
+        assert data['variance'] == 25.50
+        assert data['cash_count_edited'] is True
+
+        close_out.refresh_from_db()
+        assert close_out.actual_cash_counted == 1025.50
+        assert close_out.cash_count_edited is True
+
+    def test_edit_rejected_when_event_closed(
+        self, admin_client, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        close_out = self._counted_close_out(
+            admin_user, teller_user, event_with_fight, amount=1000.0,
+        )
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        response = admin_client.post(
+            '/administrator/teller-closeout/edit-count/',
+            {'close_out_id': close_out.pk, 'actual_amount': '900'},
+        )
+        assert response.status_code == 409
+        assert response.json()['error'] == 'event_closed'
+
+        close_out.refresh_from_db()
+        assert close_out.actual_cash_counted == 1000.0
+        assert close_out.cash_count_edited is False
+
+    def test_edit_rejected_when_not_counted(
+        self, admin_client, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        close_out = services.close_teller_station(teller_user, event=event_with_fight)
+        services.register_admin_cash_count(100000, admin_user)
+
+        response = admin_client.post(
+            '/administrator/teller-closeout/edit-count/',
+            {'close_out_id': close_out.pk, 'actual_amount': '900'},
+        )
+        assert response.status_code == 409
+        assert response.json()['error'] == 'not_counted'
+
+    def test_event_report_shows_edited_badge_after_correction(
+        self, admin_client, admin_user, teller_user, event_with_fight, teller_status_online,
+    ):
+        close_out = self._counted_close_out(
+            admin_user, teller_user, event_with_fight, amount=1000.0,
+        )
+        services.edit_teller_cash_count(close_out.pk, 980.0, admin_user)
+
+        response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        content = response.content.decode()
+        assert 'er-edited-badge' in content
+        assert 'Edited' in content
+        assert '980' in content.replace(',', '')
+
+
+@pytest.mark.django_db
 class TestAdminReopenStation:
     def test_reopen_deletes_close_out_and_sets_teller_online(
         self, admin_user, teller_user, event_with_fight, teller_status_online,
@@ -432,7 +533,7 @@ class TestEventReportCloseOut:
         assert 'name="show_all_tellers" value="1"' in all_content
         assert 'checked' in all_content
 
-    def test_event_report_coh_adds_initial_fund_to_expected_cash(
+    def test_event_report_teller_table_has_edit_not_coh_petty(
         self, admin_client, admin_user, teller_user, event_with_fight,
     ):
         _place_bet(teller_user, 500.0)
@@ -452,30 +553,43 @@ class TestEventReportCloseOut:
             10450.0,
             admin_user,
         )
-        event_with_fight.is_active = False
-        event_with_fight.ended_at = now()
-        event_with_fight.save(update_fields=['is_active', 'ended_at'])
 
         response = admin_client.get(
             f'/administrator/event-report/?event_id={event_with_fight.pk}',
         )
 
-        teller_stats = next(
-            row for row in response.context['teller_data']
-            if row['user'] == teller_user
-        )
-        assert teller_stats['initial_fund'] == 10000
-        assert teller_stats['reporting_coh'] == 20500
-        assert response.context['total_reporting_coh_all'] == 20500
-        assert response.context['total_initial_fund_all'] == 10000
         content = response.content.decode()
         teller_table = content[content.index('<table id="er-teller-table"'):]
+        teller_table = teller_table[:teller_table.index('</table>') + len('</table>')]
+        assert 'COH' not in teller_table
+        assert '>Petty<' not in teller_table
         assert (
             teller_table.index('Fight #')
-            < teller_table.index('COH')
-            < teller_table.index('Petty')
             < teller_table.index('Expected')
+            < teller_table.index('Actual')
+            < teller_table.index('Variance')
+            < teller_table.index('>Edit<')
         )
+        assert 'er-edit-cash-btn' in teller_table
+        assert 'disabled' not in teller_table[
+            teller_table.index('er-edit-cash-btn'):
+            teller_table.index('er-edit-cash-btn') + 80
+        ]
+
+        event_with_fight.is_active = False
+        event_with_fight.ended_at = now()
+        event_with_fight.save(update_fields=['is_active', 'ended_at'])
+
+        closed_response = admin_client.get(
+            f'/administrator/event-report/?event_id={event_with_fight.pk}',
+        )
+        closed_table = closed_response.content.decode()
+        closed_table = closed_table[closed_table.index('<table id="er-teller-table"'):]
+        closed_table = closed_table[:closed_table.index('</table>') + len('</table>')]
+        assert 'disabled' in closed_table[
+            closed_table.index('er-edit-cash-btn'):
+            closed_table.index('er-edit-cash-btn') + 120
+        ]
 
     def test_event_report_includes_variance(
         self, admin_client, admin_user, teller_user, event_with_fight, teller_status_online,
@@ -828,7 +942,7 @@ class TestEventReportCloseOut:
         parser.feed(response.content.decode())
 
         for table_id, expected_width in {
-            'er-teller-table': 18,
+            'er-teller-table': 17,
             'er-admin-fund-table': 12,
             'er-admin-table': 8,
         }.items():
@@ -906,4 +1020,4 @@ class TestEventReportCloseOut:
         assert 'Advanced' in content
         assert 'Borrowed' in content
         assert 'Commission Share' not in content
-        assert content.count('COH') == 1
+        assert 'COH' not in content

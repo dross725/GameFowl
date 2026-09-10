@@ -233,6 +233,16 @@ class TellerCloseOut(models.Model):
         related_name='counted_close_outs',
     )
     counted_at = models.DateTimeField(null=True, blank=True)
+    cash_count_edited = models.BooleanField(default=False)
+    previous_actual_cash_counted = models.FloatField(null=True, blank=True)
+    cash_count_edited_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='edited_cash_counts',
+    )
+    cash_count_edited_at = models.DateTimeField(null=True, blank=True)
     remit_transaction = models.OneToOneField(
         TellerTransaction,
         null=True,
