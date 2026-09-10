@@ -1205,12 +1205,58 @@ class TestPreEventTellerPreparation:
         )
 
         assert response.status_code == 200
-        assert response.json()['fund_issued'] is True
+        payload = response.json()
+        assert payload['fund_issued'] is True
+        assert payload['balance'] == pytest.approx(default_settings.teller_initial_fund)
+        assert payload['grand_total'] == pytest.approx(0.0)
+        assert payload['opening_fund'] == pytest.approx(default_settings.teller_initial_fund)
         assert TellerTransaction.objects.filter(
             user=teller_user,
             transaction_type=TellerTransaction.COLLECT,
             amount=default_settings.teller_initial_fund,
         ).exists()
+
+        teller_client = Client()
+        teller_client.force_login(teller_user)
+        balance_response = teller_client.get('/get_teller_balance/')
+        assert balance_response.status_code == 200
+        balance_payload = balance_response.json()
+        assert balance_payload['ok'] is True
+        assert balance_payload['balance'] == pytest.approx(default_settings.teller_initial_fund)
+        assert balance_payload['grand_total'] == pytest.approx(0.0)
+        assert balance_payload['opening_fund'] == pytest.approx(
+            default_settings.teller_initial_fund,
+        )
+
+    def test_settlement_collect_does_not_block_mid_event_opening_fund(
+            self, admin_user, teller_user, default_settings, active_event):
+        """Rollover COLLECTs must not be treated as opening float."""
+        TellerStatus.objects.create(user=teller_user, is_online=False)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=17.24,
+            affects_admin_fund=False,
+        )
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post(
+            '/administrator/teller-online-toggle/',
+            {'teller_id': teller_user.pk, 'is_online': 'true'},
+        )
+
+        assert response.status_code == 200
+        assert response.json()['fund_issued'] is True
+        assert TellerTransaction.objects.filter(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=default_settings.teller_initial_fund,
+            affects_admin_fund=False,
+        ).count() == 1
+        assert response.json()['balance'] == pytest.approx(
+            default_settings.teller_initial_fund + 17.24,
+        )
 
     def test_admin_tellers_page_issues_fund_for_new_teller_mid_event(
             self, admin_user, teller_group, default_settings):

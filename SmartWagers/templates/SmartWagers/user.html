@@ -3,7 +3,7 @@
 
 {% block css_files %}
     <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=30">
-    <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=10">
+    <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=13">
 {% endblock css_files %}
 
 {% block script_files %}
@@ -14,9 +14,9 @@
         window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
     </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=mobile-print-1"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=txn-messages-1"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=preset-lock-2"></script>
-    <script src="{% static 'SmartWagers/user.js' %}?v=txn-messages-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=modal-money-2"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=modal-money-1"></script>
+    <script src="{% static 'SmartWagers/user.js' %}?v=opening-fund-1"></script>
 {% endblock script_files %}
 
 {% block content %}
@@ -287,7 +287,9 @@
             <div class='modal-content'>
                 <h2>Balance Report</h2>
                 <br>
-                <p>Grand Total Collected</p>
+                <p>Opening Fund</p>
+                <div id='opening_fund_display'>₱ 0</div>
+                <p style='margin-top:10px;'>Bets Collected</p>
                 <div id='grand_total_display'>₱ 0</div>
                 <p style='margin-top:10px;'>Current On-Hand Balance</p>
                 <div id='balance_display'>₱ 0</div>

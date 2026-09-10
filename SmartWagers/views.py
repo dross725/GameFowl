@@ -1215,13 +1215,16 @@ def get_teller_balance(request):
             'ok': True,
             'balance': summary['balance'],
             'grand_total': summary['admin_wagers'],
+            'opening_fund': summary.get('opening_fund', 0.0),
             'shared_admin_fund': True,
         })
     balance, grand_total = _compute_teller_balance(request.user, event=event_scope, apply_end_bound=apply_end_bound)
+    opening_fund = services.get_teller_opening_fund_total(request.user, event_scope)
     return JsonResponse({
         'ok': True,
         'balance': balance,
         'grand_total': grand_total,
+        'opening_fund': opening_fund,
         'shared_admin_fund': False,
     })
 
@@ -1353,6 +1356,9 @@ def teller_transaction(request):
                 'error': 'exceeds_cash_on_hand',
                 'balance': balance,
                 'grand_total': grand_total,
+                'opening_fund': services.get_teller_opening_fund_total(
+                    request.user, event_scope,
+                ),
             }, status=400)
 
         txn = TellerTransaction.objects.create(
@@ -1375,11 +1381,13 @@ def teller_transaction(request):
     balance, grand_total = _compute_teller_balance(
         request.user, event=event_scope, apply_end_bound=apply_end_bound,
     )
+    opening_fund = services.get_teller_opening_fund_total(request.user, event_scope)
     return JsonResponse({
         'ok': True,
         'print_required': services.is_wager_receipt_printing_enabled(),
         'balance': balance,
         'grand_total': grand_total,
+        'opening_fund': opening_fund,
         'cashier': str(request.user),
         'transaction_type': transaction_type,
         'amount': amount,
@@ -2638,6 +2646,7 @@ def toggle_teller_online(request):
         'fund_issued': fund_issued,
         'balance': balance,
         'grand_total': grand_total,
+        'opening_fund': services.get_teller_opening_fund_total(teller, event_scope),
     })
 
 
