@@ -63,6 +63,37 @@ def test_safe_paths_reject_runtime_state_and_traversal(sync_module):
     assert not sync_module.is_safe_relative_path(".env")
     assert not sync_module.is_safe_relative_path("deploy/python_path.txt")
     assert not sync_module.is_safe_relative_path("SmartWagers/tests/test_views.py")
+    # Expo/RN build trees blow past Windows MAX_PATH — never deploy them.
+    assert not sync_module.is_safe_relative_path(
+        "mobile_print_agent/android/app/build/outputs/apk/release/app-release.apk"
+    )
+    assert not sync_module.is_safe_relative_path(
+        "mobile_print_agent/node_modules/expo/package.json"
+    )
+    assert sync_module.is_safe_relative_path(
+        "mobile_print_agent/dist/SmartWagers-PrintCompanion.apk"
+    )
+    assert sync_module.is_safe_relative_path("mobile_print_agent/App.tsx")
+    # Windows Mark-of-the-Web ADS saved as a real file (invalid ":" name).
+    assert not sync_module.is_safe_relative_path(
+        "SmartWagers/static/SmartWagers/images/login smartwagers.jpg:Zone.Identifier"
+    )
+
+
+def test_windows_max_path_guard_rejects_oversized_payload(sync_module):
+    short = "SmartWagers/views.py"
+    # Force a path that exceeds 259 under C:\SmartWagers\GameFowl\
+    long_name = "SmartWagers/" + ("a" * 240) + ".py"
+    assert sync_module.windows_absolute_path_length(
+        sync_module.DEFAULT_WINDOWS_PROD_ROOT, short
+    ) <= sync_module.WINDOWS_MAX_PATH
+    assert sync_module.windows_absolute_path_length(
+        sync_module.DEFAULT_WINDOWS_PROD_ROOT, long_name
+    ) > sync_module.WINDOWS_MAX_PATH
+    with pytest.raises(SystemExit):
+        sync_module.assert_windows_safe_payload_paths([long_name])
+    sync_module.assert_windows_safe_payload_paths([short])
+
 
 
 def test_collect_deleted_files_keeps_only_safe_paths(monkeypatch, sync_module):
@@ -164,3 +195,73 @@ def test_inventory_finds_actual_server_differences(inventory_module, tmp_path):
     assert added == ["SmartWagers/added.py"]
     assert changed == ["SmartWagers/changed.py"]
     assert deleted == ["SmartWagers/removed.py"]
+
+
+def test_inventory_skips_unsafe_zone_identifier_entries(inventory_module, tmp_path):
+    root = tmp_path / "project"
+    (root / "SmartWagers").mkdir(parents=True)
+    (root / "SmartWagers" / "views.py").write_text("ok\n", encoding="utf-8")
+
+    inventory_path = tmp_path / "server_inventory.json"
+    junk_key = "SmartWagers/static/SmartWagers/images/login smartwagers.jpg\uf03aZone.Identifier"
+    inventory_path.write_text(
+        json.dumps(
+            {
+                "inventory_version": 1,
+                "files": {
+                    "SmartWagers/views.py": {"sha256": "abc", "size": 3},
+                    junk_key: {"sha256": "deadbeef", "size": 1},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = inventory_module.load_inventory(inventory_path)
+    assert junk_key not in loaded["files"]
+    assert "SmartWagers/static/SmartWagers/images/login smartwagers.jpg:Zone.Identifier" not in loaded["files"]
+    assert "SmartWagers/views.py" in loaded["files"]
+
+    added, changed, deleted = inventory_module.compare_inventory(root, inventory_path)
+    assert junk_key not in deleted
+    assert "SmartWagers/static/SmartWagers/images/login smartwagers.jpg:Zone.Identifier" not in deleted
+    # views.py hash differs → changed; no crash on unsafe inventory entry
+    assert "SmartWagers/views.py" in changed
+    assert added == []
+
+
+def test_inventory_skips_mobile_print_agent_build_trees(inventory_module, tmp_path):
+    root = tmp_path / "project"
+    apk = root / "mobile_print_agent" / "dist" / "SmartWagers-PrintCompanion.apk"
+    apk.parent.mkdir(parents=True)
+    apk.write_bytes(b"apk")
+    long_build = (
+        root
+        / "mobile_print_agent"
+        / "android"
+        / ".gradle"
+        / "8.10.2"
+        / "dependencies-accessors"
+        / "hash"
+        / "classes"
+        / "LibrariesForReactAndroidLibsInPluginsBlock$FrescoImagepipelineLibraryAccessors.class"
+    )
+    long_build.parent.mkdir(parents=True)
+    long_build.write_bytes(b"build-cache")
+    (root / "mobile_print_agent" / "node_modules" / "expo" / "package.json").parent.mkdir(
+        parents=True
+    )
+    (root / "mobile_print_agent" / "node_modules" / "expo" / "package.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    (root / "mobile_print_agent" / "App.tsx").write_text("export {}\n", encoding="utf-8")
+
+    inventory_path = tmp_path / "inventory.json"
+    inventory_module.write_inventory(root, inventory_path)
+    files = set(json.loads(inventory_path.read_text(encoding="utf-8"))["files"])
+
+    assert "mobile_print_agent/dist/SmartWagers-PrintCompanion.apk" in files
+    assert "mobile_print_agent/App.tsx" in files
+    assert not any(path.startswith("mobile_print_agent/android/") for path in files)
+    assert not any(path.startswith("mobile_print_agent/node_modules/") for path in files)
+

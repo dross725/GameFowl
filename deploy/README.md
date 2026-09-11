@@ -186,10 +186,21 @@ from the admin page — same install steps apply.
 
 Windows USB printing is unchanged. For phones/tablets with Bluetooth ESC/POS printers:
 
-1. Build the Expo app in `mobile_print_agent/` (see that README).
-2. Place `SmartWagers-PrintCompanion.apk` in `mobile_print_agent/dist/` for Android sideload downloads from **Admin → Print Agent**.
+1. Build the Expo app in `mobile_print_agent/` on the **dev machine** (WSL/Linux/macOS — see that README). Do **not** build it on the Windows production server.
+2. Copy **only** `SmartWagers-PrintCompanion.apk` into production at
+   `C:\SmartWagers\GameFowl\mobile_print_agent\dist\` (Admin → Print Agent serves that file).
 3. iOS: distribute via TestFlight / Ad Hoc (Apple Developer account required).
 4. Teller installs the companion, signs in, selects the BT printer, starts the print service, then uses the mobile browser for SmartWagers.
+
+**Windows path length:** Never copy `mobile_print_agent\node_modules\`, `android\`, or `ios\` to the server. Those trees contain Gradle/CMake paths longer than the classic Windows MAX_PATH (~260 characters) and will fail with “file name is too long.” Release sync already skips them. If a full-folder copy already failed or left junk behind, delete those three folders on the server (or before copying):
+
+```cmd
+rmdir /s /q C:\SmartWagers\GameFowl\mobile_print_agent\node_modules
+rmdir /s /q C:\SmartWagers\GameFowl\mobile_print_agent\android
+rmdir /s /q C:\SmartWagers\GameFowl\mobile_print_agent\ios
+```
+
+Production only needs the APK under `mobile_print_agent\dist\` (plus the small source files already in git, which are optional for serving downloads).
 
 **Printer note:** Android uses Classic Bluetooth SPP. iOS requires BLE or dual-mode printers — Classic-SPP-only units will not work on iPhone.
 
@@ -299,6 +310,7 @@ Rollback is only clean while PostgreSQL has not accepted new production writes:
 | Service shows as stopped after reboot | Open `service_control.bat status`; check error logs in `C:\SmartWagers\logs\` |
 | Print agent not printing | Verify `printer_name` in `config.json`; run `http://127.0.0.1:8765/printers` to list available printers |
 | Remit says `transaction_receipt_copies is not defined` | Update `local_print_agent\print_agent.py` on every teller PC, then restart the print agent or reboot that PC. Updating only the server project does not update the separate teller installations. |
+| Copy fails on `images\` with “file name is too long” or invalid name | Delete any `*:Zone.Identifier` junk under `SmartWagers\static\SmartWagers\images\` (Windows Mark-of-the-Web ADS saved as a real file with a colon). Do not copy `mobile_print_agent\node_modules`, `android`, `ios`, or `.expo` — those contain thousands of long-path PNG caches. Use `mobile_print_agent\prepare_windows_copy.sh` or copy only `dist\SmartWagers-PrintCompanion.apk`. |
 | `service_control.bat start` says **"Unexpected status SERVICE_PAUSED"** and logs are empty | Daphne crashed under the service account. **1)** `memurai-cli ping` must return `PONG`. **2)** Open `C:\SmartWagers\logs\daphne_wrapper.log`. **3)** Manual test: `python -m daphne -v 2 -b 0.0.0.0 -p 8080 GameFowl.asgi:application`. **4)** Re-run `4_install_service.bat` as Administrator after fixing. |
 | Admin pages show **Server Error 500** with `AttributeError: 'super' object has no attribute 'dicts'` | Python 3.14 is not supported by Django 5.1. Install **Python 3.12**, re-run `2_install_deps.bat`, update `deploy\python_path.txt`, and restart the service. A temporary compatibility patch is in `settings.py` for 3.14, but 3.12 is recommended for production. |
 | App redirects to `/master-lock/` | Lock is enabled and expired (or state missing/tampered in production). Enter the master key to **Enable** or **Extend**. |
