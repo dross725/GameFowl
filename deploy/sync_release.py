@@ -57,6 +57,16 @@ EXCLUDE_GLOBS = (
     ".mypy_cache/*",
     ".ruff_cache/*",
     "node_modules/*",
+    "**/node_modules/*",
+    # Expo / React Native native projects and build caches exceed Windows MAX_PATH.
+    # Ship only mobile_print_agent/dist/*.apk to production.
+    "mobile_print_agent/android/*",
+    "mobile_print_agent/ios/*",
+    "mobile_print_agent/.expo/*",
+    "**/android/.gradle/*",
+    "**/android/build/*",
+    "**/android/app/build/*",
+    "**/.cxx/*",
     "deploy/sync_config.env",
     "deploy/.deploy-last-sync",
     "deploy/.last_sync_manifest",
@@ -74,6 +84,7 @@ EXCLUDE_GLOBS = (
     "master_lock.state.lock",
     "**/master_lock.state",
     "**/*.master_lock.*.tmp",
+    "**/*Zone.Identifier*",
 )
 
 # Skip tests on production unless --include-tests is passed.
@@ -118,7 +129,7 @@ def normalize_rel_path(path: str) -> str:
     cleaned = cleaned.replace("\\", "/")
     while cleaned.startswith("./"):
         cleaned = cleaned[2:]
-    return cleaned
+    return cleaned.replace("\uf03a", ":")
 
 
 def matches_any(path: str, patterns: tuple[str, ...]) -> bool:
@@ -139,10 +150,12 @@ def is_deployable(path: str, include_tests: bool) -> bool:
 def is_safe_relative_path(path: str, include_tests: bool = False) -> bool:
     normalized = normalize_rel_path(path)
     pure_path = PurePosixPath(normalized)
+    # Reject Windows-invalid names (colon) and Mark-of-the-Web ADS junk.
     if (
         not normalized
         or normalized.startswith("/")
         or ":" in normalized
+        or "Zone.Identifier" in normalized
         or ".." in pure_path.parts
         or matches_any(normalized, EXCLUDE_GLOBS)
     ):
@@ -264,6 +277,47 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+# Classic Win32 MAX_PATH on Windows Server 2016 (no long-path opt-in assumed).
+# Limit is 260 including the trailing NUL, so usable path length is 259.
+WINDOWS_MAX_PATH = 259
+# Default production install path from deploy docs.
+DEFAULT_WINDOWS_PROD_ROOT = r"C:\SmartWagers\GameFowl"
+# Conservative USB staging prefix used when estimating package-side paths.
+WINDOWS_USB_PATH_BUDGET_PREFIX = r"E:\SmartWagersReleases\SmartWagers-YYYYMMDD-HHMMSSZ-abcdef12\payload"
+
+
+def windows_absolute_path_length(root: str, rel_path: str) -> int:
+    return len(root.rstrip("\\/") + "\\" + normalize_rel_path(rel_path).replace("/", "\\"))
+
+
+def assert_windows_safe_payload_paths(paths: list[str], prod_root: str = DEFAULT_WINDOWS_PROD_ROOT) -> None:
+    """Refuse to package files that would exceed Windows Server 2016 MAX_PATH."""
+    offenders: list[tuple[int, str, str]] = []
+    for rel_path in paths:
+        for label, root in (
+            ("production", prod_root),
+            ("usb-payload", WINDOWS_USB_PATH_BUDGET_PREFIX),
+        ):
+            length = windows_absolute_path_length(root, rel_path)
+            if length > WINDOWS_MAX_PATH:
+                offenders.append((length, label, rel_path))
+    if not offenders:
+        return
+    print(
+        "ERROR: release payload contains path(s) that exceed Windows MAX_PATH "
+        f"({WINDOWS_MAX_PATH}) on Server 2016:",
+        file=sys.stderr,
+    )
+    for length, label, rel_path in sorted(offenders, reverse=True):
+        print(f"  {length} chars [{label}] {rel_path}", file=sys.stderr)
+    print(
+        "Remove these from the release (e.g. node_modules/android build trees) "
+        "or shorten the install path.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def unique_package_dir(output_root: Path, head_ref: str | None) -> Path:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%SZ")
     suffix = (head_ref or "working-tree")[:8]
@@ -313,6 +367,7 @@ def build_usb_package(
             sys.exit(1)
     payload_files = sorted(set(files) | set(REQUIRED_PAYLOAD_FILES))
     payload_files = [path for path in payload_files if is_deployable(path, include_tests=True)]
+    assert_windows_safe_payload_paths(payload_files + deleted_files)
     needs_dependencies = "requirements.txt" in payload_files
 
     print(f"USB release folder: {package_dir}")

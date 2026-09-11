@@ -67,6 +67,19 @@ mobile_print_agent/dist/SmartWagers-PrintCompanion.apk
 
 Admins can download it from **Admin → Print Agent** when that file exists.
 
+**Deploying to a Windows server:** copy **only** that APK into
+`mobile_print_agent/dist/` on production. Do **not** copy `node_modules/`,
+`android/`, `ios/`, or `.expo/` — those paths exceed Windows’ classic filename
+limit and cause “file name is too long” errors (often surfacing on `.png`
+cache files). Build on WSL/Linux/macOS (or EAS), then either:
+
+```bash
+# preferred: slim Windows-safe folder
+./prepare_windows_copy.sh /mnt/e/SmartWagersReleases/mobile_print_agent
+```
+
+or transfer the single APK.
+
 > Note: local release builds currently use the Expo/RN debug signing config so tellers can sideload quickly. Generate a dedicated upload/release keystore before wider distribution.
 
 ### iOS

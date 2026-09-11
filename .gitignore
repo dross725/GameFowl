@@ -70,5 +70,11 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Windows Mark-of-the-Web ADS mistakenly saved as real files (invalid ":" on Windows)
+*Zone.Identifier
+*Zone.Identifier*
+
+# Accidental Windows absolute paths written as filenames under the project root
+/C:*/
 
 db.sqlite3

@@ -1,9 +1,9 @@
 {
-  "created_at": "2026-08-22T12:40:14.323035+00:00",
-  "file_count": 170,
+  "created_at": "2026-09-11T03:38:22.293937+00:00",
+  "file_count": 184,
   "files": {
     "C\uf03a\uf05cSmartWagers\uf05cdata\uf05cmaster_lock.state": {
-      "sha256": "6bc7be2199747d616ba049a55dd5dabb0833c541319e677679341cd4fd51e789",
+      "sha256": "19ab0fc9f0e7e5fcd0b1a8ab26ed6a5aaacb48fa46622d9204f5b3537a3923c4",
       "size": 307
     },
     "C\uf03a\uf05cSmartWagers\uf05cdata\uf05cmaster_lock.state.lock": {
@@ -19,8 +19,8 @@
       "size": 757
     },
     "GameFowl/settings.py": {
-      "sha256": "75470f3580df83835ac0be47e1ecbb04aa3932e84ec36958a408397f62b84ffb",
-      "size": 13410
+      "sha256": "d0bd7e45379caaab019aea00262e8886beb94c231a1ed9f1ad83ebe3e9f13f56",
+      "size": 13434
     },
     "GameFowl/urls.py": {
       "sha256": "117d02ae9477fb0ff197800eb87cb2281a6e4d61d94e9bb1db123041de4971fe",
@@ -39,16 +39,16 @@
       "size": 0
     },
     "SmartWagers/admin.py": {
-      "sha256": "b51615c6174c26a3e66eb2d8c48b6dba8ed2822244cecc74378f25d196b968b7",
-      "size": 392
+      "sha256": "a4e77a7af3454c8eee73e50014665592eb378abf0aac053c8bbfea06888c9fe7",
+      "size": 3986
     },
     "SmartWagers/apps.py": {
-      "sha256": "c0e94c1278bcb0430be64ba3c5348cc9378d53fefe69162f7cd43e34d0a147c3",
-      "size": 220
+      "sha256": "407d8bde1481a4740ad56bcadcff7d6638b7486c6a07d8c3011f0866f6cc0af8",
+      "size": 408
     },
     "SmartWagers/consumers.py": {
-      "sha256": "6329fd7c6db0fe2599a7b4deaf0927db51e54d63e48081aad4e265a38f216e0d",
-      "size": 13812
+      "sha256": "fece8ee016e6a6e87a571a32ddb86cdf203469ca8e5e83e0e9e9f32cc40e76f4",
+      "size": 16286
     },
     "SmartWagers/consumers1.py": {
       "sha256": "c632b7ce22157f15fd6af1f3c35e60e38f193849881082f99d16e123dca27e94",
@@ -87,8 +87,8 @@
       "size": 1108
     },
     "SmartWagers/management/commands/verify_database.py": {
-      "sha256": "94ac8452d9b417788188dc89d20ee680dc8953671882fb7029859b64646937c8",
-      "size": 8214
+      "sha256": "2a65dc96f7349b9f84fd093548fc06ddbdb1373ecfd370c65f2a5790a59a038b",
+      "size": 10397
     },
     "SmartWagers/masterlock.py": {
       "sha256": "dadde3786b1d2b9e87d4cba8cb06859bf1e7586939b1125f0b913fd6e4e6cd15",
@@ -246,41 +246,73 @@
       "sha256": "2cc378e054c834f3c109c855fd4083b88ab91d8b87bbc0d6c9482b546380ce5c",
       "size": 877
     },
+    "SmartWagers/migrations/0038_correct_plasada_default.py": {
+      "sha256": "8efd2ea347b693f01b208bfa4df44a41c53b4bae02d60011c09a471c220894f4",
+      "size": 425
+    },
+    "SmartWagers/migrations/0039_transaction_rollover_schema.py": {
+      "sha256": "f923c4ef8c69d8e2259a801ed39bfe5376d3d60c36ee292ea2b201e136723571",
+      "size": 6589
+    },
+    "SmartWagers/migrations/0040_backfill_transaction_generations.py": {
+      "sha256": "cf9ee9da05493ae01a75509cf86706d91e0965b87ecd407e99a3f8014d9a2603",
+      "size": 3123
+    },
+    "SmartWagers/migrations/0041_enforce_rollover_constraints.py": {
+      "sha256": "f485c1b16088369d6ac90be94203d196bb85bf4ae8db74df55b9425c95fafe0b",
+      "size": 1300
+    },
+    "SmartWagers/migrations/0042_settings_discard_trailing_3_6.py": {
+      "sha256": "677f94fe5d5b36947e0d6fb38ad140a7913c14271efc5c5f748557a09ebfb8b3",
+      "size": 367
+    },
+    "SmartWagers/migrations/0043_tellerwrongpunch.py": {
+      "sha256": "38e458e28c9feaed8ced2ce74ce1d96559966280d84b42393f63cb62d64b55b2",
+      "size": 1830
+    },
+    "SmartWagers/migrations/0044_tellertransaction_cancelled_edited.py": {
+      "sha256": "ec087e904eeb7774ee37ff00f303403a3ad960f8fbdfe22c1d4bff66800310a0",
+      "size": 1476
+    },
     "SmartWagers/migrations/__init__.py": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "size": 0
     },
     "SmartWagers/models.py": {
-      "sha256": "7fb7ced382a47c64e47f5b23db7c0a7b4fc1557db7656aa5008ab0ced0f4789c",
-      "size": 12563
+      "sha256": "b218bfc69b2327f5388cb05a359b3eacb35369662dc96ffdabb7459171b8f479",
+      "size": 18137
+    },
+    "SmartWagers/reporting.py": {
+      "sha256": "c64758343a464e5cf92a830a4f0750c5c11646d21bb04a7565c726eab208e285",
+      "size": 9488
     },
     "SmartWagers/routing.py": {
       "sha256": "cf6baede5abd93b12ef0efce49e06c9eff57cbf454abf5da9a0f1f45097989a5",
       "size": 474
     },
     "SmartWagers/services.py": {
-      "sha256": "a6d35c12cec1fc8b9bbb29689905a89b8ca8d5afa774c16cab6b0c1cb4a62a1c",
-      "size": 75269
+      "sha256": "43f2b8439777ac33962d4726b70683036815e71dc6865376bc68922587e64c82",
+      "size": 107920
     },
     "SmartWagers/signals.py": {
       "sha256": "e6d821cbc1017cb2ea1481ee776f4f9a14e38b895c0c95f496bc7c0bde11db1a",
       "size": 500
     },
     "SmartWagers/static/SmartWagers/admin.css": {
-      "sha256": "1118e89dc947a7c45f3a281ca1b8687deec1810539c519252df4e0647e8207b9",
-      "size": 17265
+      "sha256": "bf5645ae320ae447214a4fd53058dce89e320f6912a3ee9aadf970b5f06c4981",
+      "size": 17595
     },
     "SmartWagers/static/SmartWagers/admin.js": {
-      "sha256": "8f635340d6911d39063bad94541697a4957db7f05b7f9f70c09abd9a68258c62",
-      "size": 23538
+      "sha256": "cdb95082f67f45058fb7279bbf1d34926a17c601a3247048b87a3e519c320bac",
+      "size": 23532
     },
     "SmartWagers/static/SmartWagers/admin_old.css": {
       "sha256": "0f401482385b52d10e8144eeec6701bcc8684cd6c88c5268d5e4b39a6ed9cea0",
       "size": 4004
     },
     "SmartWagers/static/SmartWagers/administrator.js": {
-      "sha256": "add4c894a3108203f37dfe781729d4cdd79dc4f5902d41f5123cf6c220e939fe",
-      "size": 40843
+      "sha256": "7ed9b68398292a2a0e63b0061e454e3ac3efd697959a58d35457b876b1b9b7ed",
+      "size": 42729
     },
     "SmartWagers/static/SmartWagers/bet_control1.js": {
       "sha256": "e29045da05c62db800beae2a5b9e03a49260bd9279726f6026751e37fcb9e457",
@@ -331,8 +363,8 @@
       "size": 154927
     },
     "SmartWagers/static/SmartWagers/index.css": {
-      "sha256": "4787c81bcb0308e5cbc503e4d6a79c0bc3b1f8b601035521a5d2995f8fd33438",
-      "size": 4273
+      "sha256": "a4c592f9d8c16c9ad83deb7aa05a0a1dacc476f23e46ac9f13eac2c3db5ea698",
+      "size": 4970
     },
     "SmartWagers/static/SmartWagers/index_old.css": {
       "sha256": "e0d70435d317567e05434dda2c80b682fa089559160ab9d36a67988b3d075341",
@@ -347,56 +379,64 @@
       "size": 5709
     },
     "SmartWagers/static/SmartWagers/signals.js": {
-      "sha256": "9b55c4c2d91b719283c4f725c973656554a3dda1621c8e50a17d96f36556cb46",
-      "size": 5537
+      "sha256": "58e149dc0695b4dd5b13ca9ada1d13ea3daae4fa827e43f4c595acb9c93c72ab",
+      "size": 6626
     },
     "SmartWagers/static/SmartWagers/submit_wagers.js": {
-      "sha256": "17f871c56043e1d28e9ddccda35513e8d144bf93932ab6fb114501ef29a05b10",
-      "size": 26583
+      "sha256": "411e43460f125c9bec163348fed1b618129a6bd1e5948b4bf77e8a7c893fe1dc",
+      "size": 33161
     },
     "SmartWagers/static/SmartWagers/teller_report.js": {
-      "sha256": "01e19cd052fb2c3795403f07979faf43cdcf689496fd6b3dd7866a98cf04e913",
-      "size": 6209
+      "sha256": "e9dc50cf232af93166702e8a2bcc5f53a9342d506b775bbbfabb361fc58bafe7",
+      "size": 13782
     },
     "SmartWagers/static/SmartWagers/user.css": {
-      "sha256": "86a20b23158ee1c4b42b76b341e9521a5a6f8307a45475ac3ea5bb73312603ce",
-      "size": 17812
+      "sha256": "9df8546cc9892c39e18c52fd692024922cbcd9fe370cb9183e4bc40baf493d41",
+      "size": 17910
     },
     "SmartWagers/static/SmartWagers/user.js": {
-      "sha256": "2512a966dd749e26c3c44571eb0b225924382468197b22dea16535a553510e11",
-      "size": 31518
+      "sha256": "975d96091008df320a25a39d0ff3a0ebb43fffa15a2aded269349ccfb2f32221",
+      "size": 31354
     },
     "SmartWagers/static/SmartWagers/user_old.css": {
       "sha256": "5851994043588d0d5af9bcee5faf8509d4cb9261e10092635254414a5f9041e9",
       "size": 2696
     },
     "SmartWagers/templates/SmartWagers/admin_commission.html": {
-      "sha256": "a9dc6619997f928f805685a71238110effc706aba55fb70dc23b017ce2201ea8",
-      "size": 9771
+      "sha256": "eb07c11e2cb0fd22d783de2e26d88c4f412ba88585317d68d963ded45fb6dfd9",
+      "size": 9947
+    },
+    "SmartWagers/templates/SmartWagers/admin_print_agent.html": {
+      "sha256": "8c808905dc400569c2cb21f5eb5959c955a2e6029a92f5613d59917a12a53f5e",
+      "size": 7663
     },
     "SmartWagers/templates/SmartWagers/admin_settings.html": {
-      "sha256": "ac335c7db21bc9957c6e6ed3fe197b806af93d13e4b06fe47b0e91d5951553e6",
-      "size": 32888
+      "sha256": "0e1e6ef493f46c655b4462e86d0bba4628d1fd28d67309c535b2a2785e176179",
+      "size": 36844
     },
     "SmartWagers/templates/SmartWagers/admin_teller_transactions.html": {
-      "sha256": "9c4c2f2474253499946bad57d26f4b688921d7a502706223a02b6b3ab4dac2b2",
-      "size": 10292
+      "sha256": "352234e3a454d9c93bcdd8ceb2a30c8aa9bce24d07fd9d71883c399cea31a021",
+      "size": 10468
     },
     "SmartWagers/templates/SmartWagers/admin_tellers.html": {
-      "sha256": "d305eb4c2e1c4938b3a6e8f4609bf546690ed7b7acb442ac177bba6f639717c1",
-      "size": 53382
+      "sha256": "94f04de9c3d4e2c643cbfa92c5b20f1f59fd26f07db90baaeae284fbca3342ed",
+      "size": 71896
+    },
+    "SmartWagers/templates/SmartWagers/admin_users.html": {
+      "sha256": "f28e1b5ee0ffed3546f327fd082e6bb9f7ea84161676a1c3666dfd1c3de3f007",
+      "size": 22789
     },
     "SmartWagers/templates/SmartWagers/administrator.html": {
-      "sha256": "28ebe86cb0c17f706ab1b457d75119711490054c6974a41b6477827c4d92492d",
-      "size": 41294
+      "sha256": "b49ff32a67759aa576108fa74952952b6241c461e114f2d6072717c4c229c6d3",
+      "size": 47847
     },
     "SmartWagers/templates/SmartWagers/event_report.html": {
-      "sha256": "9b0669311076bff2ac987668ab4393efdd931ce48268d43ee7f421e1b91086a6",
-      "size": 64826
+      "sha256": "5a654a7a662d5196a073a51828a11497315abee1c6ca0d3df59a55d1ad933c0a",
+      "size": 66071
     },
     "SmartWagers/templates/SmartWagers/index.html": {
-      "sha256": "dffbd4db89d21edf6c9c5c7c730079857bdb0e9ce307a5f4042e56963156a0c4",
-      "size": 508
+      "sha256": "cc5343b2630c73cf301662187d5e8edbf8f56021b39af1b044fa39c31079931a",
+      "size": 961
     },
     "SmartWagers/templates/SmartWagers/index_old.html": {
       "sha256": "0429be564671b27a4cedc75390c11244d22a13c511d6ec9eabe129415e31edfc",
@@ -419,24 +459,28 @@
       "size": 108
     },
     "SmartWagers/templates/SmartWagers/teller_report.html": {
-      "sha256": "0d296cab2af954de81bb60b21f92ea1d6e3b826103a08da591d7555349c7cebc",
-      "size": 20882
+      "sha256": "c22b41eed96cd596f2d102662fdbabd25fa0afe7b601911e744eb23531cf07a2",
+      "size": 31091
     },
     "SmartWagers/templates/SmartWagers/user.html": {
-      "sha256": "14c6653868df0c7cd606b61d8647f2951d5f9cda00f0fddf8f68ef6e3bb8b54b",
-      "size": 14095
+      "sha256": "05cd24f7323599efe781e9963a05ddb0245cac77e39933e77c52715f85a55a71",
+      "size": 14850
+    },
+    "SmartWagers/transaction_ids.py": {
+      "sha256": "2798c1b80c08e8956deacb6bc954cb200e4002fff2707a6a0ebbcf26145dc4f4",
+      "size": 8471
     },
     "SmartWagers/urls.py": {
-      "sha256": "586bf26d37258b7b9f2993204b25e90455dfe1f104bf6281b296d0de62e6668e",
-      "size": 3585
+      "sha256": "b67906c6d3e183063e5324f9c016349388f5c630e257d28e4e456ff93a138e12",
+      "size": 4686
     },
     "SmartWagers/utils.py": {
       "sha256": "c77ecf479c5776af974e6a616bd6f9d1e9710a125c0bb5f9955972755163e575",
       "size": 916
     },
     "SmartWagers/views.py": {
-      "sha256": "206da43c7e17d443c5c39a43289c10b33d971bf9a07ec675ea6dc7f8da77634e",
-      "size": 90754
+      "sha256": "5a3942c916012b6aae656ac7bee878a0f2ab9d72b202b238cc59fe49f135bd17",
+      "size": 127395
     },
     "deploy/10_migrate_users_to_postgres.bat": {
       "sha256": "cb5711efc6308d9031dd3f0fe5dea4cc3119541e9951ff722bcde72bbb4ee20c",
@@ -503,8 +547,8 @@
       "size": 4576
     },
     "deploy/README.md": {
-      "sha256": "5e8e63f3a29c46c41f01d7962889217b96e2b3ff79132c64df80234f3c34f6f6",
-      "size": 20932
+      "sha256": "655ba18c146fd000aeeea439ae72fe7b910713d264cd3149ef3920d6b9979f34",
+      "size": 21477
     },
     "deploy/apply_usb_release.py": {
       "sha256": "093ecb9a99038202aa4dc28a7368b61452c8e37ab0a096e8a75b3c43a7e8d451",
@@ -547,8 +591,8 @@
       "size": 4046
     },
     "deploy/server_inventory.json": {
-      "sha256": "8097bed3d15632d1ae46a7dffff18849c5065547d8910674f9b6159022fbc05e",
-      "size": 27841
+      "sha256": "be4e24b77c84df5092b50fb460700ac045c8f50fcdee7cb1ac455c9d65454262",
+      "size": 27994
     },
     "deploy/service_control.bat": {
       "sha256": "48c643d2161ffb26a6d7350b69cae79190eb9b116967b9b5296ddd933d2ee514",
@@ -587,8 +631,8 @@
       "size": 4096
     },
     "local_print_agent/README.md": {
-      "sha256": "f72232448b392acf1304499bd936d147f682d31856757ff7d02e29b8ab0c227a",
-      "size": 2527
+      "sha256": "8d67b464f333a866940e2c511e627aed268c48f4e9df1e0be2b0a93ac718ceab",
+      "size": 3397
     },
     "local_print_agent/config.example.json": {
       "sha256": "33fb6ef2b22c18d2922960eb14c3dfba79dfcec32b38618709d606ab66b39b52",
@@ -603,20 +647,28 @@
       "size": 1536
     },
     "local_print_agent/install_print_agent.bat": {
-      "sha256": "e5e4f61e52e306dd485f3e2635246f4c32c1720b6f55be5ac792e304113e2b34",
-      "size": 4314
+      "sha256": "24cb1484429f499bc7122b277b4537619335f455feac75e8804914bd4a06cd5e",
+      "size": 5504
+    },
+    "local_print_agent/prepare_vendor.bat": {
+      "sha256": "754899e8e5dd7abbb767ba963bf12e6cc247aaa0eefef34aa618242ccceaf8b7",
+      "size": 504
+    },
+    "local_print_agent/prepare_vendor.py": {
+      "sha256": "fd753e83ca6b574705f2f3c0f88fc7670ee517ff43915766068a5898fcd4a4cd",
+      "size": 7160
     },
     "local_print_agent/print_agent.py": {
-      "sha256": "7780705e8134855749e7d1f7befcd666d59c8d131333f6635834fc4ed8f9a6af",
-      "size": 33984
+      "sha256": "81bc1468a5588c3b83ef68718770a5641eb9457c86c0d9736cac3d4d03412a6b",
+      "size": 34156
     },
     "local_print_agent/run_print_agent.bat": {
-      "sha256": "e4c8ccf849a1a88132a18f3442c140828c3eac5eb7ff0512988c019dc2ac0612",
-      "size": 438
+      "sha256": "13d66676cbac690a08c612e79d1985cfecdb028afdc632c80ee74d37ea056918",
+      "size": 688
     },
     "local_print_agent/run_print_agent_debug.bat": {
-      "sha256": "e16072f57efee3d5d2277068d20fae2cb4b47f18b22bf1155164e6256d6e911a",
-      "size": 658
+      "sha256": "7af27f4129109c94136f4af90e9e55daad3e02513b289c0227db75e8309ef055",
+      "size": 969
     },
     "local_print_agent/server.env.example": {
       "sha256": "da9cb93377b8ba35380e5b1659f7f8314bef52fd6293a56a692c16de0eb2b1f5",
@@ -627,16 +679,20 @@
       "size": 168121
     },
     "local_print_agent/start_print_agent_silent.vbs": {
-      "sha256": "cfe5866958163c4e6a74941d21c410385895e62b8dbcf90453d56375a6079c64",
-      "size": 2139
+      "sha256": "fc3efc9b7d909b8506f0e58b706fee155cc1b5fc1bc1f1d86c114aad9676acc4",
+      "size": 3388
     },
     "local_print_agent/start_teller.bat": {
-      "sha256": "03ef5d697d0dbd75652cf3ef8248664ddfd53edf8504037d353eda3bfda32d30",
-      "size": 4080
+      "sha256": "a7646e01cfb68c1dad0fd38ac2d99a6d48b96fc6cc10a9ad83558011ab0bd43b",
+      "size": 4337
     },
     "local_print_agent/start_teller_silent.vbs": {
       "sha256": "02a0a795623fd93abedebc020afad0fb3ba576bcd9d1eda081bda55af6f9b6b9",
       "size": 481
+    },
+    "local_print_agent/vendor/README.md": {
+      "sha256": "c54b663c755216e4b7ea7beefcc110a769de64c2e86f3f75b31fd130ddc079a8",
+      "size": 748
     },
     "manage.py": {
       "sha256": "390fb0571922880c421e75118f20fd8b3b32355068d2cc3313b1fc4bbe87fbe0",
@@ -663,24 +719,24 @@
       "size": 444
     },
     "server_inventory.json": {
-      "sha256": "49117bd832c94630d608bb4bb1ccf4fbcbd1c063946e7d72503d2ebbfb6d7e64",
-      "size": 27848
+      "sha256": "09c1e461bed1024ca1a46d5daf8ea9769db00048acf3641963942ccb93a39323",
+      "size": 30403
     },
     "static/app copy.css": {
       "sha256": "214787d336bd00ba413a1c3bf0ac21fe29774d7101cac75809df95b467a8378c",
       "size": 3629
     },
     "static/app.css": {
-      "sha256": "151a487675db6ec3ef17e5e9008a1e810d4d217b97587941879ef0c839cb7bd2",
-      "size": 13470
+      "sha256": "4b49fa69f0fb4f04a4fdfe68cb6d2ac13961901856c6225c7abc77685ca7ea07",
+      "size": 13834
     },
     "templates/403.html": {
       "sha256": "1936b322ea34606bf8abbfea567a777c4455ecf5e40b68c9eff66dec45356205",
       "size": 3786
     },
     "templates/base.html": {
-      "sha256": "ede450047e5dc8e04f8a04e4f9e90c5f86e6781d9caf4d00a16629c95148bdaa",
-      "size": 4695
+      "sha256": "a9f3e83ad2e62b3a83cbbf11065b596c88038c682aec6c284fbee6d80bec7104",
+      "size": 4879
     }
   },
   "inventory_version": 1,

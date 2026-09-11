@@ -30,6 +30,14 @@ SKIP_DIRECTORY_NAMES = {
     "node_modules",
     "__pycache__",
     "tests",
+    # React Native / Expo local build trees (Windows MAX_PATH failures).
+    # Production only needs mobile_print_agent/dist/*.apk.
+    "android",
+    "ios",
+    ".expo",
+    ".gradle",
+    ".cxx",
+    "build",
 }
 EXCLUDE_GLOBS = (
     ".env",
@@ -50,6 +58,7 @@ EXCLUDE_GLOBS = (
     "deploy/.last_sync_manifest",
     "deploy/.last_applied_usb_release.json",
     "deploy/python_path.txt",
+    "**/*Zone.Identifier*",
 )
 
 
@@ -61,7 +70,18 @@ def normalize_rel_path(value: str) -> str:
     normalized = value.strip().replace("\\", "/")
     while normalized.startswith("./"):
         normalized = normalized[2:]
-    return normalized
+    # Some Windows tools serialize ":" as U+F03A in inventory JSON.
+    return normalized.replace("\uf03a", ":")
+
+
+def is_windows_junk_path(value: str) -> bool:
+    """True for Mark-of-the-Web ADS files and other Windows-invalid names."""
+    normalized = normalize_rel_path(value)
+    return (
+        ":" in normalized
+        or "Zone.Identifier" in normalized
+        or "\uf03a" in value
+    )
 
 
 def is_safe_inventory_path(value: str) -> bool:
@@ -70,7 +90,7 @@ def is_safe_inventory_path(value: str) -> bool:
     return bool(
         normalized
         and not normalized.startswith("/")
-        and ":" not in normalized
+        and not is_windows_junk_path(value)
         and ".." not in path.parts
         and not any(part in SKIP_DIRECTORY_NAMES for part in path.parts[:-1])
         and not any(fnmatch.fnmatch(normalized, pattern) for pattern in EXCLUDE_GLOBS)
@@ -131,7 +151,7 @@ def write_inventory(root: Path, output: Path) -> dict[str, Any]:
     return inventory
 
 
-def load_inventory(path: Path) -> dict[str, Any]:
+def load_inventory(path: Path, *, skip_unsafe: bool = True) -> dict[str, Any]:
     try:
         inventory = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -142,11 +162,34 @@ def load_inventory(path: Path) -> dict[str, Any]:
         )
     if not isinstance(inventory.get("files"), dict):
         raise InventoryError("Inventory has no valid files map.")
+
+    cleaned: dict[str, dict[str, int | str]] = {}
+    skipped: list[str] = []
     for rel_path, details in inventory["files"].items():
-        if not is_safe_inventory_path(str(rel_path)):
-            raise InventoryError(f"Inventory contains an unsafe path: {rel_path!r}")
+        key = str(rel_path)
+        if not is_safe_inventory_path(key):
+            skipped.append(key)
+            if not skip_unsafe:
+                raise InventoryError(f"Inventory contains an unsafe path: {key!r}")
+            continue
         if not isinstance(details, dict) or not isinstance(details.get("sha256"), str):
-            raise InventoryError(f"Inventory contains invalid file details: {rel_path!r}")
+            raise InventoryError(f"Inventory contains invalid file details: {key!r}")
+        cleaned[normalize_rel_path(key)] = details
+
+    if skipped:
+        print(
+            f"WARNING: ignored {len(skipped)} unsafe path(s) in inventory "
+            f"(e.g. Zone.Identifier junk). Re-export inventory on production after deleting them.",
+            file=sys.stderr,
+        )
+        for item in skipped[:5]:
+            print(f"  skip {item!r}", file=sys.stderr)
+        if len(skipped) > 5:
+            print(f"  ... and {len(skipped) - 5} more", file=sys.stderr)
+
+    inventory = dict(inventory)
+    inventory["files"] = cleaned
+    inventory["file_count"] = len(cleaned)
     return inventory
 
 
