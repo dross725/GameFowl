@@ -57,11 +57,42 @@ def normalize_amount_source(raw):
 
 
 def _lookup_idempotent_wager(client_request_id):
+    """Find an active wager for a client request id (registered or pending approval)."""
     return (
         Wagers.objects
-        .filter(client_request_id=client_request_id, registered=True, cancelled=False)
+        .filter(client_request_id=client_request_id, cancelled=False)
         .first()
     )
+
+
+class PendingWagerAwaitingApprovalError(Exception):
+    """Raised when add_wager hits a client_request_id still waiting for approval."""
+
+    def __init__(self, wager):
+        self.wager = wager
+        super().__init__('awaiting_approval')
+
+
+def get_teller_bet_limit():
+    """Return the configured teller bet limit (0 = no limit / no approval required)."""
+    setting = Settings.objects.order_by('-id').first()
+    if setting is None:
+        return 0.0
+    try:
+        return float(setting.teller_bet_limit or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def wager_requires_approval(amount):
+    """True when a teller wager exceeds the configured bet limit."""
+    limit = get_teller_bet_limit()
+    if limit <= 0:
+        return False
+    try:
+        return float(amount) > limit
+    except (TypeError, ValueError):
+        return False
 
 
 def normalize_wager_transaction_id(raw):
@@ -304,12 +335,15 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
                 .select_for_update()
                 .filter(
                     client_request_id=client_request_id,
-                    registered=True,
                     cancelled=False,
                 )
                 .first()
             )
             if existing:
+                if not existing.registered:
+                    # Still waiting for admin approval — must not look like a
+                    # successful registered bet (would skip pot / print wrongly).
+                    raise PendingWagerAwaitingApprovalError(existing)
                 logger.warning(
                     "IDEMPOTENT BET RETRY: txn=%s client_request_id=%s cashier=%s",
                     existing.transactionid, client_request_id, cashier,
@@ -374,6 +408,8 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
             if client_request_id:
                 existing = _lookup_idempotent_wager(client_request_id)
                 if existing:
+                    if not existing.registered:
+                        raise PendingWagerAwaitingApprovalError(existing)
                     logger.warning(
                         "IDEMPOTENT BET RACE: txn=%s client_request_id=%s cashier=%s",
                         existing.transactionid, client_request_id, cashier,
@@ -403,6 +439,215 @@ def add_wager(amount, side, fightnum, cashier="Juan DelaCruz", require_side_open
         amount_source=amount_source,
     )
     return addwager, True
+
+
+class PendingWagerNotFoundError(Exception):
+    """Raised when a pending-approval wager cannot be found."""
+
+
+class PendingWagerNotPendingError(Exception):
+    """Raised when a wager is not awaiting approval (already registered/cancelled)."""
+
+    def __init__(self, code='not_pending'):
+        self.code = code
+        super().__init__(code)
+
+
+class PendingWagerStaleError(Exception):
+    """Raised when a pending wager can no longer be approved (fight/side closed)."""
+
+    def __init__(self, code='stale'):
+        self.code = code
+        super().__init__(code)
+
+
+def create_pending_approval_wager(
+    amount, side, fightnum, cashier="Juan DelaCruz",
+    client_request_id=None, amount_source=None,
+):
+    """Create an unregistered wager that waits for admin approval.
+
+    Returns ``(wager, created)``. Does not update pot totals until approved.
+    """
+    client_request_id = normalize_client_request_id(client_request_id)
+    amount_source = normalize_amount_source(amount_source)
+
+    with db_transaction.atomic():
+        if client_request_id:
+            existing = (
+                Wagers.objects
+                .select_for_update()
+                .filter(client_request_id=client_request_id, cancelled=False)
+                .first()
+            )
+            if existing:
+                logger.warning(
+                    "IDEMPOTENT PENDING BET RETRY: txn=%s client_request_id=%s cashier=%s",
+                    existing.transactionid, client_request_id, cashier,
+                )
+                return existing, False
+
+        if not is_betting_open(side):
+            raise BettingClosedError(side)
+
+        live_fn = get_fightnum()
+        if live_fn:
+            fightnum = live_fn
+
+        pending = Wagers(
+            fightnum=fightnum,
+            side=side,
+            wager=amount,
+            cashier=cashier,
+            registered=False,
+            client_request_id=client_request_id,
+        )
+        try:
+            with db_transaction.atomic():
+                pending.save()
+        except IntegrityError:
+            if client_request_id:
+                existing = _lookup_idempotent_wager(client_request_id)
+                if existing:
+                    logger.warning(
+                        "IDEMPOTENT PENDING BET RACE: txn=%s client_request_id=%s cashier=%s",
+                        existing.transactionid, client_request_id, cashier,
+                    )
+                    return existing, False
+            raise
+
+    logger.info(
+        "BET PENDING APPROVAL: txn=%s fight=%s side=%s amount=%.2f source=%s cashier=%s",
+        pending.transactionid, fightnum, side, amount, amount_source, cashier,
+    )
+    log_teller_action(
+        'bet',
+        cashier,
+        transaction_id=pending.transactionid,
+        outcome='pending_approval',
+        fight=fightnum,
+        side=side,
+        amount=f"{amount:.2f}",
+        amount_source=amount_source,
+        bet_limit=f"{get_teller_bet_limit():.2f}",
+    )
+    return pending, True
+
+
+def list_pending_approval_wagers(event=None):
+    """Return pending (unregistered, uncancelled) teller wagers for approval.
+
+    Scoped to the active event when provided. With no event, returns empty so
+    stale pending rows from prior sessions are not shown as actionable.
+    """
+    if event is None:
+        return []
+    qs = (
+        Wagers.objects
+        .filter(registered=False, cancelled=False)
+        .exclude(cashier='System')
+        .order_by('-created_at')
+    )
+    if getattr(event, 'started_at', None):
+        qs = qs.filter(created_at__gte=event.started_at)
+        if event.ended_at:
+            qs = qs.filter(created_at__lte=event.ended_at)
+    return list(qs)
+
+
+def approve_pending_wager(transaction_id, *, approved_by=None):
+    """Register a pending wager and add it to pot totals.
+
+    Raises PendingWagerNotFoundError / PendingWagerNotPendingError /
+    PendingWagerStaleError / BettingClosedError.
+    """
+    tid = normalize_wager_transaction_id(transaction_id)
+    if not tid:
+        raise PendingWagerNotFoundError()
+
+    with db_transaction.atomic():
+        wager = (
+            Wagers.objects
+            .select_for_update()
+            .filter(transactionid=tid)
+            .first()
+        )
+        if wager is None:
+            raise PendingWagerNotFoundError()
+        if wager.cancelled:
+            raise PendingWagerNotPendingError('cancelled')
+        if wager.registered:
+            raise PendingWagerNotPendingError('already_registered')
+
+        live_fn = get_fightnum()
+        if live_fn and wager.fightnum != live_fn:
+            raise PendingWagerStaleError('fight_changed')
+        if not is_betting_open(wager.side):
+            raise PendingWagerStaleError('betting_closed')
+
+        wager.registered = True
+        wager.save(update_fields=['registered'])
+        add_total(wager.wager, wager.side)
+
+    actor = str(approved_by) if approved_by is not None else 'admin'
+    logger.info(
+        "BET APPROVED: txn=%s fight=%s side=%s amount=%.2f cashier=%s by=%s",
+        wager.transactionid, wager.fightnum, wager.side, wager.wager,
+        wager.cashier, actor,
+    )
+    log_teller_action(
+        'bet',
+        wager.cashier,
+        transaction_id=wager.transactionid,
+        outcome='approved',
+        fight=wager.fightnum,
+        side=wager.side,
+        amount=f"{wager.wager:.2f}",
+        approved_by=actor,
+    )
+    return wager
+
+
+def reject_pending_wager(transaction_id, *, rejected_by=None):
+    """Cancel a pending-approval wager without affecting pot totals."""
+    tid = normalize_wager_transaction_id(transaction_id)
+    if not tid:
+        raise PendingWagerNotFoundError()
+
+    with db_transaction.atomic():
+        wager = (
+            Wagers.objects
+            .select_for_update()
+            .filter(transactionid=tid)
+            .first()
+        )
+        if wager is None:
+            raise PendingWagerNotFoundError()
+        if wager.cancelled:
+            raise PendingWagerNotPendingError('cancelled')
+        if wager.registered:
+            raise PendingWagerNotPendingError('already_registered')
+
+        wager.cancelled = True
+        wager.save(update_fields=['cancelled'])
+
+    actor = str(rejected_by) if rejected_by is not None else 'admin'
+    logger.info(
+        "BET REJECTED: txn=%s fight=%s side=%s amount=%.2f cashier=%s by=%s",
+        wager.transactionid, wager.fightnum, wager.side, wager.wager,
+        wager.cashier, actor,
+    )
+    log_teller_action(
+        'bet',
+        wager.cashier,
+        transaction_id=wager.transactionid,
+        outcome='rejected',
+        fight=wager.fightnum,
+        side=wager.side,
+        amount=f"{wager.wager:.2f}",
+        rejected_by=actor,
+    )
+    return wager
 
 def is_wager_receipt_printing_enabled():
     return getattr(settings, "WAGER_RECEIPT_PRINTING_ENABLED", True)

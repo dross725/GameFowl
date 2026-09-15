@@ -238,9 +238,9 @@
 <script>
     window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
 </script>
-<script src="{% static 'SmartWagers/print_client.js' %}?v=mobile-print-1"></script>
+<script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=modal-money-2"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=modal-money-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=pending-approval-modal-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
@@ -397,6 +397,20 @@
             <p id='wrongpunch-rank' style='display:none;margin-top:8px;opacity:0.85;'></p>
             <br>
             <button id='wrongpunch-close-button' onclick='closeWrongPunchModal()'>Close</button>
+        </div>
+    </div>
+
+    <div id='pendingApprovalModal' class='modal'>
+        <div class='modal-content'>
+            <h2>Approval Required</h2>
+            <br>
+            <p id='pending-approval-message'>
+                This bet amount exceeds the allowed teller limit and is pending admin approval.
+            </p>
+            <br>
+            <p id='pending-approval-details'></p>
+            <br>
+            <button id='pending-approval-confirm' type='button' onclick='confirmPendingApprovalModal()'>OK</button>
         </div>
     </div>
 

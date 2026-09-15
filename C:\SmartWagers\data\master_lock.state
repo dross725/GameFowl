@@ -1,0 +1,12 @@
+{
+  "payload": {
+    "action": "init",
+    "enabled": false,
+    "extension_count": 0,
+    "last_seen": "2026-09-11T10:28:10Z",
+    "schema_version": 1,
+    "updated_at": "2026-09-11T10:28:10Z",
+    "valid_until": null
+  },
+  "sig": "b168a75ffa553920a6073a797ffd5ce8f7fa6a3c57dfb8356c7e3e01b40d79a7"
+}

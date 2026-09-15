@@ -524,7 +524,7 @@
     <div style="border-top:1px solid rgba(255,255,255,0.07);margin-bottom:16px;"></div>
 
     <!-- Min On-Hand row -->
-    <div>
+    <div style="margin-bottom:16px;">
       <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.40);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Min On-Hand Warning</div>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
         <div class="st-input-group">
@@ -540,6 +540,27 @@
         <button class="st-save-btn" id="st-min-balance-btn" onclick="saveMinBalance()">Save</button>
       </div>
       <div id="st-min-balance-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,0.07);margin-bottom:16px;"></div>
+
+    <!-- Teller Bet Limit row -->
+    <div>
+      <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.40);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Teller Bet Limit</div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div class="st-input-group">
+          <label>Max Bet</label>
+          <span style="font-size:16px;font-weight:700;color:rgba(255,255,255,0.50);margin-right:4px;">₱</span>
+          <input type="text" id="bet-limit-input" value="{{ teller_bet_limit|floatformat:0|intcomma }}"
+                 inputmode="numeric" autocomplete="off"
+                 style="background:transparent;border:none;outline:none;color:white;font-size:20px;font-weight:800;width:130px;text-align:center;">
+        </div>
+        <span style="font-size:12px;color:rgba(255,255,255,0.35);flex:1;min-width:200px;">
+          Teller bets above this amount require admin approval on the Tellers page. Set to <strong>0</strong> to disable.
+        </span>
+        <button class="st-save-btn" id="st-bet-limit-btn" onclick="saveBetLimit()">Save</button>
+      </div>
+      <div id="st-bet-limit-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:6px;"></div>
     </div>
   </div>
 
@@ -709,6 +730,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupCommaInput('initial-fund-input');
     setupCommaInput('threshold-input');
     setupCommaInput('min-balance-input');
+    setupCommaInput('bet-limit-input');
 });
 
 async function masterLockAction(action) {
@@ -897,6 +919,46 @@ async function saveMinBalance() {
             statusEl.textContent = val === 0
                 ? 'Saved! Min on-hand warnings are disabled.'
                 : `Saved! Warning triggers when balance falls below ₱ ${Number(data.teller_min_balance).toLocaleString('en-PH', {maximumFractionDigits:0})}.`;
+        } else {
+            statusEl.className = 'st-err';
+            statusEl.textContent = data.error || 'Unknown error.';
+        }
+    } catch (err) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Network error. Check connection.';
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function saveBetLimit() {
+    const val = parseCommaInput('bet-limit-input');
+    const statusEl = document.getElementById('st-bet-limit-status');
+    const btn = document.getElementById('st-bet-limit-btn');
+
+    if (isNaN(val) || val < 0) {
+        statusEl.className = 'st-err';
+        statusEl.textContent = 'Please enter 0 or a positive number.';
+        return;
+    }
+
+    btn.disabled = true;
+    statusEl.className = '';
+    statusEl.textContent = 'Saving…';
+
+    const fd = new FormData();
+    fd.append('action', 'update_teller_bet_limit');
+    fd.append('teller_bet_limit', val.toString());
+    fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+    try {
+        const res  = await fetch(SETTINGS_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok) {
+            statusEl.className = 'st-ok';
+            statusEl.textContent = val === 0
+                ? 'Saved! Teller bet limit is disabled — no approval required.'
+                : `Saved! Teller bets above ₱ ${Number(data.teller_bet_limit).toLocaleString('en-PH', {maximumFractionDigits:0})} need admin approval.`;
         } else {
             statusEl.className = 'st-err';
             statusEl.textContent = data.error || 'Unknown error.';

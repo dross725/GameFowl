@@ -119,16 +119,46 @@ async function listClassicPrinters(): Promise<PrinterInfo[]> {
   }));
 }
 
+async function disconnectClassic(address: string): Promise<void> {
+  try {
+    const RNBluetoothClassic = loadClassic();
+    const connected = await RNBluetoothClassic.isDeviceConnected(address);
+    if (connected) {
+      await RNBluetoothClassic.disconnectFromDevice(address);
+    }
+  } catch {
+    // Best-effort: already disconnected or adapter unavailable.
+  }
+}
+
+/**
+ * Classic SPP is exclusive — only one app can hold the RFCOMM socket.
+ * Connect → write → disconnect so other POS / printer apps can use the same
+ * device while our background service is only polling the job queue.
+ */
 async function printClassic(printer: PrinterInfo, bytes: Uint8Array): Promise<void> {
   await ensureBluetoothPermissions();
   const RNBluetoothClassic = loadClassic();
   const address = printer.address || printer.id;
-  const connected = await RNBluetoothClassic.isDeviceConnected(address);
-  if (!connected) {
-    await RNBluetoothClassic.connectToDevice(address);
+  try {
+    const connected = await RNBluetoothClassic.isDeviceConnected(address);
+    if (!connected) {
+      await RNBluetoothClassic.connectToDevice(address);
+    }
+    // Pass a Buffer so the library base64-encodes raw ESC/POS once for the bridge.
+    await RNBluetoothClassic.writeToDevice(address, Buffer.from(bytes));
+    // Brief pause so the printer can flush before RFCOMM teardown.
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+  } finally {
+    await disconnectClassic(address);
   }
-  // Pass a Buffer so the library base64-encodes raw ESC/POS once for the bridge.
-  await RNBluetoothClassic.writeToDevice(address, Buffer.from(bytes));
+}
+
+/** Drop any lingering Classic SPP link (e.g. when the print service stops). */
+export async function releaseClassicPrinter(printer: PrinterInfo | null): Promise<void> {
+  if (!printer || printer.transport === 'ble' || Platform.OS === 'ios') return;
+  await ensureBluetoothPermissions().catch(() => undefined);
+  await disconnectClassic(printer.address || printer.id);
 }
 
 async function waitForBlePoweredOn(

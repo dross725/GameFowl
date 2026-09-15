@@ -309,6 +309,56 @@ function closeWrongPunchModal() {
     focusBetInput();
 }
 
+function openPendingApprovalModal(details) {
+    const msg = document.getElementById('pending-approval-message');
+    if (msg) {
+        msg.textContent =
+            'The bet amount you entered exceeds the allowed teller limit '
+            + 'and is pending admin approval.';
+    }
+
+    const detailsEl = document.getElementById('pending-approval-details');
+    if (detailsEl) {
+        detailsEl.replaceChildren();
+        const amount = details && details.amount != null ? details.amount : null;
+        const limit = details && details.bet_limit != null ? details.bet_limit : null;
+        const txnId = (details && details.transaction_id) || 'unknown';
+        const side = (details && details.side) || '';
+
+        const lines = [];
+        if (amount != null) {
+            lines.push('Amount: ₱ ' + formatNumber(amount));
+        }
+        if (limit != null && Number(limit) > 0) {
+            lines.push('Allowed limit: ₱ ' + formatNumber(limit));
+        }
+        if (side) {
+            lines.push('Side: ' + side);
+        }
+        lines.push('Txn: ' + txnId);
+
+        lines.forEach((line, index) => {
+            if (index > 0) detailsEl.append(document.createElement('br'));
+            detailsEl.append(document.createTextNode(line));
+        });
+    }
+
+    const modal = document.getElementById('pendingApprovalModal');
+    if (modal) modal.style.display = 'flex';
+
+    const confirmBtn = document.getElementById('pending-approval-confirm');
+    if (confirmBtn) {
+        /* Focus so Enter is obvious; teller must acknowledge before continuing. */
+        confirmBtn.focus();
+    }
+}
+
+function confirmPendingApprovalModal() {
+    const modal = document.getElementById('pendingApprovalModal');
+    if (modal) modal.style.display = 'none';
+    window.location.reload();
+}
+
 function cancelBet() {
     total = 0;
     wager_id = '';
@@ -672,6 +722,19 @@ async function submitValue() {
             return;
         }
 
+        // Oversized teller bet — waiting for admin approval (no receipt yet).
+        // Keep the UI locked until the teller confirms the warning modal.
+        if (result.pending || result.requires_approval) {
+            submissionSucceeded = true;
+            openPendingApprovalModal({
+                amount: result.amount != null ? result.amount : wager_value,
+                bet_limit: result.bet_limit,
+                transaction_id: result.transaction_id || 'unknown',
+                side: result.side || wager_id,
+            });
+            return;
+        }
+
         // Duplicate of a bet already registered in the debounce window —
         // do not treat this as a brand-new placement.
         if (result.duplicate) {
@@ -849,6 +912,8 @@ document.addEventListener('keydown', (e) => {
         ['confirmationModal',      () => click('submitvalue'),            () => call(closeModal)],
         ['invalidtotalModal',      () => call(closeInvalidTotalModal),    () => call(closeInvalidTotalModal)],
         ['wrongpunchModal',        () => call(closeWrongPunchModal),      () => call(closeWrongPunchModal)],
+        /* Must acknowledge before reload — Enter/Esc both confirm. */
+        ['pendingApprovalModal',   () => call(confirmPendingApprovalModal), () => call(confirmPendingApprovalModal)],
         ['wrongpunchwinnermodal',  () => click('wp-winner-continue'),     () => click('wp-winner-continue')],
         ['control_confirmationModal', () => click('cm-yes-button'),       () => click('cm-no-button')],
         ['adminbetcontrol',        () => click('confirmopen'),            () => { if (typeof closemodal === 'function') closemodal('adminbetcontrol'); }],

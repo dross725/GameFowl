@@ -1664,3 +1664,258 @@ class TestTellerReportWrongPunchCard:
         assert punch['rank'] == 1
         assert punch['tellers_counted'] == 2
         assert b'#1' in response.content
+
+
+# ---------------------------------------------------------------------------
+# Teller bet limit / admin approval
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestTellerBetLimitApproval:
+
+    def test_admin_can_update_teller_bet_limit(self, admin_user, default_settings):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/settings/', {
+            'action': 'update_teller_bet_limit',
+            'teller_bet_limit': '10000',
+        })
+        assert response.status_code == 200
+        assert response.json() == {'ok': True, 'teller_bet_limit': 10000.0}
+        default_settings.refresh_from_db()
+        assert default_settings.teller_bet_limit == 10000.0
+
+    def test_teller_bet_over_limit_is_pending(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        default_settings.teller_bet_limit = 5000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {
+                'wager_value': '10000',
+                'wager_id': 'MERON',
+                'client_request_id': '11111111-1111-4111-8111-111111111111',
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['pending'] is True
+        assert data['requires_approval'] is True
+        assert data['print_required'] is False
+        wager = Wagers.objects.get(transactionid=data['transaction_id'])
+        assert wager.registered is False
+        assert wager.cancelled is False
+        assert wager.wager == 10000
+        totals = Totals.objects.order_by('-id').first()
+        assert totals.mtotal == 0
+
+    def test_teller_bet_at_limit_registers_immediately(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        default_settings.teller_bet_limit = 5000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post(
+            '/user',
+            {'wager_value': '5000', 'wager_id': 'WALA'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data.get('pending') is False
+        wager = Wagers.objects.get(transactionid=data['transaction_id'])
+        assert wager.registered is True
+        totals = Totals.objects.order_by('-id').first()
+        assert totals.wtotal == 5000
+
+    def test_admin_approve_registers_and_updates_pot(
+            self, admin_user, teller_user, default_settings,
+            teller_status_online, active_event):
+        default_settings.teller_bet_limit = 1000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        teller_client = Client()
+        teller_client.force_login(teller_user)
+        pending = teller_client.post(
+            '/user',
+            {'wager_value': '2500', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        ).json()
+        txn_id = pending['transaction_id']
+
+        admin_client = Client()
+        admin_client.force_login(admin_user)
+        response = admin_client.post('/administrator/approve-wager/', {
+            'transaction_id': txn_id,
+        })
+        assert response.status_code == 200
+        assert response.json()['ok'] is True
+        wager = Wagers.objects.get(transactionid=txn_id)
+        assert wager.registered is True
+        assert wager.cancelled is False
+        totals = Totals.objects.order_by('-id').first()
+        assert totals.mtotal == 2500
+
+    def test_admin_reject_cancels_without_pot_change(
+            self, admin_user, teller_user, default_settings,
+            teller_status_online, active_event):
+        default_settings.teller_bet_limit = 1000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        teller_client = Client()
+        teller_client.force_login(teller_user)
+        pending = teller_client.post(
+            '/user',
+            {'wager_value': '2500', 'wager_id': 'WALA'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        ).json()
+        txn_id = pending['transaction_id']
+
+        admin_client = Client()
+        admin_client.force_login(admin_user)
+        response = admin_client.post('/administrator/reject-wager/', {
+            'transaction_id': txn_id,
+        })
+        assert response.status_code == 200
+        assert response.json()['ok'] is True
+        wager = Wagers.objects.get(transactionid=txn_id)
+        assert wager.registered is False
+        assert wager.cancelled is True
+        totals = Totals.objects.order_by('-id').first()
+        assert totals.wtotal == 0
+
+    def test_admin_tellers_page_lists_pending_bets(
+            self, admin_user, teller_user, default_settings,
+            teller_status_online, active_event):
+        default_settings.teller_bet_limit = 1000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        teller_client = Client()
+        teller_client.force_login(teller_user)
+        pending = teller_client.post(
+            '/user',
+            {'wager_value': '3000', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        ).json()
+
+        admin_client = Client()
+        admin_client.force_login(admin_user)
+        response = admin_client.get('/administrator/tellers/')
+        assert response.status_code == 200
+        approvals = response.context['pending_bet_approvals']
+        assert len(approvals) == 1
+        assert approvals[0]['transaction_id'] == pending['transaction_id']
+        assert approvals[0]['amount'] == 3000
+        assert b'awaiting approval' in response.content
+        assert pending['transaction_id'].encode() in response.content
+
+    def test_admin_bets_bypass_teller_limit(
+            self, admin_user, default_settings, active_event):
+        default_settings.teller_bet_limit = 1000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post(
+            '/administrator',
+            {'wager_value': '5000', 'wager_id': 'MERON'},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data.get('pending') is False
+        wager = Wagers.objects.get(transactionid=data['transaction_id'])
+        assert wager.registered is True
+
+    def test_add_wager_does_not_treat_pending_as_registered(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        """Idempotent retry via add_wager must not print/register a pending bet."""
+        default_settings.teller_bet_limit = 1000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        client_request_id = '22222222-2222-4222-8222-222222222222'
+        teller_client = Client()
+        teller_client.force_login(teller_user)
+        pending = teller_client.post(
+            '/user',
+            {
+                'wager_value': '2500',
+                'wager_id': 'MERON',
+                'client_request_id': client_request_id,
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        ).json()
+        assert pending['pending'] is True
+
+        # Limit disabled — next path would be add_wager, but same request id
+        # must still surface as pending approval, not a registered success.
+        default_settings.teller_bet_limit = 0
+        default_settings.save()
+        response = teller_client.post(
+            '/user',
+            {
+                'wager_value': '2500',
+                'wager_id': 'MERON',
+                'client_request_id': client_request_id,
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['pending'] is True
+        assert data['print_required'] is False
+        wager = Wagers.objects.get(transactionid=pending['transaction_id'])
+        assert wager.registered is False
+        totals = Totals.objects.order_by('-id').first()
+        assert totals.mtotal == 0
+
+    def test_pending_retry_does_not_require_fresh_admin_reload(
+            self, teller_user, default_settings, teller_status_online, active_event):
+        default_settings.teller_bet_limit = 1000
+        default_settings.discard_trailing_3_6 = False
+        default_settings.save()
+        _open_fight()
+        client_request_id = '33333333-3333-4333-8333-333333333333'
+        teller_client = Client()
+        teller_client.force_login(teller_user)
+        first = teller_client.post(
+            '/user',
+            {
+                'wager_value': '2500',
+                'wager_id': 'WALA',
+                'client_request_id': client_request_id,
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        ).json()
+        second = teller_client.post(
+            '/user',
+            {
+                'wager_value': '2500',
+                'wager_id': 'WALA',
+                'client_request_id': client_request_id,
+            },
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        ).json()
+        assert first['pending'] is True
+        assert second['pending'] is True
+        assert second['duplicate'] is True
+        assert first['transaction_id'] == second['transaction_id']
+        assert Wagers.objects.filter(
+            client_request_id=client_request_id, cancelled=False,
+        ).count() == 1
