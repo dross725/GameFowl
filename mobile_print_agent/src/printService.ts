@@ -1,6 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import BackgroundService from 'react-native-background-actions';
 
+import { releaseClassicPrinter } from './bluetooth';
 import { PrintJobLoop } from './jobLoop';
 import type { PrinterInfo, Session } from './types';
 
@@ -134,10 +135,13 @@ export async function startPrintService(
 export async function stopPrintService(): Promise<void> {
   activeLoop?.stop();
   activeLoop = null;
+  const printer = runtime.printer;
   runtime.session = null;
   if (BackgroundService.isRunning()) {
     await BackgroundService.stop();
   }
+  // Ensure we do not keep an exclusive Classic SPP socket after the service stops.
+  await releaseClassicPrinter(printer);
 }
 
 export function isPrintServiceRunning(): boolean {

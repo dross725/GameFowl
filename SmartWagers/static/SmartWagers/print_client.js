@@ -61,10 +61,9 @@
         const mode = getPrintMode();
         if (mode === "local") return true;
         if (mode === "server") return false;
-        if (isLikelyMobile()) {
-            // Still probe in case a tablet shares a Windows agent somehow.
-            return probeLocalAgent(false);
-        }
+        // Desktop cashier PCs always prefer the Windows localhost agent.
+        // Only mobile browsers fall through to the Bluetooth companion queue.
+        if (!isLikelyMobile()) return true;
         return probeLocalAgent(false);
     }
 
@@ -163,12 +162,14 @@
         if (!receipt) {
             return { ok: false, message: "Missing receipt payload." };
         }
+        const mode = getPrintMode();
         const useLocal = await shouldUseLocalAgent();
         if (useLocal) {
             const localResult = await postLocal(path, receipt, options);
             if (localResult.ok) return localResult;
-            // Fall back to server queue when local fails (mobile / missing agent).
-            if (getPrintMode() === "local") return localResult;
+            // Windows tellers / forced-local: never silently enqueue Bluetooth jobs.
+            // Mobile auto may fall back to the companion queue when localhost fails.
+            if (mode === "local" || !isLikelyMobile()) return localResult;
             return postServerQueue(endpoint, receipt);
         }
         return postServerQueue(endpoint, receipt);

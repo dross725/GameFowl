@@ -207,6 +207,30 @@ async function handleUserSocketMessage(event) {
             }
         }
     }
+
+    // Admin approved an oversized bet — print receipt on this teller's local agent.
+    if (data.approved_wager_print && data.receipt) {
+        if (Number(data.teller_id) === Number(window.TELLER_ID)) {
+            const txnId = data.transaction_id || data.receipt.transaction_id || 'unknown';
+            showAppToast(
+                'Bet approved (Txn: ' + txnId + '). Sending receipt to printer…',
+                'success',
+                5000,
+            );
+            if (data.print_required !== false) {
+                const printResult = await printWagerReceipt(data.receipt, { keepalive: true });
+                if (!printResult.ok) {
+                    showAppToast(
+                        'Bet approved (Txn: ' + txnId
+                            + '), but printing failed. Reprint from Reports.',
+                        'error',
+                    );
+                }
+            }
+            fetchTellerBalance();
+            fetchFightTotals();
+        }
+    }
 }
 
 connectUserSocket();

@@ -81,6 +81,8 @@ class Settings (models.Model):
     teller_max_balance = models.FloatField(default=0.0, null=False, blank=False)
     teller_initial_fund = models.FloatField(default=10000.0, null=False, blank=False)
     teller_min_balance = models.FloatField(default=0.0, null=False, blank=False)
+    # Max wager a teller may place without admin approval. 0 = no limit.
+    teller_bet_limit = models.FloatField(default=0.0, null=False, blank=False)
     # Reject amounts ending in 3 or 6 (common accidental numpad punch before Enter).
     discard_trailing_3_6 = models.BooleanField(default=True)
 

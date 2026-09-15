@@ -2,15 +2,19 @@
 import json
 import math
 import sys
+import threading
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 STARTUP_LOG_PATH = BASE_DIR / "print_agent_silent.log"
-AGENT_VERSION = "1.13.1-admin-bank-copies-fix"
+AGENT_VERSION = "1.13.2-shared-printer"
+# Serialize print jobs so concurrent browser requests do not stack open
+# StartDoc handles on the same USB thermal (which can stall other apps' queues).
+_PRINT_LOCK = threading.Lock()
 DEFAULT_CONFIG = {
     "host": "127.0.0.1",
     "port": 8765,
@@ -348,20 +352,25 @@ def list_printers():
 
 
 def print_raw(printer_name, payload):
+    """Send RAW ESC/POS via the Windows spooler; always close the job handle."""
     win32print = get_win32print()
-    handle = win32print.OpenPrinter(printer_name)
-    try:
-        job_id = win32print.StartDocPrinter(handle, 1, ("SmartWagers Payout Receipt", None, "RAW"))
+    with _PRINT_LOCK:
+        handle = win32print.OpenPrinter(printer_name)
         try:
-            win32print.StartPagePrinter(handle)
-            win32print.WritePrinter(handle, payload)
-            win32print.EndPagePrinter(handle)
+            job_id = win32print.StartDocPrinter(
+                handle, 1, ("SmartWagers Payout Receipt", None, "RAW"),
+            )
+            try:
+                win32print.StartPagePrinter(handle)
+                win32print.WritePrinter(handle, payload)
+                win32print.EndPagePrinter(handle)
+            finally:
+                # EndDocPrinter releases the port even if WritePrinter failed.
+                win32print.EndDocPrinter(handle)
         finally:
-            win32print.EndDocPrinter(handle)
-    finally:
-        win32print.ClosePrinter(handle)
+            win32print.ClosePrinter(handle)
 
-    return job_id
+        return job_id
 
 
 CODE39_PATTERNS = {
@@ -486,90 +495,107 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
     show_barcode = should_print_barcode(receipt) and bool(transaction_id)
     align_left = str(text_align or "left").strip().lower() != "center"
 
-    dc = win32ui.CreateDC()
-    dc.CreatePrinterDC(printer_name)
-    dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
-    dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
-    page_width = dc.GetDeviceCaps(win32con.HORZRES)
-    margin_x = max(int(dpi_x * 0.10), 20)
-    y = max(int(dpi_y * 0.04), 8)
-    line_gap = int(dpi_y * 0.04 * font_scale)
-    tight_gap = max(int(dpi_y * 0.015 * font_scale), 2)
+    with _PRINT_LOCK:
+        dc = win32ui.CreateDC()
+        started = False
+        try:
+            dc.CreatePrinterDC(printer_name)
+            dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
+            dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
+            page_width = dc.GetDeviceCaps(win32con.HORZRES)
+            margin_x = max(int(dpi_x * 0.10), 20)
+            y = max(int(dpi_y * 0.04), 8)
+            line_gap = int(dpi_y * 0.04 * font_scale)
+            tight_gap = max(int(dpi_y * 0.015 * font_scale), 2)
 
-    normal_font = win32ui.CreateFont({
-        "name": "Arial",
-        "height": int(dpi_y * 0.11 * font_scale),
-        "weight": 400,
-    })
-    bold_font = win32ui.CreateFont({
-        "name": "Arial",
-        "height": int(dpi_y * 0.13 * font_scale),
-        "weight": 700,
-    })
-    highlight_font = win32ui.CreateFont({
-        "name": "Arial",
-        "height": int(dpi_y * 0.20 * font_scale),
-        "weight": 700,
-    })
-    barcode_font = win32ui.CreateFont({
-        "name": "Consolas",
-        "height": int(dpi_y * 0.10 * font_scale),
-        "weight": 700,
-    })
-    barcode_height = int(dpi_y * 0.55)
-    barcode_narrow = max(int(dpi_x * 0.016), 3)
+            normal_font = win32ui.CreateFont({
+                "name": "Arial",
+                "height": int(dpi_y * 0.11 * font_scale),
+                "weight": 400,
+            })
+            bold_font = win32ui.CreateFont({
+                "name": "Arial",
+                "height": int(dpi_y * 0.13 * font_scale),
+                "weight": 700,
+            })
+            highlight_font = win32ui.CreateFont({
+                "name": "Arial",
+                "height": int(dpi_y * 0.20 * font_scale),
+                "weight": 700,
+            })
+            barcode_font = win32ui.CreateFont({
+                "name": "Consolas",
+                "height": int(dpi_y * 0.10 * font_scale),
+                "weight": 700,
+            })
+            barcode_height = int(dpi_y * 0.55)
+            barcode_narrow = max(int(dpi_x * 0.016), 3)
 
-    def draw_line(text, font, gap=None):
-        nonlocal y
-        if gap is None:
-            gap = line_gap
-        dc.SelectObject(font)
-        text_width, text_height = dc.GetTextExtent(text)
-        if align_left:
-            x = margin_x
-        else:
-            x = max(int((page_width - text_width) / 2), margin_x)
-        dc.TextOut(x, y, text)
-        y += text_height + gap
+            def draw_line(text, font, gap=None):
+                nonlocal y
+                if gap is None:
+                    gap = line_gap
+                dc.SelectObject(font)
+                text_width, text_height = dc.GetTextExtent(text)
+                if align_left:
+                    x = margin_x
+                else:
+                    x = max(int((page_width - text_width) / 2), margin_x)
+                dc.TextOut(x, y, text)
+                y += text_height + gap
 
-    start_print_doc(dc, "SmartWagers Receipt")
-    try:
-        dc.StartPage()
-        if event_name:
-            draw_line(event_name, bold_font, tight_gap)
-        draw_line(date, normal_font, tight_gap)
-        draw_line(receipt_title(receipt), bold_font, tight_gap)
-        if is_test:
-            draw_line(f"Teller: {cashier}", bold_font)
-            draw_line(f"Current Total: {amount}", highlight_font)
-        else:
-            draw_line(f"Fight Number: {fightnum}", bold_font)
-        if is_wager:
-            draw_line(side, highlight_font)
-            draw_line(f"Amount: {amount}", highlight_font)
-        elif not is_test:
-            draw_line(f"{side} - {odds}", highlight_font)
-            draw_line(f"Amount: {amount}", bold_font)
-            draw_line(f"Odds: {multiplier}", bold_font)
-            draw_line("Refund Amount:" if is_refund else "Payout Amount:", bold_font)
-            draw_line(total_payout, highlight_font)
-        if not is_test:
-            draw_line(f"Cashier: {cashier}", normal_font, tight_gap)
-        if show_txn:
-            draw_line(f"{transaction_id}", normal_font, tight_gap)
-        if show_barcode:
-            barcode_width = code39_width(transaction_id, barcode_narrow)
-            if align_left:
-                barcode_x = margin_x
+            start_print_doc(dc, "SmartWagers Receipt")
+            started = True
+            dc.StartPage()
+            if event_name:
+                draw_line(event_name, bold_font, tight_gap)
+            draw_line(date, normal_font, tight_gap)
+            draw_line(receipt_title(receipt), bold_font, tight_gap)
+            if is_test:
+                draw_line(f"Teller: {cashier}", bold_font)
+                draw_line(f"Current Total: {amount}", highlight_font)
             else:
-                barcode_x = max(int((page_width - barcode_width) / 2), margin_x)
-            draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
-            y += barcode_height + tight_gap
-            draw_line(transaction_id, barcode_font, tight_gap)
-        dc.EndPage()
-    finally:
-        dc.EndDoc()
-        dc.DeleteDC()
+                draw_line(f"Fight Number: {fightnum}", bold_font)
+            if is_wager:
+                draw_line(side, highlight_font)
+                draw_line(f"Amount: {amount}", highlight_font)
+            elif not is_test:
+                draw_line(f"{side} - {odds}", highlight_font)
+                draw_line(f"Amount: {amount}", bold_font)
+                draw_line(f"Odds: {multiplier}", bold_font)
+                draw_line("Refund Amount:" if is_refund else "Payout Amount:", bold_font)
+                draw_line(total_payout, highlight_font)
+            if not is_test:
+                draw_line(f"Cashier: {cashier}", normal_font, tight_gap)
+            if show_txn:
+                draw_line(f"{transaction_id}", normal_font, tight_gap)
+            if show_barcode:
+                barcode_width = code39_width(transaction_id, barcode_narrow)
+                if align_left:
+                    barcode_x = margin_x
+                else:
+                    barcode_x = max(int((page_width - barcode_width) / 2), margin_x)
+                draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
+                y += barcode_height + tight_gap
+                draw_line(transaction_id, barcode_font, tight_gap)
+            dc.EndPage()
+            dc.EndDoc()
+            started = False
+        except Exception:
+            if started:
+                try:
+                    dc.AbortDoc()
+                except Exception:
+                    try:
+                        dc.EndDoc()
+                    except Exception:
+                        pass
+            raise
+        finally:
+            try:
+                dc.DeleteDC()
+            except Exception:
+                pass
 
     return None
 
@@ -693,78 +719,95 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
     )
     align_left = str(text_align or "left").strip().lower() != "center"
 
-    dc = win32ui.CreateDC()
-    dc.CreatePrinterDC(printer_name)
-    dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
-    dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
-    page_width = dc.GetDeviceCaps(win32con.HORZRES)
-    margin_x = max(int(dpi_x * 0.10), 20)
-    top_margin = max(int(dpi_y * 0.04), 8)
-    y = top_margin
-    line_gap = int(dpi_y * 0.04 * font_scale)
-    tight_gap = max(int(dpi_y * 0.015 * font_scale), 2)
-
-    normal_font = win32ui.CreateFont({
-        "name": "Arial", "height": int(dpi_y * 0.11 * font_scale), "weight": 400,
-    })
-    bold_font = win32ui.CreateFont({
-        "name": "Arial", "height": int(dpi_y * 0.13 * font_scale), "weight": 700,
-    })
-    barcode_font = win32ui.CreateFont({
-        "name": "Consolas", "height": int(dpi_y * 0.10 * font_scale), "weight": 700,
-    })
-    barcode_height = int(dpi_y * 0.55)
-    barcode_narrow = max(int(dpi_x * 0.016), 3)
-
-    def draw_header(text, font, gap=None):
-        nonlocal y
-        if gap is None:
-            gap = line_gap
-        dc.SelectObject(font)
-        text_width, text_height = dc.GetTextExtent(text)
-        if align_left:
-            x = margin_x
-        else:
-            x = max(int((page_width - text_width) / 2), margin_x)
-        dc.TextOut(x, y, text)
-        y += text_height + gap
-
-    def draw_left(text, font=normal_font, gap=None):
-        nonlocal y
-        if gap is None:
-            gap = line_gap
-        dc.SelectObject(font)
-        _, text_height = dc.GetTextExtent(text)
-        dc.TextOut(margin_x, y, text)
-        y += text_height + gap
-
-    start_print_doc(dc, f"SmartWagers {label.title()}")
-    try:
-        for copy_label in transaction_receipt_copies(receipt):
+    with _PRINT_LOCK:
+        dc = win32ui.CreateDC()
+        started = False
+        try:
+            dc.CreatePrinterDC(printer_name)
+            dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
+            dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
+            page_width = dc.GetDeviceCaps(win32con.HORZRES)
+            margin_x = max(int(dpi_x * 0.10), 20)
+            top_margin = max(int(dpi_y * 0.04), 8)
             y = top_margin
-            dc.StartPage()
-            draw_header(date, normal_font, tight_gap)
-            draw_header(label, bold_font, tight_gap)
-            draw_header(copy_label, bold_font)
-            if event_name:
-                draw_left(f"Event     : {event_name}")
-            actor_label = "Admin" if is_admin_bank else "Teller"
-            draw_left(f"{actor_label:<10}: {cashier}")
-            draw_left(f"Amount    : {amount}")
-            draw_left(f"Balance   : {balance}")
-            draw_left(f"Grand Tot : {grand_total}")
-            if transaction_id:
-                draw_left(f"Txn ID    : {transaction_id}", gap=tight_gap)
-            if show_barcode:
-                barcode_width = code39_width(transaction_id, barcode_narrow)
-                barcode_x = margin_x if align_left else max(int((page_width - barcode_width) / 2), margin_x)
-                draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
-                y += barcode_height + tight_gap
-                draw_header(transaction_id, barcode_font, tight_gap)
-            dc.EndPage()
-    finally:
-        dc.EndDoc()
-        dc.DeleteDC()
+            line_gap = int(dpi_y * 0.04 * font_scale)
+            tight_gap = max(int(dpi_y * 0.015 * font_scale), 2)
+
+            normal_font = win32ui.CreateFont({
+                "name": "Arial", "height": int(dpi_y * 0.11 * font_scale), "weight": 400,
+            })
+            bold_font = win32ui.CreateFont({
+                "name": "Arial", "height": int(dpi_y * 0.13 * font_scale), "weight": 700,
+            })
+            barcode_font = win32ui.CreateFont({
+                "name": "Consolas", "height": int(dpi_y * 0.10 * font_scale), "weight": 700,
+            })
+            barcode_height = int(dpi_y * 0.55)
+            barcode_narrow = max(int(dpi_x * 0.016), 3)
+
+            def draw_header(text, font, gap=None):
+                nonlocal y
+                if gap is None:
+                    gap = line_gap
+                dc.SelectObject(font)
+                text_width, text_height = dc.GetTextExtent(text)
+                if align_left:
+                    x = margin_x
+                else:
+                    x = max(int((page_width - text_width) / 2), margin_x)
+                dc.TextOut(x, y, text)
+                y += text_height + gap
+
+            def draw_left(text, font=normal_font, gap=None):
+                nonlocal y
+                if gap is None:
+                    gap = line_gap
+                dc.SelectObject(font)
+                _, text_height = dc.GetTextExtent(text)
+                dc.TextOut(margin_x, y, text)
+                y += text_height + gap
+
+            start_print_doc(dc, f"SmartWagers {label.title()}")
+            started = True
+            for copy_label in transaction_receipt_copies(receipt):
+                y = top_margin
+                dc.StartPage()
+                draw_header(date, normal_font, tight_gap)
+                draw_header(label, bold_font, tight_gap)
+                draw_header(copy_label, bold_font)
+                if event_name:
+                    draw_left(f"Event     : {event_name}")
+                actor_label = "Admin" if is_admin_bank else "Teller"
+                draw_left(f"{actor_label:<10}: {cashier}")
+                draw_left(f"Amount    : {amount}")
+                draw_left(f"Balance   : {balance}")
+                draw_left(f"Grand Tot : {grand_total}")
+                if transaction_id:
+                    draw_left(f"Txn ID    : {transaction_id}", gap=tight_gap)
+                if show_barcode:
+                    barcode_width = code39_width(transaction_id, barcode_narrow)
+                    barcode_x = margin_x if align_left else max(int((page_width - barcode_width) / 2), margin_x)
+                    draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
+                    y += barcode_height + tight_gap
+                    draw_header(transaction_id, barcode_font, tight_gap)
+                dc.EndPage()
+            dc.EndDoc()
+            started = False
+        except Exception:
+            if started:
+                try:
+                    dc.AbortDoc()
+                except Exception:
+                    try:
+                        dc.EndDoc()
+                    except Exception:
+                        pass
+            raise
+        finally:
+            try:
+                dc.DeleteDC()
+            except Exception:
+                pass
 
     return None
 
@@ -936,7 +979,7 @@ def main():
         f"(python {sys.version.split()[0]} @ {sys.executable})"
     )
     try:
-        httpd = HTTPServer(server_address, PrintAgentHandler)
+        httpd = ThreadingHTTPServer(server_address, PrintAgentHandler)
     except OSError as exc:
         win_error = getattr(exc, "winerror", None)
         if exc.errno in (98, 10048) or win_error == 10048:

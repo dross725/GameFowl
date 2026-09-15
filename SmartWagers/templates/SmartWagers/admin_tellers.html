@@ -142,6 +142,98 @@
 
   #balance-warning-banner.visible { display: flex; }
 
+  /* ── Pending bet approvals ─────────────────────────── */
+  #pending-bet-approvals {
+    display: none;
+    background: linear-gradient(135deg, rgba(241,196,15,0.14), rgba(230,126,34,0.08));
+    border: 1px solid rgba(241,196,15,0.40);
+    border-radius: 10px;
+    padding: 14px 18px;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  #pending-bet-approvals.visible { display: flex; }
+
+  #pba-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  #pba-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #f1c40f;
+    flex: 1;
+  }
+
+  .pba-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+
+  .pba-meta {
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .pba-teller {
+    font-size: 13px;
+    font-weight: 700;
+    color: white;
+  }
+
+  .pba-detail {
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    margin-top: 3px;
+  }
+
+  .pba-amount {
+    font-size: 16px;
+    font-weight: 800;
+    color: #f1c40f;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .pba-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .pba-btn {
+    border: none;
+    border-radius: 7px;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .pba-btn.approve {
+    background: linear-gradient(135deg, #1e8449, #27ae60);
+    color: white;
+  }
+
+  .pba-btn.reject {
+    background: rgba(231,76,60,0.20);
+    color: #e74c3c;
+    border: 1px solid rgba(231,76,60,0.40);
+  }
+
+  .pba-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
   #bw-header {
     display: flex;
     align-items: center;
@@ -1013,6 +1105,36 @@
     <div id="bw-list"></div>
   </div>
 
+  <!-- ── Pending oversized bet approvals ── -->
+  <div id="pending-bet-approvals"{% if pending_bet_approvals %} class="visible"{% endif %}>
+    <div id="pba-header">
+      <span id="pba-title">
+        {% if pending_bet_approvals|length == 1 %}
+          1 bet awaiting approval
+        {% else %}
+          {{ pending_bet_approvals|length }} bets awaiting approval
+        {% endif %}
+      </span>
+    </div>
+    <div id="pba-list">
+      {% for bet in pending_bet_approvals %}
+      <div class="pba-item" id="pba-{{ bet.transaction_id }}">
+        <div class="pba-meta">
+          <div class="pba-teller">{{ bet.cashier }}</div>
+          <div class="pba-detail">
+            Fight {{ bet.fightnum }} · {{ bet.side }} · Txn {{ bet.transaction_id }} · {{ bet.created_at }}
+          </div>
+        </div>
+        <div class="pba-amount">₱ {{ bet.amount|floatformat:0|intcomma }}</div>
+        <div class="pba-actions">
+          <button class="pba-btn approve" onclick="approvePendingBet('{{ bet.transaction_id|escapejs }}')">Approve</button>
+          <button class="pba-btn reject" onclick="rejectPendingBet('{{ bet.transaction_id|escapejs }}')">Reject</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
   <div id="teller-cards">
     {% if teller_data %}
       {% for td in teller_data %}
@@ -1282,12 +1404,14 @@
   </div>
 </div>
 
-<script src="{% static 'SmartWagers/print_client.js' %}?v=mobile-print-1"></script>
+<script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
 <script>
 const TELLER_TXN_URL      = "{% url 'admin-teller-txn' %}";
 const TELLER_EDIT_URL     = "{% url 'admin-edit-teller-txn' %}";
 const TELLER_CANCEL_URL   = "{% url 'admin-cancel-teller-txn' %}";
 const MARK_RECEIVED_URL   = "{% url 'admin-mark-received' %}";
+const APPROVE_WAGER_URL   = "{% url 'admin-approve-wager' %}";
+const REJECT_WAGER_URL    = "{% url 'admin-reject-wager' %}";
 const TELLER_ONLINE_URL   = "{% url 'admin-teller-online-toggle' %}";
 const COUNT_CASH_URL      = "{% url 'admin-teller-closeout-count' %}";
 const CLOSE_ADMIN_URL     = "{% url 'admin-cash-count' %}";
@@ -2127,6 +2251,93 @@ function applyOfflineCardState(tid, isOnline) {
   }
 }
 
+/* ── Pending bet approvals ─────────────────────────── */
+function refreshPendingBetTitle() {
+  const panel = document.getElementById('pending-bet-approvals');
+  const list = document.getElementById('pba-list');
+  const title = document.getElementById('pba-title');
+  if (!panel || !list || !title) return;
+  const count = list.querySelectorAll('.pba-item').length;
+  if (count === 0) {
+    panel.classList.remove('visible');
+    title.textContent = '0 bets awaiting approval';
+    return;
+  }
+  panel.classList.add('visible');
+  title.textContent = count === 1
+    ? '1 bet awaiting approval'
+    : `${count} bets awaiting approval`;
+}
+
+function removePendingBetRow(txnId) {
+  const row = document.getElementById(`pba-${txnId}`);
+  if (row) row.remove();
+  refreshPendingBetTitle();
+}
+
+async function approvePendingBet(txnId) {
+  const row = document.getElementById(`pba-${txnId}`);
+  const buttons = row ? row.querySelectorAll('.pba-btn') : [];
+  buttons.forEach(btn => { btn.disabled = true; });
+
+  const fd = new FormData();
+  fd.append('transaction_id', txnId);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(APPROVE_WAGER_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      removePendingBetRow(txnId);
+      return;
+    }
+    const messages = {
+      not_found: 'Bet not found.',
+      cancelled: 'This bet was already rejected.',
+      already_registered: 'This bet was already approved.',
+      fight_changed: 'Fight already moved on — reject this bet.',
+      betting_closed: 'Betting is closed — reject this bet.',
+    };
+    alert(messages[data.error] || data.error || 'Unable to approve bet.');
+  } catch (err) {
+    alert('Network error. Check connection.');
+  } finally {
+    buttons.forEach(btn => { btn.disabled = false; });
+  }
+}
+
+async function rejectPendingBet(txnId) {
+  if (!confirm(`Reject bet ${txnId}? The teller will need to place a new bet.`)) {
+    return;
+  }
+  const row = document.getElementById(`pba-${txnId}`);
+  const buttons = row ? row.querySelectorAll('.pba-btn') : [];
+  buttons.forEach(btn => { btn.disabled = true; });
+
+  const fd = new FormData();
+  fd.append('transaction_id', txnId);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(REJECT_WAGER_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      removePendingBetRow(txnId);
+      return;
+    }
+    const messages = {
+      not_found: 'Bet not found.',
+      cancelled: 'This bet was already rejected.',
+      already_registered: 'This bet was already approved.',
+    };
+    alert(messages[data.error] || data.error || 'Unable to reject bet.');
+  } catch (err) {
+    alert('Network error. Check connection.');
+  } finally {
+    buttons.forEach(btn => { btn.disabled = false; });
+  }
+}
+
 /* ── Balance Warning Banner ────────────────────────── */
 function refreshWarningBanner() {
   const alerts = [];
@@ -2241,7 +2452,7 @@ refreshWarningBanner();
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      if (data.fight_status === 'event_changed') {
+      if (data.fight_status === 'event_changed' || data.pending_bet_approval) {
         window.location.reload();
       }
     } catch (_) {

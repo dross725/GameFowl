@@ -494,6 +494,23 @@ def notify_bet_updates():
                 group,
             )
 
+
+def notify_pending_bet_approval():
+    """Notify admin clients that a teller bet is waiting for approval."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    try:
+        async_to_sync(channel_layer.group_send)(
+            'administrator',
+            {
+                'type': 'send_data',
+                'pending_bet_approval': True,
+            },
+        )
+    except Exception:
+        logger.exception("notify_pending_bet_approval: broadcast failed")
+
 def notify_event_change():
     """Broadcast an event-state change to all connected clients so they re-poll get_fight_status_view."""
     channel_layer = get_channel_layer()
@@ -518,6 +535,22 @@ def notify_event_change():
                 "notify_event_change: broadcast to %s failed",
                 group,
             )
+
+def pending_wager_ajax_response(pending, *, duplicate=False):
+    """JSON payload for a teller bet waiting on admin approval (no receipt yet)."""
+    return JsonResponse({
+        'ok': True,
+        'pending': True,
+        'requires_approval': True,
+        'duplicate': duplicate,
+        'transaction_id': pending.transactionid,
+        'print_required': False,
+        'bet_limit': services.get_teller_bet_limit(),
+        'amount': pending.wager,
+        'side': pending.side,
+        'fightnum': pending.fightnum,
+    })
+
 
 def wager_ajax_response(saved_wager, duplicate=False):
     meron_total, meron_payout, wala_total, wala_payout, total_bet, fightnum = services.get_Totals()
@@ -601,6 +634,13 @@ def Main_admin(request):
                 'ok': False,
                 'error': 'betting_closed',
                 'blocked_betting_side': wager_id,
+            }, status=409)
+        except services.PendingWagerAwaitingApprovalError:
+            # Admin bets never create pending rows; colliding client_request_id
+            # with a teller's pending approval is a client bug / replay.
+            return JsonResponse({
+                'ok': False,
+                'error': 'awaiting_approval',
             }, status=409)
         return wager_ajax_response(saved_wager, duplicate=not created)
 
@@ -810,6 +850,25 @@ def Teller(request):
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
             return HttpResponseForbidden("AJAX submission is required to place a bet.")
 
+        # Oversized teller bets wait for admin approval before registering / printing.
+        if services.wager_requires_approval(wager):
+            try:
+                pending, created = services.create_pending_approval_wager(
+                    wager, wager_id, current_fn,
+                    cashier=str(request.user),
+                    client_request_id=request.POST.get('client_request_id'),
+                    amount_source=request.POST.get('amount_source'),
+                )
+            except services.BettingClosedError:
+                return JsonResponse({
+                    'ok': False,
+                    'error': 'betting_closed',
+                    'blocked_betting_side': wager_id,
+                }, status=409)
+            if created:
+                notify_pending_bet_approval()
+            return pending_wager_ajax_response(pending, duplicate=not created)
+
         # Register first, then let the client print. Failed prints can be reprinted.
         try:
             saved_wager, created = services.add_wager(
@@ -825,6 +884,8 @@ def Teller(request):
                 'error': 'betting_closed',
                 'blocked_betting_side': wager_id,
             }, status=409)
+        except services.PendingWagerAwaitingApprovalError as exc:
+            return pending_wager_ajax_response(exc.wager, duplicate=True)
         return wager_ajax_response(saved_wager, duplicate=not created)
 
     return render(request, 'SmartWagers/user.html', user_page_context())
@@ -1457,22 +1518,37 @@ def admin_tellers(request):
     setting = Settings.objects.order_by('-id').first()
     teller_max_balance = setting.teller_max_balance if setting else 0.0
     teller_min_balance = setting.teller_min_balance if setting else 0.0
+    teller_bet_limit = setting.teller_bet_limit if setting else 0.0
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
     admin_initial_fund = setting.admin_initial_fund if setting else 100000.0
     online_teller_count = sum(1 for td in teller_data if td['is_online'])
     planned_teller_funds = online_teller_count * teller_initial_fund
     planned_bank_funds = admin_initial_fund + planned_teller_funds
 
+    pending_wagers = services.list_pending_approval_wagers(event=active_event)
+    pending_bet_approvals = []
+    for wager in pending_wagers:
+        pending_bet_approvals.append({
+            'transaction_id': wager.transactionid,
+            'cashier': wager.cashier,
+            'fightnum': wager.fightnum,
+            'side': wager.side,
+            'amount': wager.wager,
+            'created_at': wager.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+        })
+
     return render(request, 'SmartWagers/admin_tellers.html', {
         'teller_data': teller_data,
         'active_event': active_event,
         'teller_max_balance': teller_max_balance,
         'teller_min_balance': teller_min_balance,
+        'teller_bet_limit': teller_bet_limit,
         'teller_initial_fund': teller_initial_fund,
         'admin_initial_fund': admin_initial_fund,
         'online_teller_count': online_teller_count,
         'planned_teller_funds': planned_teller_funds,
         'planned_bank_funds': planned_bank_funds,
+        'pending_bet_approvals': pending_bet_approvals,
         'closeout_readiness': services.get_event_closeout_readiness(
             event=active_event,
         ),
@@ -1666,6 +1742,113 @@ def admin_mark_received(request):
         'admin_fund_balance': services.get_admin_fund_summary(
             event=active_event,
         )['balance'],
+    })
+
+
+def _notify_teller_approved_wager_print(teller, receipt):
+    """Ask the teller's open browser session to print via the local Windows agent."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    try:
+        async_to_sync(channel_layer.group_send)(
+            'user',
+            {
+                'type': 'send_data',
+                'approved_wager_print': True,
+                'teller_id': teller.pk,
+                'print_required': True,
+                'receipt': receipt,
+                'transaction_id': receipt.get('transaction_id'),
+            },
+        )
+    except Exception:
+        logger.exception(
+            "approve wager: WS print notify failed for teller_id=%s txn=%s",
+            teller.pk,
+            receipt.get('transaction_id'),
+        )
+
+
+def _enqueue_approved_wager_print(wager):
+    """Ask the teller's open session to print (local agent or mobile queue via print_client)."""
+    if not services.is_wager_receipt_printing_enabled():
+        return
+    try:
+        teller = User.objects.filter(username=wager.cashier).first()
+        if teller is None:
+            logger.warning(
+                "approve wager: no user for cashier=%s — print skipped",
+                wager.cashier,
+            )
+            return
+        receipt = services.build_wager_receipt_payload(wager)
+        # Same path as a normal bet: browser print_client → localhost agent
+        # (desktop) or server queue fallback (mobile). Avoid a second server
+        # enqueue here or a connected companion would double-print.
+        _notify_teller_approved_wager_print(teller, receipt)
+    except Exception:
+        logger.exception(
+            "approve wager: print notify failed for txn=%s",
+            wager.transactionid,
+        )
+
+
+@group_required('admin')
+@require_http_methods(['POST'])
+def admin_approve_wager(request):
+    """Admin endpoint: approve a pending oversized teller wager."""
+    transaction_id = request.POST.get('transaction_id', '').strip()
+    if not transaction_id:
+        return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
+
+    try:
+        wager = services.approve_pending_wager(
+            transaction_id, approved_by=request.user.username,
+        )
+    except services.PendingWagerNotFoundError:
+        return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+    except services.PendingWagerNotPendingError as exc:
+        return JsonResponse({'ok': False, 'error': exc.code}, status=409)
+    except services.PendingWagerStaleError as exc:
+        return JsonResponse({'ok': False, 'error': exc.code}, status=409)
+
+    notify_bet_updates()
+    _enqueue_approved_wager_print(wager)
+
+    return JsonResponse({
+        'ok': True,
+        'transaction_id': wager.transactionid,
+        'cashier': wager.cashier,
+        'fightnum': wager.fightnum,
+        'side': wager.side,
+        'amount': wager.wager,
+        'registered': True,
+    })
+
+
+@group_required('admin')
+@require_http_methods(['POST'])
+def admin_reject_wager(request):
+    """Admin endpoint: reject a pending oversized teller wager."""
+    transaction_id = request.POST.get('transaction_id', '').strip()
+    if not transaction_id:
+        return JsonResponse({'ok': False, 'error': 'missing_transaction_id'}, status=400)
+
+    try:
+        wager = services.reject_pending_wager(
+            transaction_id, rejected_by=request.user.username,
+        )
+    except services.PendingWagerNotFoundError:
+        return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+    except services.PendingWagerNotPendingError as exc:
+        return JsonResponse({'ok': False, 'error': exc.code}, status=409)
+
+    return JsonResponse({
+        'ok': True,
+        'transaction_id': wager.transactionid,
+        'cashier': wager.cashier,
+        'cancelled': True,
     })
 
 
@@ -2878,6 +3061,29 @@ def admin_settings(request):
             setting.save()
             return JsonResponse({'ok': True, 'teller_min_balance': new_min})
 
+        if action == 'update_teller_bet_limit':
+            try:
+                new_limit = float(request.POST.get('teller_bet_limit', ''))
+                if new_limit < 0:
+                    return JsonResponse({
+                        'ok': False,
+                        'error': 'Bet limit must be 0 or greater (0 = no limit)',
+                    }, status=400)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'error': 'Invalid bet limit value'}, status=400)
+
+            setting = Settings.objects.order_by('-id').first()
+            if setting is None:
+                setting = Settings(teller_bet_limit=new_limit)
+            else:
+                setting.teller_bet_limit = new_limit
+            setting.save()
+            logger.info(
+                "SETTINGS: teller_bet_limit=%.2f by admin=%s",
+                new_limit, request.user.username,
+            )
+            return JsonResponse({'ok': True, 'teller_bet_limit': new_limit})
+
         if action == 'update_discard_trailing_3_6':
             raw = (request.POST.get('discard_trailing_3_6') or '').strip().lower()
             if raw not in ('1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'):
@@ -2983,6 +3189,7 @@ def admin_settings(request):
     teller_max_balance  = setting.teller_max_balance  if setting else 0.0
     teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
     teller_min_balance  = setting.teller_min_balance  if setting else 0.0
+    teller_bet_limit    = setting.teller_bet_limit    if setting else 0.0
     discard_trailing_3_6 = setting.discard_trailing_3_6 if setting else True
     lock_status = masterlock.get_status(touch_heartbeat=False)
 
@@ -2995,6 +3202,7 @@ def admin_settings(request):
         'teller_max_balance': teller_max_balance,
         'teller_initial_fund': teller_initial_fund,
         'teller_min_balance': teller_min_balance,
+        'teller_bet_limit': teller_bet_limit,
         'discard_trailing_3_6': discard_trailing_3_6,
         'lock_status': lock_status,
         'extension_days': masterlock.EXTENSION_DAYS,
