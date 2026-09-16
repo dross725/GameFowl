@@ -311,9 +311,10 @@ function _setMatchBtn(id, enabled, action) {
 /*  State rules
  *  ─────────────────────────────────────────────────────────
  *  IDLE / COMPLETE / CANCELLED  →  only Start Match active
- *  OPEN                         →  Close Betting + Cancel active
- *  CLOSED                       →  Re-Open + Cancel + End Match active
- *  REOPENED (local flag)        →  Close Betting + Cancel + End Match active
+ *  OPEN                         →  Close Betting + End Match active
+ *                                  (Cancel Match lives inside End Match)
+ *  CLOSED                       →  Re-Open + End Match active
+ *  REOPENED (local flag)        →  Close Betting + End Match active
  */
 function applyMatchState(serverStatus) {
     if (serverStatus !== 'CLOSED') bettingReopened = false;
@@ -322,7 +323,6 @@ function applyMatchState(serverStatus) {
     const start  = () => openmodal('control_confirmationModal', 'StartMatch');
     const close  = () => openmodal('control_confirmationModal', 'CloseBetting');
     const reopen = () => openmodal('control_confirmationModal', 'ReopenBetting');
-    const cancel = () => openmodal('control_confirmationModal', 'CancelMatch');
     const end    = () => openmodal('control_confirmationModal', 'EndMatch');
 
     switch (state) {
@@ -330,15 +330,13 @@ function applyMatchState(serverStatus) {
             _setMatchBtn('startmatchbutton',    false, null);
             _setMatchBtn('closebettingbutton',  true,  close);
             _setMatchBtn('reopenbettingbutton', false, null);
-            _setMatchBtn('cancelmatchbutton',   true,  cancel);
-            _setMatchBtn('endmatchbutton',      false, null);
+            _setMatchBtn('endmatchbutton',      true,  end);
             setBetInputsDisabled(false);
             break;
         case 'CLOSED':
             _setMatchBtn('startmatchbutton',    false, null);
             _setMatchBtn('closebettingbutton',  false, null);
             _setMatchBtn('reopenbettingbutton', true,  reopen);
-            _setMatchBtn('cancelmatchbutton',   true,  cancel);
             _setMatchBtn('endmatchbutton',      true,  end);
             setBetInputsDisabled(true);
             break;
@@ -346,7 +344,6 @@ function applyMatchState(serverStatus) {
             _setMatchBtn('startmatchbutton',    false, null);
             _setMatchBtn('closebettingbutton',  true,  close);
             _setMatchBtn('reopenbettingbutton', false, null);
-            _setMatchBtn('cancelmatchbutton',   true,  cancel);
             _setMatchBtn('endmatchbutton',      true,  end);
             setBetInputsDisabled(false);
             break;
@@ -354,7 +351,6 @@ function applyMatchState(serverStatus) {
             _setMatchBtn('startmatchbutton',    true,  start);
             _setMatchBtn('closebettingbutton',  false, null);
             _setMatchBtn('reopenbettingbutton', false, null);
-            _setMatchBtn('cancelmatchbutton',   false, null);
             _setMatchBtn('endmatchbutton',      false, null);
             setBetInputsDisabled(true);
     }
@@ -496,7 +492,10 @@ function openmodal(modalid, buttonid, side=null, preservePayoutReprint=false, tr
         console.log("End Match button clicked");
         cm_headermessage.innerHTML = "End Match";
         cm_message.innerHTML = "Are you sure you want to end the match?";
-        cm_yesbutton.onclick = () => openmodal('whowonmodal', 'winner');
+        cm_yesbutton.onclick = () => {
+            closemodal('control_confirmationModal');
+            openmodal('whowonmodal', 'winner');
+        };
         cm_nobutton.onclick = () => closemodal('control_confirmationModal');
     } else if (buttonid === 'CloseBetting'){
         console.log("Close Betting button clicked");
@@ -552,6 +551,19 @@ function openmodal(modalid, buttonid, side=null, preservePayoutReprint=false, tr
             document.getElementById('reprint_transaction_id').focus();
         }, 100);
 
+    } else if (modalid == 'whowonmodal') {
+        const whoWonModal = document.getElementById(modalid);
+        const cancelBtn = document.getElementById('cancel_match_option');
+        if (cancelBtn) {
+            cancelBtn.onclick = () => confirmCancelMatchFromEnd();
+        }
+        // Dismiss when clicking the backdrop (outside the dialog).
+        whoWonModal.onclick = (event) => {
+            if (event.target === whoWonModal) {
+                closemodal('whowonmodal');
+            }
+        };
+        whoWonModal.style.display = 'flex';
     } else {
         console.log("Opening modal with ID: " + modalid);
         document.getElementById(modalid).style.display = 'flex';
@@ -709,11 +721,17 @@ function closeMatch(){
     closemodal("control_confirmationModal");
 }
 
+function confirmCancelMatchFromEnd() {
+    closemodal('whowonmodal');
+    openmodal('control_confirmationModal', 'CancelMatch');
+}
+
 function cancelMatch(){
     administratorSocket.send(JSON.stringify({fight_status: "CANCEL"}));
     applyMatchState('CANCELLED');
     get_fightstatus();
     closemodal("control_confirmationModal");
+    closemodal("whowonmodal");
 }
 
 function endMatch(winner){

@@ -239,7 +239,7 @@
     window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
 </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=modal-money-2"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=cancel-in-end-4"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=pending-approval-modal-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -336,7 +336,6 @@
             <div class='button' id='startmatchbutton'>Start Match</div>
             <div class='button' id='closebettingbutton'>Close Betting</div>
             <div class='button' id='reopenbettingbutton'>Re-open Betting</div>
-            <div class='button' id='cancelmatchbutton'>Cancel Match</div>
             <div class='button' id='endmatchbutton'>End Match</div>
         </section>
         <section id='payout'>
@@ -446,7 +445,7 @@
             <button id='meron_winner' onclick='endMatch("MERON")'>Meron</button>
             <button id='wala_winner' onclick='endMatch("WALA")'>Wala</button>
             <button id='draw' onclick='endMatch("DRAW")'>Draw</button>
-            <button onclick='closemodal("whowonmodal")'>Cancel</button>
+            <button id='cancel_match_option'>Cancel Match</button>
         </div>
     </div>
 

@@ -434,17 +434,6 @@ textarea {
   background: linear-gradient(135deg, #f39c12, #e67e22);
 }
 
-#cancelmatchbutton {
-  background: linear-gradient(135deg, #7d3c98, #5b2c6f);
-  border-color: rgba(125, 60, 152, 0.50);
-  font-weight: 700;
-  min-width: 110px;
-}
-
-#cancelmatchbutton:hover {
-  background: linear-gradient(135deg, #9b59b6, #7d3c98);
-}
-
 #endmatchbutton {
   background: linear-gradient(135deg, #c0392b, #7b1a10);
   border-color: rgba(192, 57, 43, 0.50);
