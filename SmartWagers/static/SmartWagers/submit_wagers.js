@@ -824,6 +824,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (amountLocked || textarea.readOnly) e.preventDefault();
     });
 
+    /* Clicking the field unlocks a manual amount for intentional edits.
+       Programmatic focus after side select does not unlock, so stray keys stay blocked. */
+    textarea.addEventListener('pointerdown', () => {
+        if (amountLocked && amountSource === 'manual') {
+            setAmountLocked(false);
+        }
+    });
+
     /* Enter key → submit instead of newline, but only when no modal is open.
        While locked, block all other keystrokes so nothing mutates the amount. */
     textarea.addEventListener('keydown', (e) => {
@@ -841,9 +849,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    /* Re-focus after switching sides with the radio buttons */
+    /* After Meron/Wala is chosen with an amount already set, lock the field so
+       stray digits cannot append (e.g. 100 → 1005). Keep focus so Enter still submits. */
     document.querySelectorAll('input[name="bet_side"]').forEach(radio => {
-        radio.addEventListener('change', () => focusBetInput());
+        radio.addEventListener('change', () => {
+            if (bet_total > 0 && getSelectedSide()) {
+                setAmountLocked(true);
+            }
+            focusBetInput();
+        });
     });
 
     /* M / W hotkeys to toggle Meron / Wala radio buttons */
