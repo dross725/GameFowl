@@ -204,6 +204,16 @@
   background: linear-gradient(135deg, #9b59b6, #7d3c98);
 }
 
+/* ── Cancel Match (inside End Match / Who Won) ───────────── */
+#cancel_match_option {
+  background: linear-gradient(135deg, #5a6270, #3d4450);
+  border-color: rgba(90, 98, 112, 0.55);
+}
+
+#cancel_match_option:hover {
+  background: linear-gradient(135deg, #6e7785, #5a6270);
+}
+
 /* ── Cancel / dismiss buttons ────────────────────────────── */
 #payout_no,
 #cancelbet_no,
