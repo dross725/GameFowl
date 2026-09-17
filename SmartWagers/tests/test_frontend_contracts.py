@@ -78,6 +78,30 @@ def test_wrong_punch_guard_is_wired_in_bet_entry():
     assert 'saveDiscardTrailing36' in settings_template
 
 
+def test_bet_amount_lock_flow_guards_stray_digits():
+    wagers_script = read_project_file(
+        'SmartWagers/static/SmartWagers/submit_wagers.js'
+    )
+    user_template = read_project_file(
+        'SmartWagers/templates/SmartWagers/user.html'
+    )
+    admin_template = read_project_file(
+        'SmartWagers/templates/SmartWagers/administrator.html'
+    )
+
+    assert 'function lockAmountIfReady()' in wagers_script
+    assert "textarea.addEventListener('blur'" in wagers_script
+    assert "textarea.addEventListener('drop'" in wagers_script
+    assert "textarea.addEventListener('beforeinput'" in wagers_script
+    assert 'lockAmountIfReady()' in wagers_script
+    assert "setAmountLocked(true)" in wagers_script
+    assert "setAmountLocked(false)" in wagers_script
+    # Click unlocks any locked amount for intentional edits.
+    assert 'if (amountLocked) {\n            setAmountLocked(false);' in wagers_script
+    assert 'amount-lock-flow-1' in user_template
+    assert 'amount-lock-flow-1' in admin_template
+
+
 def test_teller_alert_panel_has_real_collapse_behavior():
     template = read_project_file(
         'SmartWagers/templates/SmartWagers/administrator.html'

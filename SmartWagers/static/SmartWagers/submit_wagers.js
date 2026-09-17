@@ -52,6 +52,13 @@ function setAmountLocked(locked) {
     textarea.classList.toggle('bet-amount-locked', amountLocked);
 }
 
+/** Lock when there is an amount ready to submit so stray digits cannot append. */
+function lockAmountIfReady() {
+    if (bet_total > 0) {
+        setAmountLocked(true);
+    }
+}
+
 function focusBetInput() {
     const textarea = document.getElementById('bet_textinput');
     /* Allow focus while preset-locked so Enter can still submit; typing is blocked. */
@@ -805,29 +812,36 @@ document.addEventListener('DOMContentLoaded', () => {
     /* Auto-focus on page load */
     textarea.focus();
 
-    /* Auto-format with commas as the user types (ignored while preset-locked). */
+    /* Auto-format with commas as the user types (ignored while amount-locked). */
     textarea.addEventListener('input', () => {
         if (amountLocked || textarea.readOnly) {
-            textarea.value = formatNumber(bet_total);
+            textarea.value = bet_total > 0 ? formatNumber(bet_total) : '';
             return;
         }
         const digits = stripCommas(textarea.value).replace(/\D/g, '');
         const num = digits === '' ? 0 : parseInt(digits, 10);
         bet_total = num;
         setAmountSource('manual');
-        const formatted = num === 0 ? '' : formatNumber(num);
         /* Preserve a trailing empty state so the field feels natural to clear */
-        textarea.value = digits === '' ? '' : formatted;
+        textarea.value = digits === '' ? '' : formatNumber(num);
     });
 
-    textarea.addEventListener('paste', (e) => {
+    /* Leaving the field after an amount is set locks it (side-first or amount-first). */
+    textarea.addEventListener('blur', () => {
+        lockAmountIfReady();
+    });
+
+    const blockMutationIfLocked = (e) => {
         if (amountLocked || textarea.readOnly) e.preventDefault();
-    });
+    };
+    textarea.addEventListener('paste', blockMutationIfLocked);
+    textarea.addEventListener('drop', blockMutationIfLocked);
+    textarea.addEventListener('beforeinput', blockMutationIfLocked);
 
-    /* Clicking the field unlocks a manual amount for intentional edits.
-       Programmatic focus after side select does not unlock, so stray keys stay blocked. */
+    /* Click unlocks for intentional edits (preset or manual).
+       Programmatic focus (side select / hotkeys) does not unlock. */
     textarea.addEventListener('pointerdown', () => {
-        if (amountLocked && amountSource === 'manual') {
+        if (amountLocked) {
             setAmountLocked(false);
         }
     });
@@ -853,9 +867,7 @@ document.addEventListener('DOMContentLoaded', () => {
        stray digits cannot append (e.g. 100 → 1005). Keep focus so Enter still submits. */
     document.querySelectorAll('input[name="bet_side"]').forEach(radio => {
         radio.addEventListener('change', () => {
-            if (bet_total > 0 && getSelectedSide()) {
-                setAmountLocked(true);
-            }
+            lockAmountIfReady();
             focusBetInput();
         });
     });
