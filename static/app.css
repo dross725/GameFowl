@@ -1,21 +1,26 @@
-/* ── Design Tokens ──────────────────────────────────────── */
+/* ── Design Tokens — Ops Board ──────────────────────────── */
 :root {
-  --meron:        #c0392b;
-  --meron-dark:   #7b1a10;
-  --meron-glow:   rgba(192, 57, 43, 0.30);
-  --wala:         #1a6bc0;
-  --wala-dark:    #0d3c6e;
-  --wala-glow:    rgba(26, 107, 192, 0.30);
-  --bg:           #0e1014;
-  --bg-panel:     #15181f;
-  --bg-card:      #1c1f28;
-  --border:       rgba(255, 255, 255, 0.08);
-  --text:         #edf0f5;
-  --text-dim:     #6e7a8a;
-  --green:        #27ae60;
-  --orange:       #e67e22;
-  --radius:       10px;
-  --shadow:       0 6px 28px rgba(0, 0, 0, 0.55);
+  --meron:        #c1121f;
+  --meron-dark:   #780000;
+  --meron-soft:   rgba(193, 18, 31, 0.28);
+  --meron-glow:   rgba(193, 18, 31, 0.22);
+  --wala:         #0077b6;
+  --wala-dark:    #023e8a;
+  --wala-soft:    rgba(0, 119, 182, 0.28);
+  --wala-glow:    rgba(0, 119, 182, 0.22);
+  --bg:           #2f3644;
+  --bg-panel:     #252b36;
+  --bg-card:      #3d4658;
+  --border:       rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --text:         #f2f4f7;
+  --text-dim:     #a8b2c2;
+  --green:        #1b8a4a;
+  --orange:       #c45c12;
+  --radius:       4px;
+  --shadow:       0 1px 0 rgba(0, 0, 0, 0.20), 0 10px 28px rgba(0, 0, 0, 0.28);
+  --font-ui:      "DM Sans", "Segoe UI", sans-serif;
+  --font-display: "Oswald", Impact, sans-serif;
 }
 
 /* ── Reset ──────────────────────────────────────────────── */
@@ -30,8 +35,16 @@ html, body {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
-  font-family: 'Segoe UI', Arial, sans-serif;
+  font-family: var(--font-ui);
   background-color: var(--bg);
+  background-image:
+    repeating-linear-gradient(
+      -18deg,
+      transparent,
+      transparent 11px,
+      rgba(255, 255, 255, 0.03) 11px,
+      rgba(255, 255, 255, 0.03) 12px
+    );
   color: var(--text);
 }
 
@@ -42,8 +55,8 @@ body {
 /* ── Navbar ─────────────────────────────────────────────── */
 header#main-navigation {
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
-  height: 42px;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.18);
+  height: 48px;
   display: flex;
   align-items: stretch;
   padding: 0;
@@ -54,29 +67,26 @@ header#main-navigation {
   width: 100%;
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 16px;
   gap: 0;
 }
 
-/* Brand / logo on the left */
 #nav-brand {
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 1.5px;
-  color: white;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text);
   white-space: nowrap;
-  padding-right: 20px;
-  border-right: 1px solid var(--border);
+  padding-right: 18px;
+  border-right: 2px solid rgba(255, 255, 255, 0.22);
   margin-right: 16px;
   display: flex;
   align-items: center;
-  background: linear-gradient(90deg, #e74c3c, #2980b9);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  background: none;
+  -webkit-text-fill-color: unset;
 }
 
-/* Nav links — centered */
 #nav-links {
   list-style: none;
   display: flex;
@@ -88,12 +98,13 @@ header#main-navigation {
 }
 
 nav ul li a {
-  color: var(--text);
+  color: var(--text-dim);
   text-decoration: none;
-  padding: 5px 16px;
-  border-radius: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   display: block;
   transition: background 0.15s, color 0.15s;
 }
@@ -101,8 +112,8 @@ nav ul li a {
 nav ul li a:hover,
 a:hover {
   background-color: rgba(255, 255, 255, 0.10);
-  border-radius: 6px;
-  color: white;
+  border-radius: var(--radius);
+  color: var(--text);
 }
 
 /* ── Navbar Dropdown ─────────────────────────────────────── */
@@ -125,7 +136,7 @@ a:hover {
   left: 50%;
   transform: translateX(-50%);
   background: var(--bg-panel);
-  border: 1px solid var(--border);
+  border: 2px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   list-style: none;
@@ -138,9 +149,9 @@ a:hover {
 .nav-dropdown-menu li a {
   display: block;
   padding: 8px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 700;
   color: var(--text);
   text-decoration: none;
   transition: background 0.12s;
@@ -148,7 +159,7 @@ a:hover {
 
 .nav-dropdown-menu li a:hover {
   background: rgba(255, 255, 255, 0.10);
-  color: white;
+  color: var(--text);
 }
 
 .nav-dropdown-menu.open {
@@ -157,29 +168,29 @@ a:hover {
 
 .nav-dropdown-divider {
   height: 1px;
-  background: rgba(255,255,255,0.08);
+  background: var(--border);
   margin: 4px 6px;
   pointer-events: none;
 }
 
 .nav-dropdown-action {
-  font-weight: 600 !important;
+  font-weight: 700 !important;
 }
 
 .start-event-action {
-  color: #2ecc71 !important;
+  color: var(--green) !important;
 }
 .start-event-action:hover {
-  background: rgba(39,174,96,0.15) !important;
-  color: #2ecc71 !important;
+  background: rgba(27, 138, 74, 0.12) !important;
+  color: var(--green) !important;
 }
 
 .end-event-action {
-  color: #e74c3c !important;
+  color: var(--meron) !important;
 }
 .end-event-action:hover {
-  background: rgba(192,57,43,0.15) !important;
-  color: #e74c3c !important;
+  background: rgba(193, 18, 31, 0.10) !important;
+  color: var(--meron) !important;
 }
 
 .nav-event-disabled {
@@ -188,82 +199,95 @@ a:hover {
   pointer-events: none;
 }
 
-/* Actions / logout on the right */
 #nav-actions {
   display: flex;
   align-items: center;
   margin-left: 16px;
-  padding-left: 20px;
-  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  border-left: 2px solid var(--border-strong);
 }
 
 .nav-logout-button {
-  background: rgba(192, 57, 43, 0.28);
-  border: 1px solid rgba(192, 57, 43, 0.48);
-  color: var(--text);
+  background: var(--meron);
+  border: 2px solid var(--meron-dark);
+  color: #fff;
   padding: 5px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   cursor: pointer;
+  font-family: var(--font-ui);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   transition: background 0.15s, border-color 0.15s;
 }
 
 .nav-logout-button:hover {
-  background: rgba(192, 57, 43, 0.58);
-  border-color: rgba(192, 57, 43, 0.80);
+  background: var(--meron-dark);
+  border-color: #4a0000;
 }
 
 /* ── Layout ─────────────────────────────────────────────── */
 #container {
   display: flex;
-  flex-direction: row;
-  height: calc(100vh - 42px - 72px);
-  height: calc(100dvh - 42px - 72px);
+  flex-direction: column;
+  height: calc(100vh - 48px - 79px);
+  height: calc(100dvh - 48px - 79px);
   width: 100%;
   overflow: hidden;
 }
 
-/* ── Sidebar ─────────────────────────────────────────────── */
+/* ── Trends bar (top) ────────────────────────────────────── */
 #sidebar {
-  width: 10vw;
-  min-width: 80px;
+  width: 100%;
+  min-width: unset;
+  height: 79px;
+  max-height: 79px;
   background: var(--bg-panel);
-  border-right: 1px solid var(--border);
+  border-top: none;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.18);
+  border-right: none;
   display: flex;
-  flex-direction: column;
-  overflow-y: auto;
+  flex-direction: row;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
   flex-shrink: 0;
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/legacy Edge */
+  scrollbar-width: thin;
 }
 
 #sidebar::-webkit-scrollbar {
-  display: none; /* Chrome, Safari, Edge */
+  height: 6px;
 }
 
-#sidebar h1 {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: white;
-  background: linear-gradient(90deg, var(--meron), var(--wala));
-  text-align: center;
-  padding: 8px 4px;
-  border-radius: 0;
+#sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 3px;
+}
+
+#trends {
+  list-style: none;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
 
 .sidebar-header {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: clamp(24px, 2.6vw, 32px);
+  font-size: clamp(16px, 1.8vw, 22px);
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(26, 35, 50, 0.04);
   color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  padding: 7px 4px;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+  padding: 6px 10px;
   white-space: nowrap;
 }
 
@@ -274,12 +298,18 @@ a:hover {
 
 .sidebar-row {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-size: clamp(24px, 2.6vw, 32px);
-  padding: 7px 4px;
+  justify-content: center;
+  gap: 3px;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+  font-size: clamp(17px, 1.8vw, 22px);
+  font-weight: 700;
+  padding: 6px 11px;
   white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 57px;
 }
 
 .fightnum {
@@ -287,7 +317,7 @@ a:hover {
   min-width: 2.5ch;
   color: var(--text-dim);
   font-style: normal;
-  font-weight: 700;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
   border: none;
   white-space: nowrap;
@@ -301,171 +331,119 @@ a:hover {
 }
 
 .odds {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: #f39c12;
-  font-weight: 600;
+  flex: 0 0 auto;
+  min-width: 2.5ch;
+  color: #fff;
+  font-weight: 800;
   font-style: normal;
   border: none;
   white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 2px;
 }
 
 .winner {
-  font-size: clamp(24px, 2.6vw, 32px);
-  font-weight: 700;
+  font-size: clamp(15px, 1.6vw, 20px);
+  font-weight: 800;
 }
 
 /* ── Main Content ────────────────────────────────────────── */
 #main_content {
   flex: 1;
   display: grid;
-  /* Row 1: labels | Row 2: wagers+pot */
   grid-template-rows: auto 1fr;
   overflow: hidden;
   min-width: 0;
+  min-height: 0;
 }
 
-/* ── Status Bar ──────────────────────────────────────────── */
-#currentmatch {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  height: 72px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  width: 100%;
-}
-
+/* ── Fight number in trends bar ──────────────────────────── */
 #currentmatchnum {
-  background-color: rgba(0, 0, 0, 0.55);
+  background: #1a1f29;
   background-image: none;
-  color: white;
-  height: 120px;
+  color: #fff;
+  height: auto;
+  min-width: 70px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: clamp(48px, 8vw, 110px);
-  font-weight: 900;
-  letter-spacing: 2px;
-  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.80);
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-top: 2px solid rgba(255, 255, 255, 0.18);
+  font-family: var(--font-display);
+  font-size: clamp(31px, 4.4vw, 46px);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-shadow: none;
+  border: 2px solid rgba(255, 255, 255, 0.22);
   border-radius: var(--radius);
-  margin: 4px;
+  margin: 6px;
+  padding: 2px 12px;
   overflow: hidden;
   flex-shrink: 0;
-}
-
-#currentmatchstatus {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 6px 18px;
-  border-radius: 24px;
-  font-size: 23px;
-  font-weight: 500;
-  flex: 1;
-}
-
-#ws_status {
-  font-size: 20px;
-  color: var(--text-dim);
-  white-space: nowrap;
-  padding: 4px 10px;
-  background: var(--bg-card);
-  border-radius: 20px;
-  border: 1px solid var(--border);
 }
 
 /* ── MERON / WALA Labels ─────────────────────────────────── */
 #labels {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 3px;
-  /* margin-bottom creates visible gap between labels and pot cards */
-  margin: 4px 4px 4px;
+  gap: 6px;
+  margin: 8px 8px 4px;
   padding: 0;
   align-self: start;
 }
 
 #M_Label {
-  background-color: #8e1a12;
-  background-image:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%),
-    linear-gradient(180deg, #e03428 0%, #8e1a12 100%);
+  background: var(--meron);
+  background-image: none;
   border-radius: var(--radius);
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 156px;
+  height: 120px;
   position: relative;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  border: 1px solid rgba(224, 52, 40, 0.45);
-  border-top: 2px solid rgba(240, 90, 72, 0.70);
+  box-shadow: none;
+  border: 3px solid var(--meron-dark);
 }
 
-/* diagonal shimmer */
 #M_Label::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -60%;
-  width: 40%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
-  transform: skewX(-18deg);
-  pointer-events: none;
+  display: none;
 }
 
 #M_Label h1 {
-  font-size: clamp(44px, 7.6vw, 88px);
-  font-weight: 900;
-  color: white;
-  letter-spacing: 10px;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.70);
+  font-family: var(--font-display);
+  font-size: clamp(48px, 8vw, 96px);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 6px;
+  text-shadow: none;
   text-transform: uppercase;
   position: relative;
 }
 
 #W_Label {
-  background-color: #0d3c6e;
-  background-image:
-    linear-gradient(180deg, rgba(255,255,255,0.14) 0%, transparent 55%),
-    linear-gradient(180deg, #1e7ed4 0%, #0d3c6e 100%);
+  background: var(--wala);
+  background-image: none;
   border-radius: var(--radius);
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 156px;
+  height: 120px;
   position: relative;
   overflow: hidden;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  border: 1px solid rgba(30, 126, 212, 0.45);
-  border-top: 2px solid rgba(50, 130, 220, 0.70);
+  box-shadow: none;
+  border: 3px solid var(--wala-dark);
 }
 
-/* diagonal shimmer */
 #W_Label::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -60%;
-  width: 40%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.10), transparent);
-  transform: skewX(-18deg);
-  pointer-events: none;
+  display: none;
 }
 
 #W_Label h1 {
-  font-size: clamp(44px, 7.6vw, 88px);
-  font-weight: 900;
-  color: white;
-  letter-spacing: 10px;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.70);
+  font-family: var(--font-display);
+  font-size: clamp(48px, 8vw, 96px);
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 6px;
+  text-shadow: none;
   text-transform: uppercase;
   position: relative;
 }
@@ -475,54 +453,52 @@ a:hover {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  margin: 0 4px 4px;
+  margin: 0 8px 8px;
   padding: 0;
   background: none;
   background-image: none !important;
   min-height: 0;
+  gap: 6px;
 }
 
 /* ── Compact layout for 10" screens (~800 px tall) ──────── */
 @media (max-height: 820px) {
-  #currentmatch {
-    height: 51px;
+  #sidebar {
+    height: 66px;
+    max-height: 66px;
   }
 
   #container {
-    height: calc(100vh - 42px - 51px);
-    height: calc(100dvh - 42px - 51px);
+    height: calc(100vh - 48px - 66px);
+    height: calc(100dvh - 48px - 66px);
   }
 
   #main_content {
     grid-template-rows: auto 1fr;
   }
 
-  #currentmatchstatus {
-    font-size: 29px;
-    padding: 6px 21px;
-  }
-  #ws_status {
-    font-size: 18px;
-    padding: 3px 8px;
-  }
-
-  /* Shrink fight number to match compact label height */
   #currentmatchnum {
-    height: 96px;
-    font-size: clamp(38px, 6.5vw, 88px);
+    font-size: clamp(22px, 3.5vw, 34px);
+    min-width: 52px;
+    padding: 1px 8px;
   }
 
-  /* Shrink MERON / WALA header banners */
+  .sidebar-row {
+    font-size: clamp(13px, 1.5vw, 17px);
+    padding: 4px 8px;
+    min-width: 44px;
+  }
+
   #labels {
-    margin: 2px 4px;
+    margin: 4px 6px 2px;
   }
   #M_Label,
   #W_Label {
-    height: 125px;
+    height: 88px;
   }
   #M_Label h1,
   #W_Label h1 {
-    font-size: clamp(24px, 4.39vw, 50px);
+    font-size: clamp(28px, 5vw, 56px);
     letter-spacing: 4px;
   }
 }
@@ -537,7 +513,7 @@ a:hover {
 
   header#main-navigation {
     height: auto;
-    min-height: 42px;
+    min-height: 48px;
   }
 
   #navbar {
@@ -547,7 +523,7 @@ a:hover {
   }
 
   #nav-brand {
-    font-size: 13px;
+    font-size: 18px;
     padding-right: 12px;
     margin-right: 10px;
     border-right: none;
@@ -578,43 +554,24 @@ a:hover {
     font-size: 14px;
   }
 
-  #currentmatch {
-    flex-wrap: wrap;
-    height: auto;
-    min-height: 72px;
-    padding: 8px 10px;
-    gap: 6px;
-  }
-
-  #currentmatchnum,
-  #currentmatchstatus {
-    font-size: 29px;
+  #currentmatchnum {
+    font-size: 20px;
     padding: 6px 12px;
-  }
-
-  #currentmatchstatus {
-    flex: 1 1 100%;
-    text-align: center;
-  }
-
-  #ws_status {
-    font-size: 18px;
-    flex: 1 1 auto;
   }
 
   #container {
     flex-direction: column;
     height: auto;
-    min-height: calc(100vh - 42px - 72px);
-    min-height: calc(100dvh - 42px - 72px);
+    min-height: calc(100vh - 48px - 79px);
+    min-height: calc(100dvh - 48px - 79px);
     overflow: visible;
   }
 
   #sidebar {
     width: 100%;
     min-width: unset;
-    max-height: 120px;
-    order: -1;
+    height: auto;
+    max-height: 100px;
     flex-shrink: 0;
   }
 
@@ -627,17 +584,17 @@ a:hover {
 
   #labels {
     grid-template-columns: 1fr;
-    margin: 4px;
+    margin: 6px;
   }
 
   #M_Label,
   #W_Label {
-    height: 109px;
+    height: 80px;
   }
 
   #M_Label h1,
   #W_Label h1 {
-    font-size: clamp(32px, 10.53vw, 56px);
+    font-size: clamp(36px, 11vw, 64px);
     letter-spacing: 4px;
   }
 

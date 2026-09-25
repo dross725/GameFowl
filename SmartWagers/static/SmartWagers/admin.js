@@ -12,7 +12,6 @@ adminSocket.onmessage = (event) => {
         document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
         document.getElementById("W_total_bet").innerText = data.wtotal;
         document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
-        document.getElementById("ws_status").innerText = "Status: Connected";
         updateStatus("Connected");
         console.log("Data received:", data);
         console.log("This is the admin.js file");
@@ -25,9 +24,6 @@ adminSocket.onopen = () => {
     adminSocket.send(JSON.stringify({ update: true }));
     console.log("Initial data request sent.");
     updateStatus("Connected");
-    document.getElementById("ws_status").innerText = "Status: Connected";
-    document.getElementById("ws_status").style.color = "blue";
-    document.getElementById("ws_status").style.fontWeight = "bold";     
     get_fightstatus();
 };
 
@@ -38,8 +34,6 @@ adminSocket.onerror = (error) => {
 adminSocket.onclose = () => {
     console.log("WebSocket disconnected!");
     updateStatus("Disconnected");
-    document.getElementById("ws_status").innerText = "Status: Disconnected";
-
 };
 
 function openadminbetcontrolModal(side, action) {
@@ -64,11 +58,14 @@ function closeadminbetcontrolModal() {
 }
 
 function updateStatus(status) {
-    document.getElementById("ws_status").innerText = "Status: " + status;
+    const wsStatus = document.getElementById("ws_status");
+    if (!wsStatus) return;
+    wsStatus.innerText = "Status: " + status;
 }
 
 function updateFightnum(fightnum){
-    document.getElementById("currentmatchnum").innerText = fightnum;
+    const el = document.getElementById("currentmatchnum");
+    if (el) el.innerText = fightnum;
 }
 
 function openmodal(modalid, buttonid) {
@@ -126,7 +123,7 @@ function declarewinner(side) {
     
     const currentmatchstatus = document.getElementById("currentmatchstatus");
     const startmatchButton = document.getElementById("startmatchbutton");
-    currentmatchstatus.innerHTML = "COMPLETE";
+    if (currentmatchstatus) currentmatchstatus.innerHTML = "COMPLETE";
     disableadminButtons();
 
     startmatchButton.onclick = () => openmodal('control_confirmationModal', 'StartMatch'); // Enable the start match button
@@ -249,8 +246,10 @@ function SuperCloseBetting() {
     closebettingButton.onclick = () => null; // Disable the close betting button
     msubmitButton.onclick = () => openmodal('matchclosedmodal','null'); 
     wsubmitButton.onclick = () => openmodal('matchclosedmodal','null'); 
-    currentmatchstatus.innerHTML = "CLOSED";
-    currentmatchstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)"; // Change background color to red    
+    if (currentmatchstatus) {
+        currentmatchstatus.innerHTML = "CLOSED";
+        currentmatchstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)"; // Change background color to red
+    }
 }
 
 function CloseBetting(side) {
@@ -330,14 +329,14 @@ async function get_fightstatus() {
         const wbettingstatus = document.getElementById("wala-betting-status");
 
         currentmatchnum.innerText = data.fightnum;
-        currentmatchstatus.innerHTML = data.overall_status;
+        if (currentmatchstatus) currentmatchstatus.innerHTML = data.overall_status;
 
         if (data.fight_status === 'START') {
-            currentmatchstatus.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green    
+            if (currentmatchstatus) currentmatchstatus.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green    
             OpenBetting('BOTH'); // Open betting for both sides
 
         } else if (data.overall_status === 'OPEN') {
-            currentmatchstatus.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green    
+            if (currentmatchstatus) currentmatchstatus.style.backgroundColor = "rgba(7, 248, 2, 0.573)"; // Change background color to green    
             if (data.meron_status == 'OPEN'){
                 OpenBetting('MERON'); // Open MERON betting
                 // mopenButton.onclick = () => null; // Disable the open button for MERON
@@ -375,7 +374,7 @@ async function get_fightstatus() {
         //     endmatchButton.onclick = () => openmodal('endmatchModal', 'EndMatch'); // Enable the end match button
         //     cancelmatchButton.onclick = () => openmodal('cancelmatchModal', 'CancelMatch'); // Enable the cancel match button
         } else if (data.overall_status === 'CANCELED') {
-            currentmatchstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)"; // Change background color to red    
+            if (currentmatchstatus) currentmatchstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)"; // Change background color to red    
             mopenButton.onclick = () => null; // Disable the open button for MERON
             wopenButton.onclick = () => null; // Disable the open button for WALA
             mcloseButton.onclick = () => null; // Disable the close button for MERON
@@ -385,7 +384,7 @@ async function get_fightstatus() {
             endmatchButton.onclick = () => null; // Disable the end match button
             cancelmatchButton.onclick = () => null; // Disable the cancel match button
         } else if (data.overall_status === 'COMPLETE') {
-            currentmatchstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)"; // Change background color to red    
+            if (currentmatchstatus) currentmatchstatus.style.backgroundColor = "rgba(248, 7, 7, 0.573)"; // Change background color to red    
             startmatchButton.onclick = () => openmodal('control_confirmationModal', 'StartMatch'); // Enable the start match button
             mopenButton.onclick = () => null; // Disable the open button for MERON
             wopenButton.onclick = () => null; // Disable the open button for WALA

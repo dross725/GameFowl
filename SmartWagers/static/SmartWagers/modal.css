@@ -1,13 +1,13 @@
-/* ── Modals — Dark Theme ─────────────────────────────────── */
+/* ── Modals — Ops Board ──────────────────────────────────── */
 
 .modal {
   display: none;
   position: fixed;
   z-index: 200;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(15, 18, 24, 0.62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   justify-content: center;
   align-items: center;
 }
@@ -20,30 +20,30 @@
 
 /* ── Dialog box ──────────────────────────────────────────── */
 .modal-content {
-  background: #1b1e27;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 14px;
+  background: #3d4658;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
   padding: 28px 32px 24px;
   width: 360px;
   max-width: 90vw;
   text-align: center;
-  box-shadow:
-    0 24px 60px rgba(0, 0, 0, 0.75),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  color: #edf0f5;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25), 0 16px 40px rgba(0, 0, 0, 0.45);
+  color: #f2f4f7;
+  font-family: "DM Sans", "Segoe UI", sans-serif;
 }
 
 .modal-content h2 {
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  font-family: Oswald, Impact, sans-serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 2px;
   margin-bottom: 10px;
-  color: white;
+  color: #f2f4f7;
 }
 
 .modal-content p {
   font-size: 16px;
-  color: rgba(255, 255, 255, 0.78);
+  color: #a8b2c2;
   line-height: 1.5;
   margin-bottom: 6px;
 }
@@ -56,17 +56,17 @@
 #opening_fund_display,
 #balance_display {
   font-weight: 800;
-  color: #ffffff;
+  color: #f2f4f7;
 }
 
 #summaryValue {
   font-size: 18px;
-  color: rgba(255, 255, 255, 0.88);
+  color: #f2f4f7;
 }
 
 #payout_message2 {
   font-size: 18px;
-  color: rgba(255, 255, 255, 0.88);
+  color: #f2f4f7;
 }
 
 #payout_message2 .modal-money {
@@ -75,27 +75,28 @@
   font-weight: 800;
   letter-spacing: 0.4px;
   margin-top: 6px;
-  color: #ffffff;
+  color: #f2f4f7;
 }
 
 .modal-content input {
   width: 80%;
   height: 36px;
-  border: 1px solid rgba(255, 255, 255, 0.20);
-  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-radius: 4px;
   font-size: 17px;
   text-align: center;
-  background: rgba(0, 0, 0, 0.45);
-  color: white;
+  background: #343c4d;
+  color: #f2f4f7;
   padding: 0 10px;
   outline: none;
   margin: 10px 0 4px;
   transition: border-color 0.2s;
+  font-family: "DM Sans", "Segoe UI", sans-serif;
 }
 
 .modal-content input:focus {
-  border-color: rgba(255, 255, 255, 0.40);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+  border-color: #f2f4f7;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.10);
 }
 
 /* ── Modal buttons (base) ────────────────────────────────── */
@@ -105,27 +106,30 @@
   justify-content: center;
   padding: 7px 20px;
   margin: 8px 4px 0;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.09);
-  color: white;
+  border-radius: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  background: #343c4d;
+  color: #f2f4f7;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 0.14s, transform 0.1s, box-shadow 0.14s;
+  transition: background 0.14s, border-color 0.14s;
   user-select: none;
   min-width: 80px;
+  font-family: "DM Sans", "Segoe UI", sans-serif;
 }
 
 .modal-content button:hover {
-  background: rgba(255, 255, 255, 0.18);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  background: #3d4658;
+  transform: none;
+  box-shadow: none;
+  border-color: #f2f4f7;
 }
 
 .modal-content button:active {
-  transform: translateY(0);
+  transform: none;
   box-shadow: none;
+  background: #2f3644;
 }
 
 /* ── Teller offline lockout ──────────────────────────────── */
@@ -135,20 +139,17 @@
 }
 
 .teller-offline-modal-content {
-  border-color: rgba(192, 57, 43, 0.45);
-  box-shadow:
-    0 0 40px rgba(192, 57, 43, 0.25),
-    0 24px 60px rgba(0, 0, 0, 0.75),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  border-color: #c1121f;
+  box-shadow: 0 16px 40px rgba(193, 18, 31, 0.18);
 }
 
 .teller-offline-modal-content h2 {
-  color: #e74c3c;
+  color: #c1121f;
 }
 
 .teller-offline-wait {
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.45);
+  color: #a8b2c2;
   font-style: italic;
 }
 
@@ -160,8 +161,9 @@
 #confirmopen,
 #payout_success_button,
 #payout_error_button {
-  background: linear-gradient(135deg, #27ae60, #1a7a42);
-  border-color: rgba(39, 174, 96, 0.50);
+  background: #1b8a4a;
+  border-color: #146638;
+  color: #fff;
 }
 
 #submitvalue:hover,
@@ -171,66 +173,71 @@
 #confirmopen:hover,
 #payout_success_button:hover,
 #payout_error_button:hover {
-  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  background: #146638;
 }
 
 /* ── MERON winner button ─────────────────────────────────── */
 #meron_winner {
-  background: linear-gradient(135deg, #c0392b, #8e1a12);
-  border-color: rgba(192, 57, 43, 0.50);
+  background: #c1121f;
+  border-color: #780000;
+  color: #fff;
 }
 
 #meron_winner:hover {
-  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  background: #780000;
 }
 
 /* ── WALA winner button ──────────────────────────────────── */
 #wala_winner {
-  background: linear-gradient(135deg, #1a6bc0, #0d3c6e);
-  border-color: rgba(26, 107, 192, 0.50);
+  background: #0077b6;
+  border-color: #023e8a;
+  color: #fff;
 }
 
 #wala_winner:hover {
-  background: linear-gradient(135deg, #2980b9, #1a6bc0);
+  background: #023e8a;
 }
 
 /* ── Draw button ─────────────────────────────────────────── */
 #draw {
-  background: linear-gradient(135deg, #7d3c98, #5b2c6f);
-  border-color: rgba(125, 60, 152, 0.50);
+  background: #5a6678;
+  border-color: #3d4654;
+  color: #fff;
 }
 
 #draw:hover {
-  background: linear-gradient(135deg, #9b59b6, #7d3c98);
+  background: #3d4654;
 }
 
 /* ── Cancel Match (inside End Match / Who Won) ───────────── */
 #cancel_match_option {
-  background: linear-gradient(135deg, #5a6270, #3d4450);
-  border-color: rgba(90, 98, 112, 0.55);
+  background: #1a2332;
+  border-color: #0d1218;
+  color: #fff;
 }
 
 #cancel_match_option:hover {
-  background: linear-gradient(135deg, #6e7785, #5a6270);
+  background: #0d1218;
 }
 
 /* ── Cancel / dismiss buttons ────────────────────────────── */
 #payout_no,
 #cancelbet_no,
 #cm-no-button {
-  background: rgba(192, 57, 43, 0.18);
-  border-color: rgba(192, 57, 43, 0.30);
+  background: rgba(193, 18, 31, 0.28);
+  border-color: rgba(193, 18, 31, 0.40);
+  color: #c1121f;
 }
 
 #payout_no:hover,
 #cancelbet_no:hover,
 #cm-no-button:hover {
-  background: rgba(192, 57, 43, 0.38);
+  background: rgba(193, 18, 31, 0.40);
 }
 
 /* ── Close icon ──────────────────────────────────────────── */
 .close {
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.40);
   float: right;
   font-size: 22px;
   font-weight: bold;
@@ -241,7 +248,7 @@
 
 .close:hover,
 .close:focus {
-  color: white;
+  color: #f2f4f7;
   text-decoration: none;
 }
 

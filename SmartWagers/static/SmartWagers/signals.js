@@ -66,9 +66,6 @@ socket.onopen = () => {
     socket.send(JSON.stringify({ update: true }));
     console.log("Initial data request sent.");
     updateStatus("Connected");
-    document.getElementById("ws_status").innerText = "Status: Connected";
-    document.getElementById("ws_status").style.color = "blue";
-    document.getElementById("ws_status").style.fontWeight = "bold";     
 };
 
 socket.onerror = (error) => {
@@ -78,22 +75,25 @@ socket.onerror = (error) => {
 socket.onclose = () => {
     console.log("WebSocket disconnected!");
     updateStatus("Disconnected");
-    document.getElementById("ws_status").innerText = "Status: Disconnected";
-
 };
 
 function updateStatus(status) {
-    document.getElementById("ws_status").innerText = "Status: " + status;
+    const wsStatus = document.getElementById("ws_status");
+    if (!wsStatus) return;
+    wsStatus.innerText = "Status: " + status;
 };
 
 function updateFightnum(fightnum){
-    document.getElementById("currentmatchnum").innerText = fightnum;
+    const el = document.getElementById("currentmatchnum");
+    if (el) el.innerText = fightnum;
 }
 
 function update_disp_FightStatus(status) {
-    document.getElementById("currentmatchstatus").innerText = "Status: " + status;
-    document.getElementById("currentmatchstatus").style.color = status === "OPEN" ? "green" : "red";
-    document.getElementById("currentmatchstatus").style.fontWeight = "bold";
+    const matchStatus = document.getElementById("currentmatchstatus");
+    if (!matchStatus) return;
+    matchStatus.innerText = "Status: " + status;
+    matchStatus.style.color = status === "OPEN" ? "green" : "red";
+    matchStatus.style.fontWeight = "bold";
 }
 
 function update_side_status(side, side_status) {
@@ -134,9 +134,9 @@ async function update_trends() {
                     ? 'D'
                     : '----';
         const colors = {
-            MERON: 'linear-gradient(to bottom, red, black)',
-            WALA: 'linear-gradient(to bottom, blue, black)',
-            DRAW: 'linear-gradient(to bottom, #c8a800, black)',
+            MERON: 'linear-gradient(to bottom, #c1121f, #780000)',
+            WALA: 'linear-gradient(to bottom, #0077b6, #023e8a)',
+            DRAW: 'linear-gradient(to bottom, #b8860b, #5a4a00)',
         };
         oddsDiv.style.background = colors[match.side]
             || 'linear-gradient(to bottom, gray, black)';

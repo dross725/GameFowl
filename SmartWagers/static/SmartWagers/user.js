@@ -101,7 +101,6 @@ async function handleUserSocketMessage(event) {
         document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
         document.getElementById("W_total_bet").innerText = data.wtotal;
         document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
-        document.getElementById("ws_status").innerText = "Status: Connected";
         updateStatus("Connected");
         updateFightnum(data.fightnum)
         console.log("Data received:", data);
@@ -407,9 +406,11 @@ function isTellerOffline() {
 } 
 
 function updateStatus(status) {
-    document.getElementById("ws_status").innerText = "Status: " + status;
-    document.getElementById("ws_status").style.color = status === "Connected" ? "green" : "red";
-    document.getElementById("ws_status").style.fontWeight = "bold";
+    const wsStatus = document.getElementById("ws_status");
+    if (!wsStatus) return;
+    wsStatus.innerText = "Status: " + status;
+    wsStatus.style.color = status === "Connected" ? "green" : "red";
+    wsStatus.style.fontWeight = "bold";
 };
 
 let _lastFightnum = null;

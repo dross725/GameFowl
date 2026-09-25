@@ -7,7 +7,7 @@
 {% block nav %}
     <header id="main-navigation">
         <nav id="navbar">
-            <div id="nav-brand">SmartWagers</div>
+            <div id="nav-brand">Sabong</div>
             <ul id="nav-links">
                 <li><a href="{% url 'index' %}">Main</a></li>
                 <li><a href="{% url 'user-page' %}">Teller</a></li>
@@ -680,9 +680,9 @@ async function update_trends() {
             oddsDiv.className = 'odds';
             oddsDiv.textContent = formattedOdds;
             const colors = {
-                MERON: 'linear-gradient(to bottom, red, black)',
-                WALA:  'linear-gradient(to bottom, blue, black)',
-                DRAW:  'linear-gradient(to bottom, #c8a800, black)',
+                MERON: 'linear-gradient(to bottom, #c1121f, #780000)',
+                WALA:  'linear-gradient(to bottom, #0077b6, #023e8a)',
+                DRAW:  'linear-gradient(to bottom, #b8860b, #5a4a00)',
             };
             oddsDiv.style.background = colors[match.side] || 'linear-gradient(to bottom, gray, black)';
             oddsDiv.style.color = 'white';

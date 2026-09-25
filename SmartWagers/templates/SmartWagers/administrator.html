@@ -2,8 +2,8 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=25">
-    <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=12">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=41">
+    <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=21">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
       #tellers_button {
@@ -15,7 +15,7 @@
         position: absolute;
         top: -7px;
         right: -7px;
-        background: #e74c3c;
+        background: #c1121f;
         color: white;
         font-size: 11px;
         font-weight: 900;
@@ -26,7 +26,7 @@
         align-items: center;
         justify-content: center;
         line-height: 1;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+        box-shadow: 0 2px 6px rgba(193,18,31,0.35);
         animation: badge-pulse 1.8s ease-in-out infinite;
         z-index: 10;
         pointer-events: none;
@@ -35,8 +35,8 @@
       #teller-alert-badge.visible { display: flex; }
 
       @keyframes badge-pulse {
-        0%, 100% { transform: scale(1); box-shadow: 0 2px 6px rgba(231,76,60,0.5); }
-        50%       { transform: scale(1.15); box-shadow: 0 2px 12px rgba(231,76,60,0.85); }
+        0%, 100% { transform: scale(1); box-shadow: 0 2px 6px rgba(193,18,31,0.35); }
+        50%       { transform: scale(1.15); box-shadow: 0 2px 12px rgba(193,18,31,0.55); }
       }
 
       /* ── Floating teller alert panel ── */
@@ -47,10 +47,10 @@
         right: 20px;
         width: 300px;
         max-width: calc(100vw - 32px);
-        background: #1b1e27;
-        border: 1px solid rgba(231,76,60,0.45);
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.60);
+        background: #3d4658;
+        border: 2px solid #c1121f;
+        border-radius: 4px;
+        box-shadow: 0 8px 28px rgba(0,0,0,0.40);
         z-index: 500;
         overflow: hidden;
         animation: panel-slide-in 0.25s ease-out;
@@ -70,8 +70,8 @@
         align-items: center;
         gap: 8px;
         padding: 12px 14px 10px;
-        background: rgba(231,76,60,0.12);
-        border-bottom: 1px solid rgba(231,76,60,0.20);
+        background: rgba(193,18,31,0.28);
+        border-bottom: 1px solid rgba(193,18,31,0.35);
         cursor: pointer;
         user-select: none;
       }
@@ -81,7 +81,7 @@
       #tap-title {
         font-size: 13px;
         font-weight: 800;
-        color: #e74c3c;
+        color: #c1121f;
         flex: 1;
         letter-spacing: 0.3px;
       }
@@ -89,14 +89,14 @@
       #tap-dismiss {
         background: none;
         border: none;
-        color: rgba(255,255,255,0.35);
+        color: rgba(255,255,255,0.45);
         font-size: 16px;
         cursor: pointer;
         padding: 0 2px;
         line-height: 1;
         flex-shrink: 0;
       }
-      #tap-dismiss:hover { color: rgba(255,255,255,0.70); }
+      #tap-dismiss:hover { color: #f2f4f7; }
 
       #tap-body {
         padding: 10px 12px 12px;
@@ -111,15 +111,16 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        background: rgba(255,255,255,0.04);
-        border-radius: 8px;
+        background: #343c4d;
+        border-radius: 4px;
         padding: 8px 10px;
+        border: 1px solid rgba(255,255,255,0.10);
       }
 
       .tap-item-name {
         font-size: 13px;
-        font-weight: 700;
-        color: white;
+        font-weight: 800;
+        color: #f2f4f7;
         flex: 1;
         white-space: nowrap;
         overflow: hidden;
@@ -130,19 +131,19 @@
         font-size: 10px;
         font-weight: 800;
         padding: 2px 8px;
-        border-radius: 20px;
+        border-radius: 4px;
         letter-spacing: 0.4px;
         white-space: nowrap;
         flex-shrink: 0;
       }
 
       .tap-item-tag.remit-tag {
-        background: linear-gradient(135deg, #c0392b, #8e1a12);
+        background: #c1121f;
         color: white;
       }
 
       .tap-item-tag.borrow-tag {
-        background: linear-gradient(135deg, #27ae60, #1a7a43);
+        background: #1b8a4a;
         color: white;
       }
 
@@ -152,22 +153,23 @@
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
         flex-shrink: 0;
+        color: #a8b2c2;
       }
 
-      .tap-item-balance.over  { color: #f1c40f; }
-      .tap-item-balance.under { color: #3498db; }
+      .tap-item-balance.over  { color: #b8860b; }
+      .tap-item-balance.under { color: #5dade2; }
 
       #tap-footer {
         padding: 8px 12px 10px;
-        border-top: 1px solid rgba(255,255,255,0.06);
+        border-top: 1px solid rgba(255,255,255,0.10);
       }
 
       #tap-goto-btn {
         display: block;
         width: 100%;
-        background: linear-gradient(135deg, #c0392b, #8e1a12);
-        border: none;
-        border-radius: 8px;
+        background: #c1121f;
+        border: 2px solid #780000;
+        border-radius: 4px;
         color: white;
         font-size: 12px;
         font-weight: 700;
@@ -239,7 +241,7 @@
     window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
 </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=cancel-in-end-4"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=ui-ops-2"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=amount-lock-flow-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -248,7 +250,7 @@
 {% block nav %}
     <header id="main-navigation">
         <nav id="navbar">
-            <div id="nav-brand">SmartWagers</div>
+            <div id="nav-brand">Sabong</div>
             <ul id="nav-links">
                 <li><a href="{% url 'index' %}">Main</a></li>
                 <li><a href="{% url 'user-page' %}">Teller</a></li>

@@ -6,7 +6,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}SmartWagers{% endblock title %}</title>
-    <link rel="stylesheet" href="{% static "app.css" %}?v=15">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,600;0,9..40,700;0,9..40,800;1,9..40,600&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static "app.css" %}?v=24">
 
     {% block css_files %}{% endblock css_files %}
     {% block script_files %}
@@ -17,7 +20,7 @@
     {% block nav %}
         <header id="main-navigation">
             <nav id="navbar">
-                <div id="nav-brand">SmartWagers</div>
+                <div id="nav-brand">Sabong</div>
                 <ul id="nav-links">
                     <li><a href="{% url "index" %}">Main</a></li>
                     <li><a href="{% url "user-page" %}">Teller</a></li>
@@ -43,18 +46,12 @@
             </nav>
         </header>
     {% endblock nav %}
-    <div id="currentmatch">
-        <div id="currentmatchstatus">Status : Ongoing</div>
-        <div id="ws_status">Status: Connecting...</div>
-    </div>
+    <aside id="sidebar">
+        <div id="currentmatchnum">-</div>
+        <ul id="trends">
+        </ul>
+    </aside>
     <div id="container">
-        <aside id="sidebar">
-            <div id="currentmatchnum">-</div>
-            <h1>Results</h1>
-            <ul id="trends">
-            </ul>
-        </aside>
-
         <main id="main_content">
 
             {% block label %}

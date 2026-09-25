@@ -120,7 +120,6 @@ administratorSocket.onmessage = async (event) => {
         document.getElementById("M_payout").innerText = "PAYOUT: " + data.mpayout;
         document.getElementById("W_total_bet").innerText = data.wtotal;
         document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
-        document.getElementById("ws_status").innerText = "Status: Connected";
 
     }else if ("payout" in data) {
         await handlePayoutMessage(data);
@@ -237,9 +236,11 @@ async function reprintPaidPayoutReceipt() {
 }
 
 function updateStatus(status) {
-    document.getElementById("ws_status").innerText = "Status: " + status;
-    document.getElementById("ws_status").style.color = status === "Connected" ? "green" : "red";
-    document.getElementById("ws_status").style.fontWeight = "bold";
+    const wsStatus = document.getElementById("ws_status");
+    if (!wsStatus) return;
+    wsStatus.innerText = "Status: " + status;
+    wsStatus.style.color = status === "Connected" ? "green" : "red";
+    wsStatus.style.fontWeight = "bold";
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -258,9 +259,11 @@ function update_disp_Fightnum(fightnum) {
 }
 
 function update_disp_FightStatus(status) {
-    document.getElementById("currentmatchstatus").innerText = "Status: " + status;
-    document.getElementById("currentmatchstatus").style.color = status === "OPEN" ? "green" : "red";
-    document.getElementById("currentmatchstatus").style.fontWeight = "bold";
+    const matchStatus = document.getElementById("currentmatchstatus");
+    if (!matchStatus) return;
+    matchStatus.innerText = "Status: " + status;
+    matchStatus.style.color = status === "OPEN" ? "green" : "red";
+    matchStatus.style.fontWeight = "bold";
 }
 
 async function update_disp_Pot(){
@@ -1007,9 +1010,9 @@ async function update_trends() {
 
         // Color coding based on winner
         const colors = {
-            MERON: "linear-gradient(to bottom, red, black)",
-            WALA:  "linear-gradient(to bottom, blue, black)",
-            DRAW:  "linear-gradient(to bottom, #c8a800, black)",
+            MERON: "linear-gradient(to bottom, #c1121f, #780000)",
+            WALA:  "linear-gradient(to bottom, #0077b6, #023e8a)",
+            DRAW:  "linear-gradient(to bottom, #b8860b, #5a4a00)",
         };
         oddsDiv.style.background = colors[match.side] || "linear-gradient(to bottom, gray, black)";
         oddsDiv.style.color = "white";

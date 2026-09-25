@@ -2,7 +2,7 @@ body {
   margin: 0;
   padding: 16px;
   font-family: 'Segoe UI', sans-serif;
-  background: url("../SmartWagers/images/login-img.jpg") no-repeat center center;
+  background: url("images/cockpit.png") no-repeat center center;
   background-size: cover;
   background-attachment: scroll;
   display: flex;
