@@ -2,7 +2,7 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=25">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=31">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=12">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
@@ -237,10 +237,12 @@
 {% block script_files %}
 <script>
     window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
+    window.PAYOUTS_HELD = {{ payouts_held|yesno:"true,false" }};
+    window.PAYOUTS_HOLD_URL = "{% url 'admin-payouts-hold' %}";
 </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=cancel-in-end-4"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=amount-lock-side-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=payout-hold-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=payout-hold-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
 {% endblock script_files %}
@@ -339,18 +341,24 @@
             <div class='button' id='endmatchbutton'>End Match</div>
         </section>
         <section id='payout'>
-            <div class='button' id='payout_button' onclick='openmodal("payoutmodal")'>Payout</div>
-            <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
-            <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
-            <a href="{% url 'admin-tellers' %}" class='button' id='tellers_button'>
-              Tellers
-              <span id="teller-alert-badge">0</span>
-            </a>
-            <div class='button' id='received_button' onclick='openreceivedmodal()'>Received</div>
-            <div class='button' id='admin-fund-button' onclick='openAdminFundModal()'>
-              Fund ₱ {{ admin_fund.balance|floatformat:0|intcomma }}
+            <div id='payout-actions'>
+                <div class='button' id='payout_button' onclick='openPayoutModal()'>Payout</div>
+                <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
+                <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
+                <a href="{% url 'admin-tellers' %}" class='button' id='tellers_button'>
+                  Tellers
+                  <span id="teller-alert-badge">0</span>
+                </a>
+                <div class='button' id='received_button' onclick='openreceivedmodal()'>Received</div>
+                <div class='button' id='admin-fund-button' onclick='openAdminFundModal()'>
+                  Fund ₱ {{ admin_fund.balance|floatformat:0|intcomma }}
+                </div>
             </div>
+            <div class='button' id='payout_hold_button' onclick='togglePayoutHold()'>Hold Payouts</div>
         </section>
+        <div id='payout-hold-banner' class='payout-hold-banner' {% if not payouts_held %}hidden{% endif %}>
+            Payouts are on hold — correct the winning side, then Resume Payouts.
+        </div>
     </section>
 
     <form id='submitwagerForm' method='POST' style='display:none;'>

@@ -344,3 +344,57 @@ async def test_pot_broadcast_received_after_fight_start(
     # The broadcast contains pot values
     assert 'mtotal' in response or 'fight_status' in response
     await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_barcode_while_payouts_held_returns_payouts_held(
+        teller_user, settings, default_settings, active_event):
+    from asgiref.sync import sync_to_async
+    from SmartWagers import services as svc
+
+    settings.CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    }
+    await sync_to_async(Totals.objects.create)(
+        fightnum=0, mtotal=0, wtotal=0, mpayout=0, wpayout=0, totalpot=0
+    )
+    await sync_to_async(svc.set_payouts_held)(True)
+
+    communicator = WebsocketCommunicator(application, '/ws/user/')
+    communicator.scope['user'] = teller_user
+    connected, _ = await communicator.connect()
+    assert connected
+
+    await communicator.send_json_to({'barcode': '123456'})
+    response = await communicator.receive_json_from(timeout=3)
+    assert response.get('payout') is True
+    assert response.get('error') == 'payouts_held'
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_admin_barcode_while_payouts_held_returns_payouts_held(
+        admin_user, settings, default_settings, active_event):
+    from asgiref.sync import sync_to_async
+    from SmartWagers import services as svc
+
+    settings.CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}
+    }
+    await sync_to_async(Totals.objects.create)(
+        fightnum=0, mtotal=0, wtotal=0, mpayout=0, wpayout=0, totalpot=0
+    )
+    await sync_to_async(svc.set_payouts_held)(True)
+
+    communicator = WebsocketCommunicator(application, '/ws/administrator/')
+    communicator.scope['user'] = admin_user
+    connected, _ = await communicator.connect()
+    assert connected
+
+    await communicator.send_json_to({'barcode': '123456'})
+    response = await communicator.receive_json_from(timeout=3)
+    assert response.get('payout') is True
+    assert response.get('error') == 'payouts_held'
+    await communicator.disconnect()

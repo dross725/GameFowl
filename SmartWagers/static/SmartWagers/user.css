@@ -383,7 +383,7 @@ textarea {
 }
 
 /* ── Payout / Cancel Bet row card ────────────────────────── */
-#content > section:last-child {
+#teller-actions {
   display: flex;
   justify-content: center;
   align-items: center;
@@ -464,6 +464,32 @@ textarea {
 
 #balance_button:hover {
   background: linear-gradient(135deg, #d4ac0d, #b7950b);
+}
+
+.payout-hold-banner {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(192, 57, 43, 0.85), rgba(100, 30, 22, 0.90));
+  border: 1px solid rgba(231, 76, 60, 0.55);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.30);
+}
+
+.payout-hold-banner[hidden] {
+  display: none !important;
+}
+
+#payout_button.btn-payout-held {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(0.55);
 }
 
 /* ── Balance modal content ───────────────────────────────── */
@@ -589,7 +615,7 @@ textarea {
   }
 
   /* Payout / Cancel Bet bar */
-  #content > section:last-child {
+  #teller-actions {
     padding: 4px 8px;
     gap: 6px;
   }
@@ -654,7 +680,7 @@ textarea {
     font-size: 15px;
   }
 
-  #content > section:last-child {
+  #teller-actions {
     flex-direction: column;
     padding: 10px;
     gap: 8px;

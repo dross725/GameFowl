@@ -447,15 +447,25 @@ textarea {
 
 /* ── Payout / Cancel Bet (card) ──────────────────────────── */
 #payout {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 14px;
   flex-shrink: 0;
   padding: 6px 10px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 10px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.30);
+}
+
+#payout-actions {
+  grid-column: 2;
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 #payout_button {
@@ -541,6 +551,61 @@ textarea {
 
 #received_button:hover {
   background: linear-gradient(135deg, #f1c40f, #d4ac0d);
+}
+
+#payout_hold_button {
+  grid-column: 3;
+  justify-self: end;
+  background: linear-gradient(135deg, #922b21, #641e16);
+  border-color: rgba(192, 57, 43, 0.55);
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 150px;
+  height: 34px;
+  text-align: center;
+  width: auto;
+  margin: 0;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+#payout_hold_button:hover {
+  background: linear-gradient(135deg, #c0392b, #922b21);
+}
+
+#payout_hold_button.payout-hold-active {
+  background: linear-gradient(135deg, #b7950b, #7d6608);
+  border-color: rgba(212, 172, 13, 0.55);
+}
+
+#payout_hold_button.payout-hold-active:hover {
+  background: linear-gradient(135deg, #d4ac0d, #b7950b);
+}
+
+.payout-hold-banner {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(192, 57, 43, 0.85), rgba(100, 30, 22, 0.90));
+  border: 1px solid rgba(231, 76, 60, 0.55);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.30);
+}
+
+.payout-hold-banner[hidden] {
+  display: none !important;
+}
+
+#payout_button.btn-payout-held {
+  opacity: 0.35 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
+  filter: grayscale(0.55);
 }
 
 #payout_barcode {
@@ -631,7 +696,10 @@ textarea {
   }
   #payout {
     padding: 4px 8px;
-    gap: 6px;
+    gap: 10px;
+  }
+  #payout-actions {
+    gap: 10px;
   }
   #payout_button,
   #cancel_bet,
@@ -715,9 +783,23 @@ textarea {
   }
 
   #payout {
+    display: flex;
     flex-direction: column;
     padding: 10px;
-    gap: 8px;
+    gap: 10px;
+  }
+
+  #payout-actions {
+    flex-direction: column;
+    width: 100%;
+    gap: 10px;
+  }
+
+  #payout_hold_button {
+    justify-self: stretch;
+    width: 100%;
+    max-width: 320px;
+    order: 99;
   }
 
   #payout_button,

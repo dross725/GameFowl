@@ -294,6 +294,9 @@ class Event(models.Model):
     started_at = models.DateTimeField(default=now)
     ended_at = models.DateTimeField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    # When True, all live teller/admin payouts for this event are blocked
+    # until an admin explicitly resumes. Past-event claims are unaffected.
+    payouts_held = models.BooleanField(default=False)
     admin_opening_fund = models.FloatField(default=100000.0)
     expected_admin_cash_on_hand = models.FloatField(null=True, blank=True)
     actual_admin_cash_counted = models.FloatField(null=True, blank=True)

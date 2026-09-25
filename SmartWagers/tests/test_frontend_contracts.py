@@ -85,3 +85,42 @@ def test_teller_alert_panel_has_real_collapse_behavior():
 
     assert '#teller-alert-panel.collapsed #tap-body' in template
     assert "panel.classList.toggle('collapsed')" in template
+
+
+def test_payout_hold_control_is_wired():
+    admin_template = read_project_file(
+        'SmartWagers/templates/SmartWagers/administrator.html'
+    )
+    user_template = read_project_file(
+        'SmartWagers/templates/SmartWagers/user.html'
+    )
+    admin_js = read_project_file(
+        'SmartWagers/static/SmartWagers/administrator.js'
+    )
+    user_js = read_project_file(
+        'SmartWagers/static/SmartWagers/user.js'
+    )
+    wagers_js = read_project_file(
+        'SmartWagers/static/SmartWagers/submit_wagers.js'
+    )
+
+    assert 'id=\'payout_hold_button\'' in admin_template or 'id="payout_hold_button"' in admin_template
+    assert 'togglePayoutHold()' in admin_template
+    assert 'PAYOUTS_HELD' in admin_template
+    assert 'PAYOUTS_HOLD_URL' in admin_template
+    assert 'payout-hold-banner' in admin_template
+    assert 'PAYOUTS_HELD' in user_template
+    assert 'payout-hold-banner' in user_template
+    assert 'openPayoutModal()' in admin_template
+    assert 'openPayoutModal()' in user_template
+
+    assert 'payouts_held:' in admin_js
+    assert 'Payouts are temporarily on hold by the administrator.' in admin_js
+    assert 'function applyPayoutHoldUI' in admin_js
+    assert 'function togglePayoutHold' in admin_js
+    assert 'function openPayoutModal' in admin_js
+    assert '"payouts_held" in data' in admin_js
+    assert '"payouts_held" in data' in user_js
+    assert 'openPayoutModal()' in wagers_js
+    assert "'payouts_held': payouts_held" in read_project_file('SmartWagers/views.py') \
+        or '"payouts_held": payouts_held' in read_project_file('SmartWagers/views.py')

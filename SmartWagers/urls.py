@@ -72,6 +72,7 @@ urlpatterns = [
     path("api/print-devices/health/", print_queue.print_device_health, name="api-print-devices-health"),
     path("administrator/teller-alerts/", views.admin_teller_alerts, name="admin-teller-alerts"),
     path("administrator/teller-online-toggle/", views.toggle_teller_online, name="admin-teller-online-toggle"),
+    path("administrator/payouts-hold/", views.toggle_payouts_held, name="admin-payouts-hold"),
     path("administrator/teller-closeout/count/", views.admin_register_teller_cash_count, name="admin-teller-closeout-count"),
     path("administrator/teller-closeout/edit-count/", views.admin_edit_teller_cash_count, name="admin-teller-closeout-edit-count"),
     path("administrator/admin-cash/count/", views.admin_register_admin_cash_count, name="admin-cash-count"),

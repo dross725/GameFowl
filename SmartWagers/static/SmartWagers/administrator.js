@@ -45,6 +45,7 @@ const PAYOUT_ERROR_MESSAGES = {
     cashier_not_found: "The ticket's cashier account could not be found. Payout was blocked.",
     teller_offline: "You are tagged as offline. Please report to the admin office.",
     station_closed: "This station is closed. Action is disabled.",
+    payouts_held: "Payouts are temporarily on hold by the administrator.",
     matchcomplete: "The match is already complete. Bet cancellation is not allowed.",
     matchnotopen: "The Betting is no longer open. Bet cancellation is not allowed.",
     wrong_teller: "This ticket belongs to another teller.",
@@ -113,6 +114,10 @@ administratorSocket.onmessage = async (event) => {
 
     if (data.refresh_trends) {
         update_trends();
+    }
+
+    if ("payouts_held" in data) {
+        applyPayoutHoldUI(Boolean(data.payouts_held));
     }
 
     if ("mtotal" in data && "wtotal" in data) {
@@ -644,7 +649,114 @@ async function handlePayoutMessage(data) {
     }
 }
 
+function openPayoutModal() {
+    if (window.PAYOUTS_HELD) {
+        document.getElementById('payout_error_header').innerText = "Payout Error";
+        openmodal('payout_error_modal', 'payouts_held', null, false, null);
+        return;
+    }
+    openmodal('payoutmodal');
+}
+
+function applyPayoutHoldUI(held) {
+    window.PAYOUTS_HELD = Boolean(held);
+
+    const payoutBtn = document.getElementById('payout_button');
+    if (payoutBtn) {
+        if (window.PAYOUTS_HELD) {
+            payoutBtn.classList.add('btn-payout-held');
+            payoutBtn.setAttribute('aria-disabled', 'true');
+            payoutBtn.title = 'Payouts are temporarily on hold by the administrator.';
+        } else {
+            payoutBtn.classList.remove('btn-payout-held');
+            payoutBtn.removeAttribute('aria-disabled');
+            payoutBtn.title = '';
+        }
+    }
+
+    const holdBtn = document.getElementById('payout_hold_button');
+    if (holdBtn) {
+        holdBtn.classList.toggle('payout-hold-active', window.PAYOUTS_HELD);
+        holdBtn.textContent = window.PAYOUTS_HELD ? 'Resume Payouts' : 'Hold Payouts';
+        holdBtn.title = window.PAYOUTS_HELD
+            ? 'Resume live payouts for all tellers'
+            : 'Hold live payouts for all tellers';
+    }
+
+    const banner = document.getElementById('payout-hold-banner');
+    if (banner) {
+        banner.hidden = !window.PAYOUTS_HELD;
+    }
+
+    if (window.PAYOUTS_HELD) {
+        const payoutModal = document.getElementById('payoutmodal');
+        if (payoutModal && payoutModal.style.display === 'flex') {
+            closemodal('payoutmodal');
+        }
+    }
+}
+
+let _payoutHoldToggleInFlight = false;
+
+async function togglePayoutHold() {
+    if (_payoutHoldToggleInFlight) return;
+    const url = window.PAYOUTS_HOLD_URL;
+    if (!url) {
+        console.error('PAYOUTS_HOLD_URL is not configured');
+        return;
+    }
+    const holdBtn = document.getElementById('payout_hold_button');
+    const nextHeld = !window.PAYOUTS_HELD;
+    _payoutHoldToggleInFlight = true;
+    if (holdBtn) holdBtn.style.pointerEvents = 'none';
+
+    const csrf = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+        || document.cookie.match(/csrftoken=([^;]+)/)?.[1]
+        || '';
+    const fd = new FormData();
+    fd.append('payouts_held', nextHeld ? 'true' : 'false');
+    if (csrf) fd.append('csrfmiddlewaretoken', csrf);
+
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            body: fd,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                ...(csrf ? { 'X-CSRFToken': csrf } : {}),
+            },
+            credentials: 'same-origin',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+            console.error('Payout hold toggle failed:', data);
+            document.getElementById('payout_error_header').innerText = 'Payout Hold Error';
+            document.getElementById('payout_error_message').innerText =
+                data.error === 'no_active_event'
+                    ? 'No active event. Start an event before holding payouts.'
+                    : (data.error || 'Could not update payout hold. Please try again.');
+            document.getElementById('payout_error_modal').style.display = 'flex';
+            return;
+        }
+        applyPayoutHoldUI(Boolean(data.payouts_held));
+    } catch (err) {
+        console.error('Payout hold toggle network error:', err);
+        document.getElementById('payout_error_header').innerText = 'Payout Hold Error';
+        document.getElementById('payout_error_message').innerText =
+            'Network error. Check connection and try again.';
+        document.getElementById('payout_error_modal').style.display = 'flex';
+    } finally {
+        _payoutHoldToggleInFlight = false;
+        if (holdBtn) holdBtn.style.pointerEvents = '';
+    }
+}
+
 async function payout() {
+   if (window.PAYOUTS_HELD) {
+        document.getElementById('payout_error_header').innerText = "Payout Error";
+        openmodal('payout_error_modal', 'payouts_held', null, false, null);
+        return;
+   }
    const barcode = rememberTransactionId(document.getElementById('payout_barcode').value);
    closemodal('payoutmodal');
    if (barcode === '' || isNaN(barcode)) {
@@ -1019,3 +1131,9 @@ async function update_trends() {
         trendsList.appendChild(row);
     });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    if (typeof applyPayoutHoldUI === 'function') {
+        applyPayoutHoldUI(Boolean(window.PAYOUTS_HELD));
+    }
+});

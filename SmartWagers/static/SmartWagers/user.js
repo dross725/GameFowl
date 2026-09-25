@@ -208,6 +208,14 @@ async function handleUserSocketMessage(event) {
         }
     }
 
+    if ("payouts_held" in data) {
+        if (typeof applyPayoutHoldUI === 'function') {
+            applyPayoutHoldUI(Boolean(data.payouts_held));
+        } else {
+            window.PAYOUTS_HELD = Boolean(data.payouts_held);
+        }
+    }
+
     // Admin approved an oversized bet — print receipt on this teller's local agent.
     if (data.approved_wager_print && data.receipt) {
         if (Number(data.teller_id) === Number(window.TELLER_ID)) {
@@ -348,6 +356,11 @@ function handleFightStatusBroadcast(data) {
     } else if (fightAction === "event_changed") {
         fetchTellerBalance();
         fetchFightTotals();
+        if ("payouts_held" in data && typeof applyPayoutHoldUI === 'function') {
+            applyPayoutHoldUI(Boolean(data.payouts_held));
+        } else if ("payouts_held" in data) {
+            window.PAYOUTS_HELD = Boolean(data.payouts_held);
+        }
         if (!("overall_status" in data)) {
             get_fightstatus();
         }

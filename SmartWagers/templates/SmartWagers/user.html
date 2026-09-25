@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=30">
+    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=31">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=13">
 {% endblock css_files %}
 
@@ -12,11 +12,12 @@
         window.TELLER_IS_ONLINE = {{ teller_is_online|yesno:"true,false" }};
         window.TELLER_STATION_CLOSED = {{ teller_station_closed|yesno:"true,false" }};
         window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
+        window.PAYOUTS_HELD = {{ payouts_held|yesno:"true,false" }};
     </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=cancel-in-end-4"></script>
-    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=amount-lock-side-1"></script>
-    <script src="{% static 'SmartWagers/user.js' %}?v=approved-wager-print-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=payout-hold-1"></script>
+    <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=payout-hold-1"></script>
+    <script src="{% static 'SmartWagers/user.js' %}?v=payout-hold-2"></script>
 {% endblock script_files %}
 
 {% block content %}
@@ -74,12 +75,15 @@
                 </section>
             </div>
         </section>
-        <section>
-            <div class='button' id='payout_button' onclick='openmodal("payoutmodal")'>Payout</div>
+        <section id='teller-actions'>
+            <div class='button' id='payout_button' onclick='openPayoutModal()'>Payout</div>
             <div class='button' id='cancel_bet' onclick='openmodal("cancelbetmodal")'>Cancel Bet</div>
             <div class='button' id='reprint_button' onclick='openmodal("reprintmodal")'>Reprint</div>
             <div class='button' id='balance_button' onclick='openBalanceModal()'>₱ 0</div>
         </section>
+        <div id='payout-hold-banner' class='payout-hold-banner' {% if not payouts_held %}hidden{% endif %}>
+            Payouts are temporarily on hold by the administrator.
+        </div>
     </section>
 
     {# Unclaimed-bets indicator disabled on the teller view. #}

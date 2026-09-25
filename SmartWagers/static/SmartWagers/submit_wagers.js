@@ -956,7 +956,9 @@ document.addEventListener('keydown', (e) => {
 
     if (e.key === 'Enter' && !e.repeat && tellerEnterAction === 'payout') {
         e.preventDefault();
-        if (typeof openmodal === 'function') {
+        if (typeof openPayoutModal === 'function') {
+            openPayoutModal();
+        } else if (typeof openmodal === 'function') {
             openmodal('payoutmodal');
         }
     }

@@ -475,3 +475,99 @@ class TestLookupWagerForReprint:
         for key in ('receipt_type', 'event_name', 'transaction_id', 'fightnum',
                     'side', 'amount', 'cashier', 'date'):
             assert key in payload, f"Missing key: {key}"
+
+
+# ---------------------------------------------------------------------------
+# Live payout hold
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestPayoutHold:
+
+    def test_is_payouts_held_false_by_default(self, active_event):
+        assert services.is_payouts_held() is False
+        assert services.is_payouts_held(active_event) is False
+
+    def test_set_payouts_held_persists_on_active_event(self, active_event, admin_user):
+        event = services.set_payouts_held(True, actor=admin_user)
+        assert event is not None
+        assert event.payouts_held is True
+        active_event.refresh_from_db()
+        assert active_event.payouts_held is True
+        assert services.is_payouts_held() is True
+
+        event = services.set_payouts_held(False, actor=admin_user)
+        assert event.payouts_held is False
+        assert services.is_payouts_held() is False
+
+    def test_set_payouts_held_returns_none_without_active_event(self, db):
+        assert Event.objects.filter(is_active=True).count() == 0
+        assert services.set_payouts_held(True) is None
+
+    def test_held_blocks_teller_payout_without_side_effects(
+            self, teller_user, default_settings, active_event):
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        _make_fight_result(1, 'MERON', event=active_event)
+        services.set_payouts_held(True)
+
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        )
+        assert result.get('error') == 'payouts_held'
+        w.refresh_from_db()
+        assert w.cashed_out is False
+        assert not TellerTransaction.objects.filter(
+            user=teller_user, transaction_type=TellerTransaction.PAYOUT,
+        ).exists()
+
+    def test_held_blocks_admin_payout_without_side_effects(
+            self, teller_user, default_settings, active_event):
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        _make_fight_result(1, 'MERON', event=active_event)
+        services.set_payouts_held(True)
+
+        result = services.payout_request(w.transactionid, requesting_cashier=None)
+        assert result.get('error') == 'payouts_held'
+        w.refresh_from_db()
+        assert w.cashed_out is False
+
+    def test_resume_allows_payout_again(
+            self, teller_user, default_settings, active_event):
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        _make_fight_result(1, 'MERON', event=active_event, mpayout=95.0)
+        services.set_payouts_held(True)
+        assert services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        ).get('error') == 'payouts_held'
+
+        services.set_payouts_held(False)
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        )
+        assert result.get('error') is None
+        w.refresh_from_db()
+        assert w.cashed_out is True
+
+    def test_old_ticket_payout_unaffected_by_live_hold(
+            self, teller_user, default_settings):
+        from datetime import timedelta
+        from django.utils.timezone import now
+
+        past = Event.objects.create(name='Past Event', is_active=False)
+        past.started_at = now() - timedelta(hours=2)
+        past.ended_at = now() + timedelta(hours=1)
+        past.save()
+
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        _make_fight_result(1, 'MERON', event=past, mpayout=95.0)
+
+        Event.objects.create(name='Live Event', is_active=True)
+        services.set_payouts_held(True)
+        assert services.is_payouts_held() is True
+
+        result = services.payout_old_ticket(
+            past, teller_user.username, w.transactionid,
+        )
+        assert result.get('ok') is True
+        w.refresh_from_db()
+        assert w.cashed_out is True

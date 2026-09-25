@@ -220,6 +220,27 @@ def notify_teller_online_status(teller_id, is_online):
         )
 
 
+def notify_payouts_held_status(held):
+    """Broadcast live payout hold/resume to teller and administrator clients."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    payload = {
+        'type': 'send_data',
+        'payouts_held': bool(held),
+    }
+    for group_name in ('user', 'administrator'):
+        try:
+            async_to_sync(channel_layer.group_send)(group_name, payload)
+        except Exception:
+            logger.exception(
+                "notify_payouts_held_status: broadcast failed for group=%s held=%s "
+                "— hold status was still saved",
+                group_name,
+                held,
+            )
+
+
 class RoleBasedLoginView(LoginView):
     # If the session cookie is still valid (browser closed without logout),
     # send the user straight to their role page instead of showing login again.
@@ -517,6 +538,9 @@ def notify_event_change():
     if channel_layer is None:
         return
     overall_status, meron_status, wala_status, fightnum = services.get_fight_status()
+    # New events start with payouts_held=False; clear any stale hold UI on
+    # long-lived teller/admin sockets without requiring a page reload.
+    payouts_held = services.is_payouts_held()
     for group in ["administrator", "user", "index"]:
         try:
             async_to_sync(channel_layer.group_send)(
@@ -528,6 +552,7 @@ def notify_event_change():
                     'meron_status': meron_status,
                     'wala_status': wala_status,
                     'fightnum': fightnum,
+                    'payouts_held': payouts_held,
                 },
             )
         except Exception:
@@ -614,6 +639,7 @@ def Main_admin(request):
                 'blocked_betting_side': wager_id,
                 'admin_fund': admin_fund,
                 'discard_trailing_3_6': services.is_discard_trailing_3_6_enabled(),
+                'payouts_held': services.is_payouts_held(),
             })
 
         if request.headers.get('x-requested-with') != 'XMLHttpRequest':
@@ -651,6 +677,7 @@ def Main_admin(request):
         'W_payout' : wala_payout,
         'admin_fund': admin_fund,
         'discard_trailing_3_6': services.is_discard_trailing_3_6_enabled(),
+        'payouts_held': services.is_payouts_held(),
     })
 
 
@@ -807,6 +834,7 @@ def Teller(request):
             'teller_station_closed': station_closed,
             'teller_id': request.user.pk,
             'discard_trailing_3_6': services.is_discard_trailing_3_6_enabled(),
+            'payouts_held': services.is_payouts_held(),
         }
         ctx.update(extra)
         return ctx
@@ -2830,6 +2858,42 @@ def toggle_teller_online(request):
         'balance': balance,
         'grand_total': grand_total,
         'opening_fund': services.get_teller_opening_fund_total(teller, event_scope),
+    })
+
+
+@group_required('admin')
+def toggle_payouts_held(request):
+    """Hold or resume all live payouts for the active event."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    raw = (request.POST.get('payouts_held') or '').strip().lower()
+    if raw not in ('1', '0', 'true', 'false', 'yes', 'no', 'on', 'off'):
+        return JsonResponse({'ok': False, 'error': 'Invalid toggle value'}, status=400)
+    held = raw in ('1', 'true', 'yes', 'on')
+
+    event = services.set_payouts_held(held, actor=request.user)
+    if event is None:
+        return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=409)
+
+    logger.info(
+        "PAYOUT HOLD TOGGLE: held=%s event=%s id=%s by admin=%s",
+        held, event.name, event.pk, request.user.username,
+    )
+    services.log_teller_action(
+        'payout_hold',
+        request.user,
+        outcome='held' if held else 'resumed',
+        level='warning' if held else 'info',
+        event=event.name,
+        event_id=event.pk,
+    )
+    notify_payouts_held_status(held)
+    return JsonResponse({
+        'ok': True,
+        'payouts_held': bool(event.payouts_held),
+        'event_id': event.pk,
+        'event_name': event.name,
     })
 
 

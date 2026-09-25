@@ -868,6 +868,41 @@ def get_active_event():
     return Event.objects.filter(is_active=True).order_by('-started_at').first()
 
 
+def is_payouts_held(event=None):
+    """Return True when live payouts are held for the active (or given) event."""
+    if event is None:
+        event = get_active_event()
+    return bool(event is not None and event.payouts_held)
+
+
+def set_payouts_held(held, actor=None):
+    """Lock the active event and set its payouts_held flag.
+
+    Returns the updated Event, or None when there is no active event.
+    Uses select_for_update so a hold cannot race an in-flight payout commit.
+    """
+    held = bool(held)
+    with db_transaction.atomic():
+        event = (
+            Event.objects.select_for_update()
+            .filter(is_active=True)
+            .order_by('-started_at')
+            .first()
+        )
+        if event is None:
+            return None
+        if event.payouts_held == held:
+            return event
+        event.payouts_held = held
+        event.save(update_fields=['payouts_held'])
+        actor_name = cashier_username(actor) if actor is not None else None
+        logger.info(
+            "PAYOUT HOLD: event=%s id=%s held=%s by=%s",
+            event.name, event.pk, held, actor_name or 'system',
+        )
+        return event
+
+
 def get_event_scope():
     """Return (event, apply_end_bound) for scoping teller data to a single event.
 
@@ -2659,7 +2694,7 @@ def _audit_payout_result(transaction_id, requesting_cashier, result):
             extra['reprint'] = 'available'
         warning_errors = {
             'notfound', 'wrong_teller', 'alreadypaid', 'wrongside',
-            'exceeds_cash_on_hand', 'cashier_not_found',
+            'exceeds_cash_on_hand', 'cashier_not_found', 'payouts_held',
         }
         log_teller_action(
             'payout',
@@ -2736,14 +2771,24 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
 
     with db_transaction.atomic():
         if active_event:
-            # All admin cashiers share one fund. This write serializes payouts,
-            # teller borrows, and bank remits against that event-wide balance.
-            Event.objects.filter(pk=active_event.pk).update(
-                is_active=F('is_active'),
+            # Lock the active event row so hold toggles and payouts serialize:
+            # a payout that already holds this lock can finish; none start after
+            # hold is enabled. Also serializes shared admin-fund operations.
+            locked_event = (
+                Event.objects.select_for_update()
+                .filter(pk=active_event.pk)
+                .first()
             )
+            if locked_event is not None and locked_event.payouts_held:
+                logger.warning(
+                    "PAYOUT HELD: txn=%s blocked — live payouts on hold for event=%s",
+                    transaction_id, locked_event.pk,
+                )
+                payout_result['error'] = 'payouts_held'
+                return payout_result
         if cashier_hint:
-            # This no-op UPDATE is deliberately the first query in the atomic
-            # block. It acquires SQLite's write lock before any balance read;
+            # This no-op UPDATE is deliberately early in the atomic block.
+            # It acquires SQLite's write lock before any balance read;
             # on row-locking databases it serializes payouts for this cashier.
             User.objects.filter(username=cashier_hint).update(username=F('username'))
 

@@ -1919,3 +1919,113 @@ class TestTellerBetLimitApproval:
         assert Wagers.objects.filter(
             client_request_id=client_request_id, cancelled=False,
         ).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Live payout hold toggle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestPayoutHoldToggle:
+
+    def test_admin_can_hold_and_resume_payouts(self, admin_user, active_event, settings):
+        settings.CHANNEL_LAYERS = {
+            'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
+        }
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/payouts-hold/', {
+            'payouts_held': 'true',
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['payouts_held'] is True
+        active_event.refresh_from_db()
+        assert active_event.payouts_held is True
+
+        response = client.post('/administrator/payouts-hold/', {
+            'payouts_held': 'false',
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['payouts_held'] is False
+        active_event.refresh_from_db()
+        assert active_event.payouts_held is False
+
+    def test_hold_without_active_event_returns_409(self, admin_user):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.post('/administrator/payouts-hold/', {
+            'payouts_held': 'true',
+        })
+        assert response.status_code == 409
+        assert response.json()['error'] == 'no_active_event'
+
+    def test_teller_cannot_toggle_payout_hold(self, teller_user, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/administrator/payouts-hold/', {
+            'payouts_held': 'true',
+        })
+        assert response.status_code == 403
+        active_event.refresh_from_db()
+        assert active_event.payouts_held is False
+
+    def test_get_method_not_allowed(self, admin_user, active_event):
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/administrator/payouts-hold/')
+        assert response.status_code == 405
+
+    def test_admin_page_includes_payouts_held_context(
+            self, admin_user, active_event, default_settings):
+        services.set_payouts_held(True)
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/administrator')
+        assert response.status_code == 200
+        assert response.context['payouts_held'] is True
+        assert b'PAYOUTS_HELD = true' in response.content
+        assert b'payout_hold_button' in response.content
+
+    def test_teller_page_includes_payouts_held_context(
+            self, teller_user, active_event, default_settings):
+        TellerStatus.objects.update_or_create(
+            user=teller_user, defaults={'is_online': True},
+        )
+        services.set_payouts_held(True)
+        client = Client()
+        client.force_login(teller_user)
+        response = client.get('/user')
+        assert response.status_code == 200
+        assert response.context['payouts_held'] is True
+        assert b'PAYOUTS_HELD = true' in response.content
+        assert b'payout-hold-banner' in response.content
+
+    def test_notify_event_change_includes_payouts_held(
+            self, active_event, settings):
+        from unittest.mock import patch, MagicMock
+
+        settings.CHANNEL_LAYERS = {
+            'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
+        }
+        services.set_payouts_held(True)
+        captured = []
+
+        def _capture_group_send(group, message):
+            captured.append((group, message))
+
+        fake_layer = MagicMock()
+        with patch('SmartWagers.views.get_channel_layer', return_value=fake_layer), \
+             patch('SmartWagers.views.async_to_sync', side_effect=lambda fn: fn):
+            fake_layer.group_send = _capture_group_send
+            from SmartWagers.views import notify_event_change
+            notify_event_change()
+
+        assert captured
+        assert all(msg.get('fight_status') == 'event_changed' for _, msg in captured)
+        assert all(msg.get('payouts_held') is True for _, msg in captured)
+        assert {group for group, _ in captured} >= {'user', 'administrator', 'index'}
