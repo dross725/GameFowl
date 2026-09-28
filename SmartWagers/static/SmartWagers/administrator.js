@@ -126,6 +126,7 @@ administratorSocket.onmessage = async (event) => {
         document.getElementById("W_total_bet").innerText = data.wtotal;
         document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
         document.getElementById("ws_status").innerText = "Status: Connected";
+        fetchAdminFightTotals();
 
     }else if ("payout" in data) {
         await handlePayoutMessage(data);
@@ -252,6 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
     updateStatus("Connected");
     get_fightstatus();
     update_trends();
+    if (_isAdminPage) fetchAdminFightTotals();
 });
 
 /* Modal keyboard shortcuts are handled centrally in submit_wagers.js */
@@ -276,6 +278,30 @@ async function update_disp_Pot(){
     document.getElementById("M_payout").innerText = "PAYOUT: " + data.M_payout;
     document.getElementById("W_total_bet").innerText = data.W_total_bet;
     document.getElementById("W_payout").innerText = "PAYOUT: " + data.W_payout;
+}
+
+function updateAdminFightTotals(meronTotal, walaTotal) {
+    const formatTotal = (value) => '₱ ' + Number(value).toLocaleString(
+        'en-PH',
+        { minimumFractionDigits: 0, maximumFractionDigits: 2 },
+    );
+    const meronElement = document.getElementById('admin-meron-total');
+    const walaElement = document.getElementById('admin-wala-total');
+    if (meronElement) meronElement.innerText = formatTotal(meronTotal);
+    if (walaElement) walaElement.innerText = formatTotal(walaTotal);
+}
+
+async function fetchAdminFightTotals() {
+    if (!_isAdminPage) return;
+    try {
+        const response = await fetch('/get_admin_fight_totals/');
+        const data = await response.json();
+        if (response.ok && data.ok) {
+            updateAdminFightTotals(data.meron_total, data.wala_total);
+        }
+    } catch (error) {
+        console.error('Error fetching admin fight totals:', error);
+    }
 }
 
 // ── Bet input enable/disable ──────────────────────────────

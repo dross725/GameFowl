@@ -1363,16 +1363,15 @@ def get_pending_payouts(request):
     })
 
 
-@group_required('teller')
-def get_teller_fight_totals(request):
-    """Return this teller's MERON and WALA bet totals for the current active fight only."""
+def _get_account_fight_totals(user):
+    """Return one account's MERON/WALA totals for the current active fight."""
     from SmartWagers import reporting
 
-    username = str(request.user)
+    username = str(user)
     _, _, _, fightnum = services.get_fight_status()
 
     if fightnum is None:
-        return JsonResponse({'ok': True, 'fightnum': None, 'meron_total': 0, 'wala_total': 0})
+        return {'ok': True, 'fightnum': None, 'meron_total': 0, 'wala_total': 0}
 
     base_qs = Wagers.objects.filter(
         cashier=username,
@@ -1385,18 +1384,30 @@ def get_teller_fight_totals(request):
     # prior events with the same fight number are never counted.
     active_event = services.get_active_event()
     base_qs = reporting.filter_wagers_for_teller(
-        base_qs, request.user, active_event, apply_end_bound=True,
+        base_qs, user, active_event, apply_end_bound=True,
     )
 
     meron_total = base_qs.filter(side='MERON').aggregate(total=Sum('wager'))['total'] or 0
     wala_total  = base_qs.filter(side='WALA').aggregate(total=Sum('wager'))['total'] or 0
 
-    return JsonResponse({
+    return {
         'ok': True,
         'fightnum': fightnum,
         'meron_total': meron_total,
         'wala_total': wala_total,
-    })
+    }
+
+
+@group_required('teller')
+def get_teller_fight_totals(request):
+    """Return this teller's totals for the current active fight."""
+    return JsonResponse(_get_account_fight_totals(request.user))
+
+
+@group_required('admin')
+def get_admin_fight_totals(request):
+    """Return this administrator's totals for the current active fight."""
+    return JsonResponse(_get_account_fight_totals(request.user))
 
 
 @group_required('teller')

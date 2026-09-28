@@ -1,12 +1,12 @@
 {
   "payload": {
-    "action": "init",
+    "action": "heartbeat",
     "enabled": false,
     "extension_count": 0,
-    "last_seen": "2026-09-11T10:28:10Z",
+    "last_seen": "2026-09-28T05:33:18Z",
     "schema_version": 1,
-    "updated_at": "2026-09-11T10:28:10Z",
+    "updated_at": "2026-09-28T05:33:18Z",
     "valid_until": null
   },
-  "sig": "b168a75ffa553920a6073a797ffd5ce8f7fa6a3c57dfb8356c7e3e01b40d79a7"
+  "sig": "c6d3c45d27fc2332269a7e5d26584c309bc86ab1f0efac94adfda1c6f25f6670"
 }

@@ -2,7 +2,7 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=31">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=33">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=12">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
@@ -268,7 +268,7 @@
     window.PAYOUTS_HOLD_URL = "{% url 'admin-payouts-hold' %}";
 </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=payout-hold-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=admin-fight-totals-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=payout-hold-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 
@@ -311,6 +311,14 @@
     <section id='content'>
         <section id='wagers'>
             <div id='unified-wagers'>
+                <div id='fight-bet-totals'>
+                    <div class='fight-side-total fight-total-meron'>
+                        <span id='admin-meron-total' class='fight-total-value'>₱ 0</span>
+                    </div>
+                    <div class='fight-side-total fight-total-wala'>
+                        <span id='admin-wala-total' class='fight-total-value'>₱ 0</span>
+                    </div>
+                </div>
                 <div id='side-selector'>
                     <input type='radio' name='bet_side' value='NONE' id='radio_none' checked style='display:none'>
                     <label class='radio-label meron-radio' id='meron-radio-label'>

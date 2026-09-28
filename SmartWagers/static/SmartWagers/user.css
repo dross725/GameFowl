@@ -34,6 +34,12 @@
   gap: 3px;
 }
 
+/* Teller page: keep the MERON / WALA banners 10% shorter. */
+#M_Label,
+#W_Label {
+  height: 140.4px;
+}
+
 #M_pot {
   background-color: #4a0c08;
   background-image:
@@ -550,9 +556,9 @@ textarea {
 /* ── Compact layout for 10" screens (~800 px tall) ──────── */
 @media (max-height: 820px) {
   /* Teller page: shrink MERON/WALA label banners to reclaim vertical space */
-  #M_Label,
-  #W_Label {
-    height: 76px;
+  #labels #M_Label,
+  #labels #W_Label {
+    height: 68.4px;
   }
   #M_Label h1,
   #W_Label h1 {
@@ -629,6 +635,11 @@ textarea {
 
 /* ── Mobile ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
+  #M_Label,
+  #W_Label {
+    height: 98.1px;
+  }
+
   #content {
     overflow: visible;
   }

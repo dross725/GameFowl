@@ -22,8 +22,16 @@ socket.onmessage = (event) => {
         }
         if (data.fight_status === "END" || data.fight_status === "CANCEL") {
             update_trends();
+            if (data.fight_status === "END") {
+                celebrateWinner(data.winner);
+            } else {
+                clearWinnerCelebration();
+            }
         } else if (data.fight_status === "event_changed") {
+            clearWinnerCelebration();
             get_fightstatus();
+        } else if (data.fight_status === "START") {
+            clearWinnerCelebration();
         }
     } else if ("mtotal" in data && "wtotal" in data) {
         document.getElementById("M_total_bet").innerText = data.mtotal;
@@ -104,6 +112,42 @@ function update_side_status(side, side_status) {
     betting_status.textContent = side_status;
     betting_status.classList.remove("status-open", "status-closed");
     betting_status.classList.add(side_status === "OPEN" ? "status-open" : "status-closed");
+}
+
+let winnerCelebrationTimer = null;
+
+function clearWinnerCelebration() {
+    if (winnerCelebrationTimer) {
+        window.clearTimeout(winnerCelebrationTimer);
+        winnerCelebrationTimer = null;
+    }
+    ["M_Label", "W_Label", "M_pot", "W_pot"].forEach((id) => {
+        document.getElementById(id)?.classList.remove("winner-celebration", "loser-dim");
+    });
+}
+
+function celebrateWinner(winner) {
+    const side = String(winner || "").toUpperCase();
+    if (side !== "MERON" && side !== "WALA") {
+        clearWinnerCelebration();
+        return;
+    }
+
+    clearWinnerCelebration();
+    const winnerPrefix = side === "MERON" ? "M" : "W";
+    const loserPrefix = side === "MERON" ? "W" : "M";
+    const winnerElements = [
+        document.getElementById(`${winnerPrefix}_Label`),
+        document.getElementById(`${winnerPrefix}_pot`),
+    ].filter(Boolean);
+
+    // Force a new animation cycle if the same side wins consecutive fights.
+    winnerElements.forEach((element) => void element.offsetWidth);
+    winnerElements.forEach((element) => element.classList.add("winner-celebration"));
+    document.getElementById(`${loserPrefix}_Label`)?.classList.add("loser-dim");
+    document.getElementById(`${loserPrefix}_pot`)?.classList.add("loser-dim");
+
+    winnerCelebrationTimer = window.setTimeout(clearWinnerCelebration, 8000);
 }
 
 async function update_trends() {
