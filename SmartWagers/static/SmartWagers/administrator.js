@@ -126,7 +126,7 @@ administratorSocket.onmessage = async (event) => {
         document.getElementById("W_total_bet").innerText = data.wtotal;
         document.getElementById("W_payout").innerText = "PAYOUT: " + data.wpayout;
         document.getElementById("ws_status").innerText = "Status: Connected";
-        fetchAdminFightTotals();
+        fetchAdminFightTotals(data.fightnum);
 
     }else if ("payout" in data) {
         await handlePayoutMessage(data);
@@ -182,6 +182,9 @@ administratorSocket.onmessage = async (event) => {
         }
     } else {
         get_fightstatus();
+    }
+    if ("fight_status" in data && data.fightnum != null) {
+        fetchAdminFightTotals(data.fightnum);
     }
     updateStatus("Connected");
 }
@@ -291,15 +294,32 @@ function updateAdminFightTotals(meronTotal, walaTotal) {
     if (walaElement) walaElement.innerText = formatTotal(walaTotal);
 }
 
-async function fetchAdminFightTotals() {
+let adminFightTotalsRequestGeneration = 0;
+
+async function fetchAdminFightTotals(expectedFightnum = null) {
     if (!_isAdminPage) return;
+    const requestGeneration = ++adminFightTotalsRequestGeneration;
     try {
         const response = await fetch('/get_admin_fight_totals/');
         const data = await response.json();
-        if (response.ok && data.ok) {
-            updateAdminFightTotals(data.meron_total, data.wala_total);
-        }
+        if (requestGeneration !== adminFightTotalsRequestGeneration) return;
+        if (!response.ok || !data.ok) return;
+        if (
+            expectedFightnum != null
+            && String(data.fightnum) !== String(expectedFightnum)
+        ) return;
+
+        const displayedFightnum = document.getElementById('currentmatchnum')?.innerText.trim();
+        if (
+            displayedFightnum
+            && displayedFightnum !== '-'
+            && data.fightnum != null
+            && String(data.fightnum) !== displayedFightnum
+        ) return;
+
+        updateAdminFightTotals(data.meron_total, data.wala_total);
     } catch (error) {
+        if (requestGeneration !== adminFightTotalsRequestGeneration) return;
         console.error('Error fetching admin fight totals:', error);
     }
 }
