@@ -30,6 +30,44 @@ def test_cash_count_flow_contains_no_cursor_debug_transport():
     assert '#region agent log' not in combined
 
 
+def test_event_setup_and_admin_closeout_controls_are_wired():
+    admin_template = read_project_file(
+        'SmartWagers/templates/SmartWagers/administrator.html'
+    )
+    tellers_template = read_project_file(
+        'SmartWagers/templates/SmartWagers/admin_tellers.html'
+    )
+    admin_runtime = read_project_file(
+        'SmartWagers/static/SmartWagers/administrator.js'
+    )
+
+    assert 'admin_opening_fund_input' in admin_template
+    assert 'teller_opening_fund_input' in admin_template
+    assert 'event_setup_tellers' in admin_template
+    assert 'formatEventSetupFund' in admin_template
+    assert 'attachEventSetupFundFormatter' in admin_template
+    assert 'parseEventSetupFund' in admin_template
+    assert "inputmode='decimal'" in admin_template
+    assert "id='event_setup_tellers' style='text-align:left;'" in admin_template
+    assert '#starteventmodal .modal-content' in admin_template
+    assert 'width: 600px' in admin_template
+    assert '#event_setup_tellers input[type="checkbox"]' in admin_template
+    assert 'max-height: 140px' in admin_template
+    assert 'overflow-y: auto' in admin_template
+    assert 'Edit Event Setup' in admin_runtime
+    assert 'closeTellerStation' in tellers_template
+    assert 'admin-teller-closeout-close' in tellers_template
+
+
+def test_teller_attention_banner_requires_active_event():
+    tellers_template = read_project_file(
+        'SmartWagers/templates/SmartWagers/admin_tellers.html'
+    )
+
+    assert 'if (!EVENT_ACTIVE)' in tellers_template
+    assert "banner.classList.remove('visible')" in tellers_template
+
+
 def test_teller_report_honors_printing_contract_and_safe_shared_script():
     report = read_project_file(
         'SmartWagers/templates/SmartWagers/teller_report.html'

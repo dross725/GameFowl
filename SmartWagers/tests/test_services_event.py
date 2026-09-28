@@ -10,7 +10,8 @@ import pytest
 from datetime import timedelta
 from django.utils.timezone import now
 from SmartWagers.models import (
-    AdminBankTransaction, Event, TellerStatus, TellerTransaction, Wagers,
+    AdminBankTransaction, Event, Fight_Status, TellerStatus, TellerTransaction,
+    Wagers,
 )
 from SmartWagers import services
 from SmartWagers.tests.conftest import closeout_and_end_event
@@ -72,7 +73,48 @@ class TestStartEvent:
             self, default_settings, admin_user):
         event = services.start_event('Event A')
         assert event.admin_opening_fund == default_settings.admin_initial_fund
+        assert event.teller_opening_fund == default_settings.teller_initial_fund
         assert not TellerTransaction.objects.filter(user=admin_user).exists()
+
+
+@pytest.mark.django_db
+class TestEventSetupCorrection:
+
+    def test_reconciles_funds_and_online_tellers(
+            self, default_settings, teller_user, teller_user2):
+        TellerStatus.objects.create(user=teller_user, is_online=True)
+        TellerStatus.objects.create(user=teller_user2, is_online=True)
+        event = services.start_event('Event A')
+
+        services.update_event_setup(event, 75000, 12500, [teller_user.pk])
+
+        event.refresh_from_db()
+        assert event.admin_opening_fund == 75000
+        assert event.teller_opening_fund == 12500
+        assert TellerStatus.objects.get(user=teller_user).is_online is True
+        assert TellerStatus.objects.get(user=teller_user2).is_online is False
+        assert TellerTransaction.objects.filter(
+            user=teller_user, amount=12500, cancelled=False,
+            transaction_type=TellerTransaction.COLLECT,
+            affects_admin_fund=False,
+        ).count() == 1
+        assert TellerTransaction.objects.filter(
+            user=teller_user2, cancelled=True,
+            transaction_type=TellerTransaction.COLLECT,
+            affects_admin_fund=False,
+        ).count() == 1
+
+    def test_rejects_correction_after_match_one_starts(
+            self, default_settings, teller_user, teller_status_online):
+        event = services.start_event('Event A')
+        Fight_Status.objects.update(fightnum=1, overall_status='OPEN')
+
+        with pytest.raises(services.EventSetupLockedError):
+            services.update_event_setup(event, 75000, 12500, [teller_user.pk])
+
+        event.refresh_from_db()
+        assert event.admin_opening_fund == default_settings.admin_initial_fund
+        assert event.teller_opening_fund == default_settings.teller_initial_fund
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +309,7 @@ class TestIssueInitialTellerFunds:
         assert txns.count() == 1
         assert txns.first().amount == default_settings.teller_initial_fund
         assert txns.first().affects_admin_fund is False
+        assert txns.first().is_opening_fund is True
 
     def test_skips_offline_teller(
             self, default_settings, teller_user, teller_status_offline, active_event):
@@ -277,12 +320,8 @@ class TestIssueInitialTellerFunds:
 
     def test_skips_when_initial_fund_is_zero(
             self, teller_user, teller_status_online, active_event):
-        from SmartWagers.models import Settings
-        Settings.objects.create(
-            teller_initial_fund=0.0,
-            admin_initial_fund=0.0,
-            plasada=0.05,
-        )
+        active_event.teller_opening_fund = 0.0
+        active_event.save(update_fields=['teller_opening_fund'])
         services._issue_initial_teller_funds()
         assert not TellerTransaction.objects.filter(user=teller_user).exists()
 
@@ -346,6 +385,27 @@ class TestIssueTellerOpeningFundIfNeeded:
         assert TellerTransaction.objects.filter(
             user=teller_user, transaction_type=TellerTransaction.COLLECT,
         ).count() == 1
+
+    def test_marker_prevents_equal_settlement_from_counting_as_opening_fund(
+            self, teller_user, teller_status_online, active_event):
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=active_event.teller_opening_fund,
+            affects_admin_fund=False,
+            is_opening_fund=True,
+        )
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=active_event.teller_opening_fund,
+            affects_admin_fund=False,
+            is_opening_fund=False,
+        )
+
+        assert services.get_teller_opening_fund_total(
+            teller_user, active_event,
+        ) == pytest.approx(active_event.teller_opening_fund)
 
 
 @pytest.mark.django_db

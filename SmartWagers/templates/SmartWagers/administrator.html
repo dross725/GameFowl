@@ -231,6 +231,33 @@
         padding: 6px 2px;
         border-bottom: 1px solid rgba(255,255,255,0.07);
       }
+
+      #starteventmodal .modal-content {
+        width: 600px;
+        max-width: calc(100vw - 32px);
+        box-sizing: border-box;
+      }
+
+      #event_setup_tellers label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        white-space: nowrap;
+      }
+
+      #event_setup_tellers input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        padding: 0;
+        flex: 0 0 18px;
+      }
+
+      #event_setup_tellers {
+        max-height: 140px;
+        overflow-y: auto;
+        padding-right: 8px;
+      }
     </style>
 {% endblock css_files %}
 
@@ -604,14 +631,29 @@
 
     <div id='starteventmodal' class='modal'>
         <div class='modal-content'>
-            <h2>Start New Event</h2>
+            <h2 id='event_setup_title'>Start New Event</h2>
             <br>
-            <p>Enter the event name. This will reset fight numbers and teller totals.</p>
+            <p id='event_setup_help'>Review the opening cash and tellers before starting.</p>
             <br>
             <input type='text' id='event_name_input' placeholder='Event Name (e.g. "Derby June 2026")'
                    autocomplete='off' style='width:100%;box-sizing:border-box;'
                    onkeydown="if(event.key==='Enter')submitStartEvent()">
             <br>
+            <label for='admin_opening_fund_input'>Admin petty cash</label>
+            <input type='text' id='admin_opening_fund_input' inputmode='decimal'
+                   autocomplete='off' placeholder='100,000'
+                   style='width:100%;box-sizing:border-box;overflow:hidden;'>
+            <br>
+            <label for='teller_opening_fund_input'>Petty cash per online teller</label>
+            <input type='text' id='teller_opening_fund_input' inputmode='decimal'
+                   autocomplete='off' placeholder='10,000'
+                   style='width:100%;box-sizing:border-box;overflow:hidden;'>
+            <br>
+            <p><strong>Online tellers</strong></p>
+            <div id='event_setup_tellers' style='text-align:left;'></div>
+            <p style='margin-top:10px;'>Total required from bank:
+                <strong id='event_setup_total'>₱ 0.00</strong>
+            </p>
             <p id='startevent_status_msg' style='min-height:1.2em;'></p>
             <br>
             <button id='startevent_confirm_btn' onclick='submitStartEvent()'>Start Event</button>
@@ -868,19 +910,123 @@
     }
 
     const START_EVENT_URL = "{% url 'admin-start-event' %}";
+    const EVENT_SETUP_URL = "{% url 'admin-event-setup' %}";
     const END_EVENT_URL   = "{% url 'admin-end-event' %}";
+    let editingEventSetup = false;
 
-    function openStartEventModal() {
-        document.getElementById('event_name_input').value = '';
-        document.getElementById('startevent_status_msg').innerText = '';
-        document.getElementById('startevent_status_msg').style.color = '';
-        document.getElementById('startevent_confirm_btn').disabled = false;
+    function parseEventSetupFund(value) {
+        return Number(String(value || '').replace(/,/g, ''));
+    }
+
+    function formatEventSetupFund(input) {
+        const raw = String(input.value || '').replace(/,/g, '');
+        const cleaned = raw.replace(/[^\d.]/g, '');
+        const hasDecimal = cleaned.includes('.');
+        const parts = cleaned.split('.');
+        const integerDigits = parts[0].replace(/^0+(?=\d)/, '');
+        const grouped = Number(integerDigits || 0).toLocaleString('en-US');
+        const decimals = parts.slice(1).join('').slice(0, 2);
+        input.value = cleaned === ''
+            ? ''
+            : grouped + (hasDecimal ? `.${decimals}` : '');
+    }
+
+    function attachEventSetupFundFormatter(input) {
+        if (input.dataset.commaFormatterAttached === 'true') return;
+        input.dataset.commaFormatterAttached = 'true';
+        input.addEventListener('input', () => {
+            formatEventSetupFund(input);
+            updateEventSetupTotal();
+        });
+    }
+
+    function updateEventSetupTotal() {
+        const adminFund = parseEventSetupFund(
+            document.getElementById('admin_opening_fund_input').value
+        ) || 0;
+        const tellerFund = parseEventSetupFund(
+            document.getElementById('teller_opening_fund_input').value
+        ) || 0;
+        const onlineCount = document.querySelectorAll('.event-setup-teller:checked').length;
+        document.getElementById('event_setup_total').innerText =
+            `₱ ${(adminFund + (tellerFund * onlineCount)).toLocaleString(undefined, {
+                minimumFractionDigits: 2, maximumFractionDigits: 2
+            })}`;
+    }
+
+    async function openStartEventModal(editExisting = false) {
+        editingEventSetup = Boolean(editExisting);
+        const nameInput = document.getElementById('event_name_input');
+        const adminFundInput = document.getElementById('admin_opening_fund_input');
+        const tellerFundInput = document.getElementById('teller_opening_fund_input');
+        const statusEl = document.getElementById('startevent_status_msg');
+        const confirmBtn = document.getElementById('startevent_confirm_btn');
+        attachEventSetupFundFormatter(adminFundInput);
+        attachEventSetupFundFormatter(tellerFundInput);
+        nameInput.value = '';
+        nameInput.disabled = editingEventSetup;
+        statusEl.innerText = 'Loading event setup…';
+        statusEl.style.color = '';
+        confirmBtn.disabled = true;
+        document.getElementById('event_setup_title').innerText =
+            editingEventSetup ? 'Edit Event Setup' : 'Start New Event';
+        document.getElementById('event_setup_help').innerText = editingEventSetup
+            ? 'Corrections are allowed until Match 1 starts.'
+            : 'Review the opening cash and tellers before starting.';
+        confirmBtn.innerText = editingEventSetup ? 'Save Corrections' : 'Start Event';
         document.getElementById('starteventmodal').style.display = 'flex';
-        setTimeout(() => document.getElementById('event_name_input').focus(), 80);
+        try {
+            const res = await fetch(EVENT_SETUP_URL);
+            const data = await res.json();
+            if (!data.ok || (editingEventSetup && !data.editable)) {
+                statusEl.style.color = '#e74c3c';
+                statusEl.innerText = editingEventSetup
+                    ? 'Event setup can no longer be edited because Match 1 has started.'
+                    : 'Could not load event setup.';
+                return;
+            }
+            nameInput.value = editingEventSetup ? data.event_name : '';
+            adminFundInput.value = data.admin_opening_fund;
+            tellerFundInput.value = data.teller_opening_fund;
+            formatEventSetupFund(adminFundInput);
+            formatEventSetupFund(tellerFundInput);
+            const tellerList = document.getElementById('event_setup_tellers');
+            tellerList.innerHTML = '';
+            data.tellers.forEach(teller => {
+                const label = document.createElement('label');
+                label.style.display = 'flex';
+                label.style.alignItems = 'center';
+                label.style.gap = '10px';
+                label.style.whiteSpace = 'nowrap';
+                label.style.padding = '5px 0';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'event-setup-teller';
+                checkbox.value = teller.id;
+                checkbox.checked = teller.is_online;
+                checkbox.onchange = updateEventSetupTotal;
+                label.appendChild(checkbox);
+                label.appendChild(document.createTextNode(` ${teller.name} (@${teller.username})`));
+                tellerList.appendChild(label);
+            });
+            statusEl.innerText = '';
+            confirmBtn.disabled = false;
+            updateEventSetupTotal();
+            setTimeout(() => {
+                if (!editingEventSetup) nameInput.focus();
+            }, 80);
+        } catch (err) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Network error. Check connection.';
+        }
     }
 
     async function submitStartEvent() {
         const eventName = document.getElementById('event_name_input').value.trim();
+        const adminFundRaw = document.getElementById('admin_opening_fund_input').value;
+        const tellerFundRaw = document.getElementById('teller_opening_fund_input').value;
+        const adminFund = parseEventSetupFund(adminFundRaw);
+        const tellerFund = parseEventSetupFund(tellerFundRaw);
         const statusEl  = document.getElementById('startevent_status_msg');
         const btn       = document.getElementById('startevent_confirm_btn');
 
@@ -889,17 +1035,33 @@
             statusEl.innerText = 'Please enter an event name.';
             return;
         }
+        if (
+            adminFundRaw === '' || tellerFundRaw === ''
+            || !Number.isFinite(adminFund) || !Number.isFinite(tellerFund)
+            || adminFund < 0 || tellerFund < 0
+        ) {
+            statusEl.style.color = '#e74c3c';
+            statusEl.innerText = 'Opening funds must be 0 or greater.';
+            return;
+        }
 
         btn.disabled = true;
         statusEl.style.color = '';
-        statusEl.innerText = 'Starting event…';
+        statusEl.innerText = editingEventSetup ? 'Saving corrections…' : 'Starting event…';
 
         const fd = new FormData();
         fd.append('event_name', eventName);
+        fd.append('admin_opening_fund', adminFund);
+        fd.append('teller_opening_fund', tellerFund);
+        fd.append('setup_supplied', 'true');
+        document.querySelectorAll('.event-setup-teller:checked').forEach(checkbox => {
+            fd.append('online_teller_ids', checkbox.value);
+        });
         fd.append('csrfmiddlewaretoken', ADMIN_CSRF);
 
         try {
-            const res  = await fetch(START_EVENT_URL, { method: 'POST', body: fd });
+            const targetUrl = editingEventSetup ? EVENT_SETUP_URL : START_EVENT_URL;
+            const res  = await fetch(targetUrl, { method: 'POST', body: fd });
             const data = await res.json();
 
             if (!data.ok) {
@@ -908,13 +1070,20 @@
                     return;
                 }
                 statusEl.style.color = '#e74c3c';
-                statusEl.innerText = 'Error: ' + (data.error || 'Unknown error');
+                const messages = {
+                    match_already_started: 'Match 1 has already started. Setup is locked.',
+                    invalid_event_setup: 'Check the opening funds and teller selection.',
+                    no_active_event: 'There is no active event to edit.',
+                };
+                statusEl.innerText = messages[data.error] || ('Error: ' + (data.error || 'Unknown error'));
                 btn.disabled = false;
                 return;
             }
 
             closemodal('starteventmodal');
-            alert(`Event "${data.event_name}" started! Fight numbers reset to 1.`);
+            alert(editingEventSetup
+                ? `Event "${data.event_name}" setup updated.`
+                : `Event "${data.event_name}" started!`);
             window.location.reload();
 
         } catch (err) {

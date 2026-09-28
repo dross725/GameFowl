@@ -893,7 +893,7 @@ async function get_fightstatus(){
     const w_status     = data.wala_status;
     const event_active = data.event_active;
 
-    applyEventState(event_active, data.can_end_event);
+    applyEventState(event_active, data.can_end_event, data.event_setup_editable);
 
     if (event_active) {
         get_status_for_display(fight_num, fight_status, m_status, w_status);
@@ -902,16 +902,28 @@ async function get_fightstatus(){
     }
 }
 
-function applyEventState(event_active, can_end_event) {
+function applyEventState(event_active, can_end_event, event_setup_editable) {
     const startLink = document.querySelector('.start-event-action');
     const endLink   = document.querySelector('.end-event-action');
     const allowEnd = Boolean(event_active) && Boolean(can_end_event);
 
     if (event_active) {
-        // Event running: disable Start Event; End Event only when cash is collected.
+        // Event setup remains correctable until the first match starts.
         if (startLink) {
-            startLink.classList.add('nav-event-disabled');
-            startLink.onclick = e => e.preventDefault();
+            if (event_setup_editable) {
+                startLink.textContent = '✎ Edit Event Setup';
+                startLink.classList.remove('nav-event-disabled');
+                startLink.onclick = e => {
+                    e.preventDefault();
+                    openStartEventModal(true);
+                };
+                startLink.title = 'Correct opening funds or online tellers';
+            } else {
+                startLink.textContent = '▶ Start Event';
+                startLink.classList.add('nav-event-disabled');
+                startLink.onclick = e => e.preventDefault();
+                startLink.title = 'Event setup is locked after Match 1 starts';
+            }
         }
         if (endLink) {
             if (allowEnd) {
@@ -928,8 +940,10 @@ function applyEventState(event_active, can_end_event) {
         // No active event: enable Start Event, disable End Event,
         // and freeze every other operational button.
         if (startLink) {
+            startLink.textContent = '▶ Start Event';
             startLink.classList.remove('nav-event-disabled');
-            startLink.onclick = e => { e.preventDefault(); openStartEventModal(); };
+            startLink.onclick = e => { e.preventDefault(); openStartEventModal(false); };
+            startLink.title = '';
         }
         if (endLink) {
             endLink.classList.add('nav-event-disabled');

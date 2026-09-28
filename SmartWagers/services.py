@@ -287,6 +287,10 @@ class EventAlreadyEndedError(Exception):
     """Raised when an operation is blocked because the event has ended."""
 
 
+class EventSetupLockedError(Exception):
+    """Raised when event setup is changed after the first match started."""
+
+
 class AdminCashAlreadyCountedError(Exception):
     """Raised when admin cash has already been counted and cannot be changed."""
 
@@ -1483,7 +1487,7 @@ def teller_station_is_closed(user, event=None):
     return get_teller_close_out(user, event=event) is not None
 
 
-def close_teller_station(user, event=None):
+def close_teller_station(user, event=None, *, closed_by=None):
     """Close a teller's station for the active event and snapshot balances."""
     if event is None:
         event = get_active_event()
@@ -1523,6 +1527,7 @@ def close_teller_station(user, event=None):
         fight=fightnum,
         close_out_id=close_out.pk,
         expected_cash=f"{breakdown['balance']:.2f}",
+        closed_by=cashier_username(closed_by) if closed_by else cashier_username(user),
     )
     return close_out
 
@@ -1617,17 +1622,27 @@ def get_event_closeout_readiness(event=None):
     }
     opening_fund_user_ids = set()
     if teller_ids:
-        setting = Settings.objects.order_by('-id').first()
-        initial_fund = setting.teller_initial_fund if setting else 10000.0
-        opening_fund_user_ids = set(
-            reporting.active_teller_transactions_for_event(event).filter(
-                user_id__in=teller_ids,
-                transaction_type=TellerTransaction.COLLECT,
-                amount=round(float(initial_fund), 2),
-                affects_admin_fund=False,
-                cancelled=False,
-            ).values_list('user_id', flat=True)
+        event_txns = reporting.active_teller_transactions_for_event(event)
+        marked_openings = event_txns.filter(
+            user_id__in=teller_ids,
+            transaction_type=TellerTransaction.COLLECT,
+            is_opening_fund=True,
+            cancelled=False,
         )
+        opening_fund_user_ids = set(
+            marked_openings.values_list('user_id', flat=True)
+        )
+        if not opening_fund_user_ids:
+            # Compatibility fallback for pre-marker rows.
+            opening_fund_user_ids = set(
+                event_txns.filter(
+                    user_id__in=teller_ids,
+                    transaction_type=TellerTransaction.COLLECT,
+                    amount=round(float(event.teller_opening_fund), 2),
+                    affects_admin_fund=False,
+                    cancelled=False,
+                ).values_list('user_id', flat=True)
+            )
 
     participating_ids = []
     for teller in tellers:
@@ -1962,9 +1977,8 @@ def _closing_event_for_settlement():
 def teller_has_opening_fund_for_event(teller, event):
     """Return True if *teller* already received opening float in *event*.
 
-    Uses the configured teller_initial_fund amount so settlement COLLECTs
-    (also affects_admin_fund=False, used to clear negative rollover balances)
-    cannot falsely block mid-event opening-float issuance.
+    Explicit opening-fund markers keep settlement COLLECTs (which also use
+    affects_admin_fund=False) from being mistaken for opening float.
     """
     return get_teller_opening_fund_total(teller, event) > 0
 
@@ -1975,10 +1989,6 @@ def get_teller_opening_fund_total(teller, event, txn_qs=None, include_archived=F
 
     if event is None:
         return 0.0
-    setting = Settings.objects.order_by('-id').first()
-    initial_fund = setting.teller_initial_fund if setting else 10000.0
-    if initial_fund <= 0:
-        return 0.0
 
     if txn_qs is None:
         txn_qs = reporting.active_teller_transactions_for_event(event).filter(user=teller)
@@ -1988,6 +1998,30 @@ def get_teller_opening_fund_total(teller, event, txn_qs=None, include_archived=F
             event,
         ).filter(user=teller)
 
+    marker_filters = {
+        'transaction_type': TellerTransaction.COLLECT,
+        'is_opening_fund': True,
+        'cancelled': False,
+    }
+    marked_total = (
+        txn_qs.filter(**marker_filters).aggregate(total=Sum('amount'))['total']
+        or 0.0
+    )
+    if archived_txn_qs is not None:
+        marked_total += (
+            archived_txn_qs.filter(**marker_filters).aggregate(
+                total=Sum('amount'),
+            )['total']
+            or 0.0
+        )
+    if marked_total > 0:
+        return round(float(marked_total), 2)
+
+    # Compatibility fallback for databases read before migration 0050 has
+    # marked their historical opening-fund transactions.
+    initial_fund = float(event.teller_opening_fund)
+    if initial_fund <= 0:
+        return 0.0
     filters = {
         'transaction_type': TellerTransaction.COLLECT,
         'amount': round(initial_fund, 2),
@@ -2090,8 +2124,7 @@ def issue_teller_opening_fund_if_needed(teller, event=None, *, require_online=Tr
         if not status.is_online:
             return False
 
-    setting = Settings.objects.order_by('-id').first()
-    initial_fund = setting.teller_initial_fund if setting else 10000.0
+    initial_fund = float(event.teller_opening_fund)
     if initial_fund <= 0:
         return False
 
@@ -2106,11 +2139,12 @@ def issue_teller_opening_fund_if_needed(teller, event=None, *, require_online=Tr
             transaction_type=TellerTransaction.COLLECT,
             amount=round(initial_fund, 2),
             affects_admin_fund=False,
+            is_opening_fund=True,
         )
     return True
 
 
-def _issue_initial_teller_funds():
+def _issue_initial_teller_funds(event=None):
     """Issue bank-sourced opening funds to online tellers.
 
     Called immediately after the new event object is created so the
@@ -2133,10 +2167,115 @@ def _issue_initial_teller_funds():
         pk__in=admin_ids,
     )
     for teller in tellers:
-        issue_teller_opening_fund_if_needed(teller)
+        issue_teller_opening_fund_if_needed(teller, event=event)
 
 
-def start_event(name):
+def event_setup_is_editable(event=None):
+    """Return True while an active event has not started match one."""
+    if event is None:
+        event = get_active_event()
+    if event is None or not event.is_active:
+        return False
+    fight_status = Fight_Status.objects.order_by('id').first()
+    return fight_status is None or fight_status.fightnum == 0
+
+
+def _opening_fund_transactions(teller, event):
+    """Opening-fund candidates in an event's transaction window."""
+    qs = TellerTransaction.objects.filter(
+        user=teller,
+        transaction_type=TellerTransaction.COLLECT,
+        affects_admin_fund=False,
+        is_opening_fund=True,
+        created_at__gte=event.started_at,
+    )
+    if event.ended_at:
+        qs = qs.filter(created_at__lte=event.ended_at)
+    return qs.order_by('created_at', 'pk')
+
+
+def update_event_setup(event, admin_opening_fund, teller_opening_fund, online_teller_ids):
+    """Correct opening funds and teller participation before match one starts."""
+    admin_opening_fund = float(admin_opening_fund)
+    teller_opening_fund = float(teller_opening_fund)
+    if (
+        not math.isfinite(admin_opening_fund)
+        or not math.isfinite(teller_opening_fund)
+        or admin_opening_fund < 0
+        or teller_opening_fund < 0
+    ):
+        raise ValueError('opening funds must be finite and non-negative')
+
+    requested_ids = {int(pk) for pk in online_teller_ids}
+    with db_transaction.atomic():
+        event = Event.objects.select_for_update().get(pk=event.pk, is_active=True)
+        fight_status = Fight_Status.objects.select_for_update().order_by('id').first()
+        if fight_status is not None and fight_status.fightnum != 0:
+            raise EventSetupLockedError()
+
+        tellers = list(get_non_admin_tellers().select_for_update())
+        valid_ids = {teller.pk for teller in tellers}
+        if not requested_ids.issubset(valid_ids):
+            raise ValueError('invalid teller selection')
+
+        old_teller_fund = float(event.teller_opening_fund)
+        event.admin_opening_fund = round(admin_opening_fund, 2)
+        event.teller_opening_fund = round(teller_opening_fund, 2)
+        event.save(update_fields=['admin_opening_fund', 'teller_opening_fund'])
+
+        for teller in tellers:
+            should_be_online = teller.pk in requested_ids
+            status, _ = TellerStatus.objects.get_or_create(
+                user=teller, defaults={'is_online': should_be_online},
+            )
+            if status.is_online != should_be_online:
+                status.is_online = should_be_online
+                status.save(update_fields=['is_online'])
+
+            candidates = list(
+                _opening_fund_transactions(teller, event).filter(cancelled=False)
+            )
+            if should_be_online and teller_opening_fund > 0:
+                if candidates:
+                    primary = candidates[0]
+                    if round(primary.amount, 2) != round(teller_opening_fund, 2):
+                        primary.amount = round(teller_opening_fund, 2)
+                        primary.edited = True
+                        primary.updated_at = now()
+                        primary.save(update_fields=['amount', 'edited', 'updated_at'])
+                    for duplicate in candidates[1:]:
+                        duplicate.cancelled = True
+                        duplicate.edited = True
+                        duplicate.updated_at = now()
+                        duplicate.save(update_fields=['cancelled', 'edited', 'updated_at'])
+                else:
+                    TellerTransaction.objects.create(
+                        user=teller,
+                        transaction_type=TellerTransaction.COLLECT,
+                        amount=round(teller_opening_fund, 2),
+                        affects_admin_fund=False,
+                        is_opening_fund=True,
+                    )
+            else:
+                for txn in candidates:
+                    txn.cancelled = True
+                    txn.edited = True
+                    txn.updated_at = now()
+                    txn.save(update_fields=['cancelled', 'edited', 'updated_at'])
+
+        logger.info(
+            "EVENT SETUP UPDATED: event=%s admin_fund=%.2f teller_fund=%.2f "
+            "previous_teller_fund=%.2f online_tellers=%s",
+            event.pk, admin_opening_fund, teller_opening_fund,
+            old_teller_fund, sorted(requested_ids),
+        )
+    return event
+
+
+def start_event(
+        name, *, admin_opening_fund=None, teller_opening_fund=None,
+        online_teller_ids=None,
+):
     """Deactivate any running event, create a new one, and reset the fight counter to 0
     so the first call to startnewmatch() produces fight #1.
 
@@ -2177,7 +2316,33 @@ def start_event(name):
                 Event.objects.filter(pk=closing_event.pk).update(ended_at=ended_at)
 
         setting = Settings.objects.order_by('-id').first()
-        admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
+        if admin_opening_fund is None:
+            admin_opening_fund = setting.admin_initial_fund if setting else 100000.0
+        if teller_opening_fund is None:
+            teller_opening_fund = setting.teller_initial_fund if setting else 10000.0
+        admin_opening_fund = float(admin_opening_fund)
+        teller_opening_fund = float(teller_opening_fund)
+        if (
+            not math.isfinite(admin_opening_fund)
+            or not math.isfinite(teller_opening_fund)
+            or admin_opening_fund < 0
+            or teller_opening_fund < 0
+        ):
+            raise ValueError('opening funds must be finite and non-negative')
+
+        if online_teller_ids is not None:
+            requested_ids = {int(pk) for pk in online_teller_ids}
+            tellers = list(get_non_admin_tellers())
+            valid_ids = {teller.pk for teller in tellers}
+            if not requested_ids.issubset(valid_ids):
+                raise ValueError('invalid teller selection')
+            for teller in tellers:
+                status, _ = TellerStatus.objects.get_or_create(user=teller)
+                should_be_online = teller.pk in requested_ids
+                if status.is_online != should_be_online:
+                    status.is_online = should_be_online
+                    status.save(update_fields=['is_online'])
+
         # Stamp started_at strictly after settlement so rollover transactions
         # never leak into the new event window on backends with coarse timestamps.
         event_start = ended_at + timedelta(microseconds=1)
@@ -2186,10 +2351,11 @@ def start_event(name):
             is_active=True,
             started_at=event_start,
             admin_opening_fund=round(admin_opening_fund, 2),
+            teller_opening_fund=round(teller_opening_fund, 2),
         )
 
         # Issue configured starting funds inside the same transaction.
-        _issue_initial_teller_funds()
+        _issue_initial_teller_funds(event=event)
 
         fight_status = Fight_Status.objects.select_for_update().order_by('id').first()
         if fight_status:

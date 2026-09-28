@@ -709,6 +709,23 @@
     cursor: wait;
   }
 
+  .close-station-btn {
+    background: linear-gradient(135deg, #7f1d1d, #b91c1c);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .close-station-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
   .teller-closeout-strip {
     display: flex;
     align-items: center;
@@ -1207,6 +1224,15 @@
                   onclick="openTxnModal(event, {{ td.user.pk }}, '{{ td.display_name|escapejs }}', 'COLLECT')">
             Borrow
           </button>
+          {% if not td.close_out %}
+          <button type="button" class="close-station-btn"
+                  data-teller-id="{{ td.user.pk }}"
+                  data-teller-name="{{ td.display_name|escapejs }}"
+                  {% if not active_event %}disabled title="Available after an event starts"{% endif %}
+                  onclick="closeTellerStation(event, this)">
+            Close Station
+          </button>
+          {% endif %}
 
           <span class="expand-chevron">▼</span>
 
@@ -1416,6 +1442,7 @@ const TELLER_ONLINE_URL   = "{% url 'admin-teller-online-toggle' %}";
 const COUNT_CASH_URL      = "{% url 'admin-teller-closeout-count' %}";
 const CLOSE_ADMIN_URL     = "{% url 'admin-cash-count' %}";
 const ADMIN_FUND_STATUS_URL = "{% url 'admin-fund-status' %}";
+const CLOSE_STATION_URL   = "{% url 'admin-teller-closeout-close' %}";
 const REOPEN_STATION_URL  = "{% url 'admin-teller-closeout-reopen' %}";
 const CSRF_TOKEN          = "{{ csrf_token }}";
 const TELLER_MAX_BALANCE  = {{ teller_max_balance|floatformat:2 }};
@@ -2122,6 +2149,47 @@ async function submitCountCash() {
   }
 }
 
+async function closeTellerStation(event, button) {
+  event.stopPropagation();
+
+  const tellerName = button.dataset.tellerName;
+  if (!confirm(
+    `Close ${tellerName}'s station? Their current balance will be snapshotted and they will be marked offline.`
+  )) {
+    return;
+  }
+
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = 'Closing…';
+
+  const fd = new FormData();
+  fd.append('teller_id', button.dataset.tellerId);
+  fd.append('csrfmiddlewaretoken', CSRF_TOKEN);
+
+  try {
+    const res = await fetch(CLOSE_STATION_URL, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!data.ok) {
+      const messages = {
+        teller_not_found: 'Teller was not found.',
+        invalid_teller_id: 'Invalid teller.',
+        already_closed: 'This station is already closed.',
+        no_active_event: 'No active event — station cannot be closed.',
+      };
+      alert(messages[data.error] || 'Failed to close station.');
+      button.disabled = false;
+      button.textContent = originalText;
+      return;
+    }
+    window.location.reload();
+  } catch {
+    alert('Network error. Please try again.');
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 async function reopenTellerStation(event, button) {
   event.stopPropagation();
 
@@ -2340,6 +2408,18 @@ async function rejectPendingBet(txnId) {
 
 /* ── Balance Warning Banner ────────────────────────── */
 function refreshWarningBanner() {
+  const banner  = document.getElementById('balance-warning-banner');
+  const list    = document.getElementById('bw-list');
+  const titleEl = document.getElementById('bw-title');
+
+  // Balances shown before an event belong to the previous event and must not
+  // generate current teller-attention notices.
+  if (!EVENT_ACTIVE) {
+    list.innerHTML = '';
+    banner.classList.remove('visible');
+    return;
+  }
+
   const alerts = [];
 
   for (const [tid, info] of Object.entries(TELLER_BALANCES)) {
@@ -2355,10 +2435,6 @@ function refreshWarningBanner() {
       alerts.push({ tid, name: info.name, balance: info.balance, type: 'borrow' });
     }
   }
-
-  const banner  = document.getElementById('balance-warning-banner');
-  const list    = document.getElementById('bw-list');
-  const titleEl = document.getElementById('bw-title');
 
   if (alerts.length === 0) {
     banner.classList.remove('visible');
