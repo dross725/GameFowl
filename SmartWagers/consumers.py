@@ -195,6 +195,7 @@ class WagersConsumer(AsyncWebsocketConsumer):
                 await self.channel_layer.group_send(group_name, {
                     'type': 'send_data',
                     'fight_status': fight_status,
+                    'winner': data.get("Winner") if fight_status == "END" else None,
                     'overall_status': overall_status,
                     'meron_status': meron_status,
                     'wala_status': wala_status,
@@ -326,7 +327,7 @@ class WagersConsumer(AsyncWebsocketConsumer):
 
         elif "fight_status" in event:
             response["fight_status"] = event["fight_status"]
-            for key in ("overall_status", "meron_status", "wala_status", "fightnum"):
+            for key in ("winner", "overall_status", "meron_status", "wala_status", "fightnum"):
                 if key in event:
                     response[key] = event[key]
 

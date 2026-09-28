@@ -211,6 +211,33 @@ class TestJsonApiEndpoints:
         assert 'balance' in data
         assert data['ok'] is True
 
+    def test_get_admin_fight_totals_returns_only_admin_bets(
+            self, admin_user, teller_user, active_event):
+        _open_fight()
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=300,
+            cashier=admin_user.username, registered=True,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='WALA', wager=200,
+            cashier=admin_user.username, registered=True,
+        )
+        Wagers.objects.create(
+            fightnum=1, side='MERON', wager=500,
+            cashier=teller_user.username, registered=True,
+        )
+
+        client = Client()
+        client.force_login(admin_user)
+        response = client.get('/get_admin_fight_totals/')
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data['ok'] is True
+        assert data['fightnum'] == 1
+        assert data['meron_total'] == 300
+        assert data['wala_total'] == 200
+
     def test_dual_role_admin_sees_shared_admin_balance_on_teller_page(
             self, admin_user, teller_group, default_settings, active_event):
         admin_user.groups.add(teller_group)

@@ -35,6 +35,12 @@
   gap: 3px;
 }
 
+/* Admin page: keep the MERON / WALA banners 10% shorter. */
+#M_Label,
+#W_Label {
+  height: 140.4px;
+}
+
 #M_pot {
   background-color: #4a0c08;
   background-image:
@@ -217,6 +223,41 @@ textarea {
 .wala-radio:has(input:checked) {
   background: linear-gradient(135deg, #1a6bc0 0%, #0d3c6e 100%);
   color: white;
+}
+
+/* ── Admin's per-fight bet totals strip ─────────────────── */
+#fight-bet-totals {
+  display: flex;
+  width: 100%;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fight-side-total {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.fight-total-meron {
+  background: rgba(192, 57, 43, 0.18);
+  border-color: rgba(192, 57, 43, 0.30);
+}
+
+.fight-total-wala {
+  background: rgba(26, 107, 192, 0.18);
+  border-color: rgba(26, 107, 192, 0.30);
+}
+
+.fight-total-value {
+  color: white;
+  font-size: 18px;
+  font-weight: 900;
+  text-align: center;
 }
 
 /* ── Bet amount input ────────────────────────────────────── */
@@ -624,6 +665,11 @@ textarea {
 
 /* ── Compact layout for 10" screens (~800 px tall) ──────── */
 @media (max-height: 820px) {
+  #M_Label,
+  #W_Label {
+    height: 112.5px;
+  }
+
   /* Pot strip — smaller numbers, tighter padding */
   #M_pot,
   #W_pot {
@@ -710,6 +756,11 @@ textarea {
 
 /* ── Mobile ──────────────────────────────────────────────── */
 @media (max-width: 768px) {
+  #M_Label,
+  #W_Label {
+    height: 98.1px;
+  }
+
   #content {
     overflow-x: hidden;
     overflow-y: auto;

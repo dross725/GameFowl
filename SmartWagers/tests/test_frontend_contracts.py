@@ -18,6 +18,30 @@ def test_display_page_does_not_load_admin_runtime():
     assert 'async function update_trends()' in signals
 
 
+def test_display_page_has_winner_celebration():
+    signals = read_project_file('SmartWagers/static/SmartWagers/signals.js')
+    styles = read_project_file('SmartWagers/static/SmartWagers/index.css')
+    consumer = read_project_file('SmartWagers/consumers.py')
+
+    assert 'celebrateWinner(data.winner)' in signals
+    assert 'function clearWinnerCelebration()' in signals
+    assert 'MERON WINS!' in styles
+    assert 'WALA WINS!' in styles
+    assert "'winner': data.get(\"Winner\")" in consumer
+    assert '("winner", "overall_status", "meron_status", "wala_status", "fightnum")' in consumer
+
+
+def test_admin_fight_totals_ignore_stale_responses():
+    admin_runtime = read_project_file(
+        'SmartWagers/static/SmartWagers/administrator.js'
+    )
+
+    assert 'adminFightTotalsRequestGeneration' in admin_runtime
+    assert 'requestGeneration !== adminFightTotalsRequestGeneration' in admin_runtime
+    assert "String(data.fightnum) !== String(expectedFightnum)" in admin_runtime
+    assert "String(data.fightnum) !== displayedFightnum" in admin_runtime
+
+
 def test_cash_count_flow_contains_no_cursor_debug_transport():
     view = read_project_file('SmartWagers/views.py')
     template = read_project_file(

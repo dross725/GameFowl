@@ -24,6 +24,7 @@ urlpatterns = [
     path("reprint_wager/", views.reprint_wager, name="reprint-wager"),
     path("get_teller_balance/", views.get_teller_balance, name="get-teller-balance"),
     path("get_teller_fight_totals/", views.get_teller_fight_totals, name="get-teller-fight-totals"),
+    path("get_admin_fight_totals/", views.get_admin_fight_totals, name="get-admin-fight-totals"),
     path("get_pending_payouts/", views.get_pending_payouts, name="get-pending-payouts"),
     path("teller_transaction/", views.teller_transaction, name="teller-transaction"),
     path("teller_transaction/edit/", views.teller_edit_txn, name="teller-edit-txn"),
