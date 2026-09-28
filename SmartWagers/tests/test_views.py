@@ -1173,6 +1173,19 @@ class TestPreEventTellerPreparation:
         assert response.context['planned_bank_funds'] == 110000
         assert b'pre-event-funding' in response.content
 
+    def test_teller_alerts_are_empty_without_active_event(
+            self, admin_user, teller_user, default_settings):
+        TellerStatus.objects.create(user=teller_user, is_online=True)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.get('/administrator/teller-alerts/')
+
+        assert response.status_code == 200
+        assert response.json()['event_active'] is False
+        assert response.json()['alert_count'] == 0
+        assert response.json()['alerts'] == []
+
     def test_online_status_can_be_set_without_issuing_funds(
             self, admin_user, teller_user, default_settings):
         status = TellerStatus.objects.create(
@@ -1281,6 +1294,103 @@ class TestPreEventTellerPreparation:
             if item['user'].pk == new_teller.pk
         )
         assert teller_row['balance'] == pytest.approx(default_settings.teller_initial_fund)
+
+
+@pytest.mark.django_db
+class TestAdminEventSetup:
+
+    def test_admin_can_correct_setup_before_first_match(
+            self, admin_user, teller_user, default_settings, active_event):
+        TellerStatus.objects.create(user=teller_user, is_online=True)
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=active_event.teller_opening_fund,
+            affects_admin_fund=False,
+        )
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/event-setup/', {
+            'admin_opening_fund': '75000',
+            'teller_opening_fund': '12500',
+            'online_teller_ids': [str(teller_user.pk)],
+        })
+
+        assert response.status_code == 200
+        active_event.refresh_from_db()
+        assert active_event.admin_opening_fund == 75000
+        assert active_event.teller_opening_fund == 12500
+        assert TellerTransaction.objects.filter(
+            user=teller_user, amount=12500, cancelled=False,
+        ).exists()
+
+    def test_setup_is_locked_after_first_match(
+            self, admin_user, teller_user, default_settings, active_event):
+        _open_fight()
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/event-setup/', {
+            'admin_opening_fund': '75000',
+            'teller_opening_fund': '12500',
+            'online_teller_ids': [str(teller_user.pk)],
+        })
+
+        assert response.status_code == 409
+        assert response.json()['error'] == 'match_already_started'
+
+    def test_teller_cannot_edit_event_setup(self, teller_user, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/administrator/event-setup/', {
+            'admin_opening_fund': '1',
+            'teller_opening_fund': '1',
+        })
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestAdminCloseTellerStation:
+
+    def test_admin_can_close_open_teller(
+            self, admin_user, teller_user, active_event, teller_status_online):
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/teller-closeout/close/', {
+            'teller_id': teller_user.pk,
+        })
+
+        assert response.status_code == 200
+        close_out = services.get_teller_close_out(teller_user, active_event)
+        assert close_out is not None
+        assert close_out.expected_cash_on_hand == 0
+        teller_status_online.refresh_from_db()
+        assert teller_status_online.is_online is False
+
+    def test_rejects_already_closed_teller(
+            self, admin_user, teller_user, active_event, teller_status_online):
+        services.close_teller_station(teller_user)
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/teller-closeout/close/', {
+            'teller_id': teller_user.pk,
+        })
+
+        assert response.status_code == 409
+        assert response.json()['error'] == 'already_closed'
+
+    def test_teller_cannot_close_another_teller(
+            self, teller_user, teller_user2, active_event):
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/administrator/teller-closeout/close/', {
+            'teller_id': teller_user2.pk,
+        })
+        assert response.status_code == 403
+
 
 # ---------------------------------------------------------------------------
 # Admin user management

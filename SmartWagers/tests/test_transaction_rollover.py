@@ -11,6 +11,7 @@ from django.utils.timezone import now
 from SmartWagers import reporting, services, transaction_ids
 from SmartWagers.models import (
     AdminBankTransaction,
+    ArchivedTellerTransaction,
     ArchivedWager,
     Event,
     Fight_Results,
@@ -295,6 +296,36 @@ class TestConflictArchival:
         assert close_out.remit_transaction is None
         assert close_out.archived_remit_transaction is not None
         assert close_out.archived_remit_transaction.transaction_id == 'R000000'
+
+    def test_teller_archival_preserves_opening_fund_marker(
+            self, teller_user, active_event):
+        old_event = _ended_event()
+        old_txn = TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.COLLECT,
+            amount=10000.0,
+            affects_admin_fund=False,
+            is_opening_fund=True,
+        )
+        TellerTransaction.objects.filter(pk=old_txn.pk).update(
+            transaction_id='R000000',
+            sequence_cycle=0,
+            created_at=old_event.started_at + timedelta(hours=1),
+        )
+        TransactionSequence.objects.filter(key=TransactionSequence.TELLER).update(
+            value=999999, cycle=0,
+        )
+
+        TellerTransaction.objects.create(
+            user=teller_user,
+            transaction_type=TellerTransaction.REMIT,
+            amount=50.0,
+        )
+
+        archived = ArchivedTellerTransaction.objects.get(
+            transaction_id='R000000', sequence_cycle=0,
+        )
+        assert archived.is_opening_fund is True
 
 
 @pytest.mark.django_db

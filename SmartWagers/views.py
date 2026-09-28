@@ -329,6 +329,7 @@ def get_fight_status_view(request):
         "fightnum": fightnum,
         "event_active": active_event is not None,
         "event_name": active_event.name if active_event else "",
+        "event_setup_editable": services.event_setup_is_editable(active_event),
         "can_end_event": readiness['can_end_event'],
         "closeout": {
             "all_stations_closed": readiness['all_stations_closed'],
@@ -1547,8 +1548,14 @@ def admin_tellers(request):
     teller_max_balance = setting.teller_max_balance if setting else 0.0
     teller_min_balance = setting.teller_min_balance if setting else 0.0
     teller_bet_limit = setting.teller_bet_limit if setting else 0.0
-    teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
-    admin_initial_fund = setting.admin_initial_fund if setting else 100000.0
+    teller_initial_fund = (
+        active_event.teller_opening_fund if active_event
+        else (setting.teller_initial_fund if setting else 10000.0)
+    )
+    admin_initial_fund = (
+        active_event.admin_opening_fund if active_event
+        else (setting.admin_initial_fund if setting else 100000.0)
+    )
     online_teller_count = sum(1 for td in teller_data if td['is_online'])
     planned_teller_funds = online_teller_count * teller_initial_fund
     planned_bank_funds = admin_initial_fund + planned_teller_funds
@@ -2129,7 +2136,28 @@ def start_event_view(request):
             status=403,
         )
 
-    event = services.start_event(event_name)
+    setup_supplied = request.POST.get('setup_supplied') == 'true'
+    try:
+        admin_opening_fund = (
+            _parse_currency_amount(request.POST.get('admin_opening_fund'))
+            if setup_supplied else None
+        )
+        teller_opening_fund = (
+            _parse_currency_amount(request.POST.get('teller_opening_fund'))
+            if setup_supplied else None
+        )
+        online_teller_ids = (
+            [int(pk) for pk in request.POST.getlist('online_teller_ids')]
+            if setup_supplied else None
+        )
+        event = services.start_event(
+            event_name,
+            admin_opening_fund=admin_opening_fund,
+            teller_opening_fund=teller_opening_fund,
+            online_teller_ids=online_teller_ids,
+        )
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_event_setup'}, status=400)
     notify_event_change()
     logger.info("EVENT START (view): id=%s name=%r admin=%s", event.id, event.name, request.user.username)
 
@@ -2138,6 +2166,81 @@ def start_event_view(request):
         'event_id': event.id,
         'event_name': event.name,
         'started_at': event.started_at.strftime('%Y-%m-%d %H:%M:%S'),
+    })
+
+
+@group_required('admin')
+def event_setup_view(request):
+    """Load or correct active-event opening funds and teller participation."""
+    active_event = services.get_active_event()
+    setting = Settings.objects.order_by('-id').first()
+
+    if request.method == 'GET':
+        tellers = []
+        for teller in services.get_non_admin_tellers():
+            status, _ = TellerStatus.objects.get_or_create(user=teller)
+            tellers.append({
+                'id': teller.pk,
+                'name': (
+                    f"{teller.first_name} {teller.last_name}".strip()
+                    or teller.username
+                ),
+                'username': teller.username,
+                'is_online': status.is_online,
+            })
+        return JsonResponse({
+            'ok': True,
+            'event_active': active_event is not None,
+            'editable': services.event_setup_is_editable(active_event),
+            'event_name': active_event.name if active_event else '',
+            'admin_opening_fund': (
+                active_event.admin_opening_fund if active_event
+                else (setting.admin_initial_fund if setting else 100000.0)
+            ),
+            'teller_opening_fund': (
+                active_event.teller_opening_fund if active_event
+                else (setting.teller_initial_fund if setting else 10000.0)
+            ),
+            'tellers': tellers,
+        })
+
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+    if active_event is None:
+        return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=409)
+
+    try:
+        admin_opening_fund = _parse_currency_amount(
+            request.POST.get('admin_opening_fund')
+        )
+        teller_opening_fund = _parse_currency_amount(
+            request.POST.get('teller_opening_fund')
+        )
+        online_teller_ids = [
+            int(pk) for pk in request.POST.getlist('online_teller_ids')
+        ]
+        event = services.update_event_setup(
+            active_event,
+            admin_opening_fund,
+            teller_opening_fund,
+            online_teller_ids,
+        )
+    except services.EventSetupLockedError:
+        return JsonResponse({'ok': False, 'error': 'match_already_started'}, status=409)
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_event_setup'}, status=400)
+
+    for teller in services.get_non_admin_tellers():
+        status = TellerStatus.objects.filter(user=teller).first()
+        notify_teller_online_status(teller.pk, bool(status and status.is_online))
+    notify_event_change()
+    return JsonResponse({
+        'ok': True,
+        'event_id': event.pk,
+        'event_name': event.name,
+        'admin_opening_fund': event.admin_opening_fund,
+        'teller_opening_fund': event.teller_opening_fund,
+        'online_teller_ids': online_teller_ids,
     })
 
 
@@ -2605,8 +2708,7 @@ def admin_event_report(request):
         admin_fund_summary['admin_wagers'] - admin_fund_summary['admin_payouts']
     )
 
-    setting = Settings.objects.order_by('-id').first()
-    teller_initial_fund = setting.teller_initial_fund if setting else 10000.0
+    teller_initial_fund = event.teller_opening_fund
 
     return render(request, 'SmartWagers/event_report.html', {
         'event': event,
@@ -2750,6 +2852,20 @@ def admin_teller_alerts(request):
     """Lightweight JSON endpoint: returns tellers whose balance is out of range."""
     from SmartWagers import reporting
 
+    active_event = services.get_active_event()
+    setting = Settings.objects.order_by('-id').first()
+    threshold = setting.teller_max_balance if setting else 0.0
+    min_balance = setting.teller_min_balance if setting else 0.0
+    if active_event is None:
+        return JsonResponse({
+            'ok': True,
+            'event_active': False,
+            'threshold': threshold,
+            'min_balance': min_balance,
+            'alert_count': 0,
+            'alerts': [],
+        })
+
     try:
         teller_group = Group.objects.get(name='teller')
         admin_ids = User.objects.filter(
@@ -2759,10 +2875,8 @@ def admin_teller_alerts(request):
     except Group.DoesNotExist:
         tellers = []
 
-    event_scope, apply_end_bound = services.get_event_scope()
-    setting = Settings.objects.order_by('-id').first()
-    threshold   = setting.teller_max_balance  if setting else 0.0
-    min_balance = setting.teller_min_balance  if setting else 0.0
+    event_scope = active_event
+    apply_end_bound = True
 
     alerts = []
     for teller in tellers:
@@ -2794,6 +2908,7 @@ def admin_teller_alerts(request):
 
     return JsonResponse({
         'ok': True,
+        'event_active': True,
         'threshold': threshold,
         'min_balance': min_balance,
         'alert_count': len(alerts),
@@ -2905,6 +3020,42 @@ def _parse_currency_amount(raw, default=None):
         raise ValueError('missing amount')
     cleaned = str(raw).strip().replace(',', '')
     return float(cleaned)
+
+
+@group_required('admin')
+def admin_close_teller_station(request):
+    """Admin endpoint: close a teller station that was left open."""
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'error': 'method_not_allowed'}, status=405)
+
+    try:
+        teller_id = int(str(request.POST.get('teller_id', '')).strip())
+        teller = services.get_non_admin_tellers().get(pk=teller_id)
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_teller_id'}, status=400)
+    except User.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'teller_not_found'}, status=404)
+
+    try:
+        close_out = services.close_teller_station(
+            teller, closed_by=request.user,
+        )
+    except services.NoActiveEventError:
+        return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=409)
+    except services.StationAlreadyClosedError:
+        return JsonResponse({'ok': False, 'error': 'already_closed'}, status=409)
+
+    notify_teller_online_status(teller.pk, False)
+    return JsonResponse({
+        'ok': True,
+        'teller_id': teller.pk,
+        'is_online': False,
+        'close_out': {
+            'id': close_out.pk,
+            'fightnum': close_out.fightnum,
+            'expected_cash_on_hand': close_out.expected_cash_on_hand,
+        },
+    })
 
 
 @group_required('admin')

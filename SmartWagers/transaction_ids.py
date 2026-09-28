@@ -168,6 +168,7 @@ def _archive_teller_transaction(txn):
         amount=txn.amount,
         received=txn.received,
         affects_admin_fund=txn.affects_admin_fund,
+        is_opening_fund=txn.is_opening_fund,
         cancelled=txn.cancelled,
         edited=txn.edited,
         updated_at=txn.updated_at,

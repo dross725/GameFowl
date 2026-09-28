@@ -153,6 +153,7 @@ class TellerTransaction(models.Model):
     amount = models.FloatField()
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
+    is_opening_fund = models.BooleanField(default=False)
     cancelled = models.BooleanField(default=False)
     edited = models.BooleanField(default=False)
     updated_at = models.DateTimeField(null=True, blank=True)
@@ -298,6 +299,7 @@ class Event(models.Model):
     # until an admin explicitly resumes. Past-event claims are unaffected.
     payouts_held = models.BooleanField(default=False)
     admin_opening_fund = models.FloatField(default=100000.0)
+    teller_opening_fund = models.FloatField(default=10000.0)
     expected_admin_cash_on_hand = models.FloatField(null=True, blank=True)
     actual_admin_cash_counted = models.FloatField(null=True, blank=True)
     admin_cash_variance = models.FloatField(null=True, blank=True)
@@ -419,6 +421,7 @@ class ArchivedTellerTransaction(models.Model):
     amount = models.FloatField()
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
+    is_opening_fund = models.BooleanField(default=False)
     cancelled = models.BooleanField(default=False)
     edited = models.BooleanField(default=False)
     updated_at = models.DateTimeField(null=True, blank=True)
