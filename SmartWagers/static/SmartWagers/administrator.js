@@ -106,6 +106,7 @@ administratorSocket.onclose = () => {
 administratorSocket.onmessage = async (event) => {
     const data = JSON.parse(event.data);
     console.log("Data received on message:", data);
+    if (window.applyAppLockState) applyAppLockState(data);
 
     if ("fight_status" in data &&
         (data.fight_status === "END" || data.fight_status === "CANCEL")) {

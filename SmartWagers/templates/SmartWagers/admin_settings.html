@@ -387,17 +387,33 @@
   <div class="st-panel" id="st-master-lock-panel">
     <div class="st-panel-title">Master Lock</div>
     <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-bottom:14px;line-height:1.5;">
-      Superuser only. Enable or extend for {{ extension_days }} days, or disable enforcement.
-      Every action requires the master lock key.
+      Superuser only. The license period and the operations lock are separate.
+      Enable or extend the license for {{ extension_days }} days. Lock operations
+      to make the app read-only from anywhere you can reach this page. Every
+      action requires the master lock key.
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:14px;font-size:13px;color:rgba(255,255,255,0.75);">
-      <div>Status:
+      <div>License:
         {% if lock_status.enabled %}
-          <strong style="color:{% if lock_status.locked %}#e74c3c{% else %}#2ecc71{% endif %};">
-            {% if lock_status.locked %}Enabled (expired){% else %}Enabled (active){% endif %}
+          <strong style="color:{% if lock_status.expired %}#e74c3c{% else %}#2ecc71{% endif %};">
+            {% if lock_status.expired %}Expired{% else %}Active{% endif %}
           </strong>
         {% else %}
-          <strong style="color:#f1c40f;">Disabled</strong>
+          <strong style="color:#f1c40f;">Not enforced</strong>
+        {% endif %}
+      </div>
+      <div>Operations:
+        {% if lock_status.manual_locked %}
+          <strong style="color:#e74c3c;">Locked</strong>
+        {% else %}
+          <strong style="color:#2ecc71;">Unlocked</strong>
+        {% endif %}
+      </div>
+      <div>App:
+        {% if lock_status.locked %}
+          <strong style="color:#e74c3c;">Read-only{% if lock_status.lock_reasons %} ({{ lock_status.lock_reasons|join:", " }}){% endif %}</strong>
+        {% else %}
+          <strong style="color:#2ecc71;">Open</strong>
         {% endif %}
       </div>
       <div>Valid until: <strong>{{ lock_status.valid_until|default:"—" }}</strong></div>
@@ -405,14 +421,18 @@
     </div>
     <div class="st-input-group" style="margin-bottom:12px;">
       <label for="master-lock-key">Master Key</label>
-      <input type="password" id="master-lock-key" autocomplete="off"
+      <input type="password" id="master-lock-key" autocomplete="off" data-lock-allow="1"
              style="background:#12141b;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;padding:8px 12px;min-width:220px;">
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:10px;">
-      <button class="st-save-btn" type="button" onclick="masterLockAction('master_lock_enable')">Enable</button>
-      <button class="st-save-btn" type="button" onclick="masterLockAction('master_lock_extend')">Extend +{{ extension_days }}d</button>
-      <button class="st-save-btn" type="button" onclick="masterLockAction('master_lock_disable')"
-              style="background:#c0392b;">Disable</button>
+      <button class="st-save-btn" type="button" data-lock-allow="1" onclick="masterLockAction('master_lock_enable')">Enable license</button>
+      <button class="st-save-btn" type="button" data-lock-allow="1" onclick="masterLockAction('master_lock_extend')">Extend +{{ extension_days }}d</button>
+      <button class="st-save-btn" type="button" data-lock-allow="1" onclick="masterLockAction('master_lock_disable')"
+              style="background:#7f8c8d;">Turn license off</button>
+      <button class="st-save-btn" type="button" data-lock-allow="1" onclick="masterLockAction('master_lock_lock')"
+              style="background:#c0392b;">Lock operations</button>
+      <button class="st-save-btn" type="button" data-lock-allow="1" onclick="masterLockAction('master_lock_unlock')"
+              style="background:#1e8449;">Unlock operations</button>
     </div>
     <div id="st-master-lock-status" style="font-size:12px;min-height:1.4em;padding:2px 0;margin-top:8px;"></div>
   </div>
@@ -420,19 +440,26 @@
   <div class="st-panel" id="st-master-lock-status-panel">
     <div class="st-panel-title">License Status</div>
     <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:rgba(255,255,255,0.75);">
-      <div>Status:
+      <div>License:
         {% if lock_status.enabled %}
-          <strong style="color:{% if lock_status.locked %}#e74c3c{% else %}#2ecc71{% endif %};">
-            {% if lock_status.locked %}Expired{% else %}Active{% endif %}
+          <strong style="color:{% if lock_status.expired %}#e74c3c{% else %}#2ecc71{% endif %};">
+            {% if lock_status.expired %}Expired{% else %}Active{% endif %}
           </strong>
         {% else %}
           <strong style="color:#f1c40f;">Not enforced</strong>
         {% endif %}
       </div>
+      <div>Operations:
+        {% if lock_status.manual_locked %}
+          <strong style="color:#e74c3c;">Locked</strong>
+        {% else %}
+          <strong style="color:#2ecc71;">Unlocked</strong>
+        {% endif %}
+      </div>
       <div>Valid until: <strong>{{ lock_status.valid_until|default:"—" }}</strong></div>
     </div>
     <div style="font-size:12px;color:rgba(255,255,255,0.40);margin-top:10px;">
-      Only a superuser can enable, extend, or disable the master lock.
+      Only a superuser can change the license period or lock and unlock operations.
     </div>
   </div>
   {% endif %}
@@ -758,9 +785,15 @@ async function masterLockAction(action) {
         if (keyEl) keyEl.value = '';
         if (data.ok) {
             statusEl.className = 'st-ok';
-            statusEl.textContent = data.enabled
-                ? (`Saved. Valid until ${data.valid_until || '—'}. Reloading…`)
-                : 'Lock disabled. Reloading…';
+            if (data.locked && data.manual_locked) {
+                statusEl.textContent = 'Operations locked. Reloading…';
+            } else if (data.locked) {
+                statusEl.textContent = 'Saved, but the application is still read-only. Reloading…';
+            } else if (data.enabled) {
+                statusEl.textContent = `Saved. Valid until ${data.valid_until || '—'}. Reloading…`;
+            } else {
+                statusEl.textContent = 'Operations are open. Reloading…';
+            }
             setTimeout(() => window.location.reload(), 800);
         } else {
             statusEl.className = 'st-err';

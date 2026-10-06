@@ -129,6 +129,7 @@ def _default_payload(*, action: str = 'init') -> dict[str, Any]:
     return {
         'schema_version': SCHEMA_VERSION,
         'enabled': False,
+        'manual_locked': False,
         'valid_until': None,
         'last_seen': _to_iso(now),
         'updated_at': _to_iso(now),
@@ -262,14 +263,23 @@ def _load_payload(*, update_heartbeat: bool = False) -> dict[str, Any]:
 
 def _status_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     enabled = bool(payload.get('enabled'))
+    manual_locked = bool(payload.get('manual_locked'))
     valid_until = _parse_iso(payload.get('valid_until'))
     now = _utc_now()
     expired = bool(enabled and (valid_until is None or valid_until <= now))
-    locked = expired
+    reasons = []
+    if manual_locked:
+        reasons.append('manual')
+    if expired:
+        reasons.append('expired')
+    locked = bool(reasons)
     return {
         'ok': True,
         'locked': locked,
         'enabled': enabled,
+        'manual_locked': manual_locked,
+        'expired': expired,
+        'lock_reasons': reasons,
         'valid_until': _to_iso(valid_until),
         'last_seen': payload.get('last_seen'),
         'updated_at': payload.get('updated_at'),
@@ -289,6 +299,9 @@ def get_status(*, touch_heartbeat: bool = False) -> dict[str, Any]:
             'ok': False,
             'locked': True,
             'enabled': True,
+            'manual_locked': False,
+            'expired': False,
+            'lock_reasons': ['state_error'],
             'valid_until': None,
             'error': 'locked',
             'detail': str(exc),
@@ -370,7 +383,13 @@ def clear_auth_failures(client_id: str) -> None:
         _rate_failures.pop(_client_rate_key(client_id), None)
 
 
-def _mutate(action: str, *, master_key: str, client_id: str = '') -> dict[str, Any]:
+def _mutate(
+    action: str,
+    *,
+    master_key: str,
+    client_id: str = '',
+    actor: str = '',
+) -> dict[str, Any]:
     if check_rate_limit(client_id):
         raise MasterLockAuthError(GENERIC_AUTH_ERROR)
     if not verify_master_key(master_key):
@@ -398,6 +417,7 @@ def _mutate(action: str, *, master_key: str, client_id: str = '') -> dict[str, A
                     raise MasterLockStateError('System clock rollback detected.')
 
                 payload = dict(payload)
+                payload['manual_locked'] = bool(payload.get('manual_locked'))
                 current_until = _parse_iso(payload.get('valid_until'))
 
                 if action == 'enable':
@@ -416,6 +436,10 @@ def _mutate(action: str, *, master_key: str, client_id: str = '') -> dict[str, A
                 elif action == 'disable':
                     payload['enabled'] = False
                     payload['valid_until'] = None
+                elif action == 'lock_now':
+                    payload['manual_locked'] = True
+                elif action == 'unlock':
+                    payload['manual_locked'] = False
                 else:
                     raise MasterLockError(f'Unknown action: {action}')
 
@@ -425,11 +449,14 @@ def _mutate(action: str, *, master_key: str, client_id: str = '') -> dict[str, A
                 payload['schema_version'] = SCHEMA_VERSION
                 _write_payload(payload)
                 logger.info(
-                    'MASTER LOCK action=%s enabled=%s valid_until=%s extensions=%s client=%s',
+                    'MASTER LOCK action=%s enabled=%s manual_locked=%s valid_until=%s '
+                    'extensions=%s actor=%s client=%s',
                     action,
                     payload.get('enabled'),
+                    payload.get('manual_locked'),
                     payload.get('valid_until'),
                     payload.get('extension_count'),
+                    actor or '?',
                     client_id or '?',
                 )
                 return _status_from_payload(payload)
@@ -437,13 +464,23 @@ def _mutate(action: str, *, master_key: str, client_id: str = '') -> dict[str, A
                 _release_file_lock(lock_file)
 
 
-def enable_lock(*, master_key: str, client_id: str = '') -> dict[str, Any]:
-    return _mutate('enable', master_key=master_key, client_id=client_id)
+def enable_lock(*, master_key: str, client_id: str = '', actor: str = '') -> dict[str, Any]:
+    return _mutate('enable', master_key=master_key, client_id=client_id, actor=actor)
 
 
-def extend_lock(*, master_key: str, client_id: str = '') -> dict[str, Any]:
-    return _mutate('extend', master_key=master_key, client_id=client_id)
+def extend_lock(*, master_key: str, client_id: str = '', actor: str = '') -> dict[str, Any]:
+    return _mutate('extend', master_key=master_key, client_id=client_id, actor=actor)
 
 
-def disable_lock(*, master_key: str, client_id: str = '') -> dict[str, Any]:
-    return _mutate('disable', master_key=master_key, client_id=client_id)
+def disable_lock(*, master_key: str, client_id: str = '', actor: str = '') -> dict[str, Any]:
+    return _mutate('disable', master_key=master_key, client_id=client_id, actor=actor)
+
+
+def lock_now(*, master_key: str, client_id: str = '', actor: str = '') -> dict[str, Any]:
+    """Lock operations immediately without changing the license period."""
+    return _mutate('lock_now', master_key=master_key, client_id=client_id, actor=actor)
+
+
+def unlock(*, master_key: str, client_id: str = '', actor: str = '') -> dict[str, Any]:
+    """Clear a manual operations lock. An expired license stays locked."""
+    return _mutate('unlock', master_key=master_key, client_id=client_id, actor=actor)

@@ -1,0 +1,15 @@
+{% load humanize %}SmartWagers commission report
+Event: {{ report.event_name }}
+{% if report.location %}Location: {{ report.location }}
+{% endif %}Started: {{ report.started_at|default:"—" }}
+Ended: {{ report.ended_at|default:"—" }}
+Plasada: {{ report.plasada_pct|floatformat:2 }}%
+
+Fight breakdown
+{% for fight in fights %}Fight {{ fight.fightnum }}  {{ fight.side }}  pot ₱{{ fight.totalpot|floatformat:2|intcomma }}  commission ₱{{ fight.commission|floatformat:2|intcomma }}
+{% empty %}No fights were recorded.
+{% endfor %}
+Total pot: ₱{{ report.total_pot|floatformat:2|intcomma }}
+Total commission: ₱{{ report.total_commission|floatformat:2|intcomma }}
+
+Draws and cancelled fights have zero commission.

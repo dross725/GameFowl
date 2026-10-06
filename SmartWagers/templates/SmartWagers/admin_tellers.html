@@ -2528,6 +2528,7 @@ refreshWarningBanner();
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
+      if (window.applyAppLockState) applyAppLockState(data);
       if (data.fight_status === 'event_changed' || data.pending_bet_approval) {
         window.location.reload();
       }

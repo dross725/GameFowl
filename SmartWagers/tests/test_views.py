@@ -2166,3 +2166,17 @@ class TestPayoutHoldToggle:
         assert all(msg.get('fight_status') == 'event_changed' for _, msg in captured)
         assert all(msg.get('payouts_held') is True for _, msg in captured)
         assert {group for group, _ in captured} >= {'user', 'administrator', 'index'}
+
+
+@pytest.mark.django_db
+def test_end_event_response_warns_when_email_has_no_recipients(
+        admin_user, active_event, settings):
+    settings.EMAIL_HOST_USER = ''
+    client = Client()
+    client.force_login(admin_user)
+    services.register_admin_cash_count(100000, admin_user)
+    response = client.post('/administrator/end-event/')
+    assert response.status_code == 200
+    report_email = response.json()['report_email']
+    assert report_email['status'] == 'no_recipients'
+    assert 'email address' in report_email['warning']

@@ -83,6 +83,8 @@ After the script finishes, open Command Prompt in `C:\SmartWagers\GameFowl\` and
 python manage.py createsuperuser
 ```
 
+Enter an email address for every superuser. End-of-event commission reports are sent to those addresses.
+
 Then open `http://localhost:8080/admin/` and:
 1. Create three **Groups**: `admin`, `teller`, `display`
 2. Create user accounts and assign each to its group
@@ -313,7 +315,8 @@ Rollback is only clean while PostgreSQL has not accepted new production writes:
 | Copy fails on `images\` with “file name is too long” or invalid name | Delete any `*:Zone.Identifier` junk under `SmartWagers\static\SmartWagers\images\` (Windows Mark-of-the-Web ADS saved as a real file with a colon). Do not copy `mobile_print_agent\node_modules`, `android`, `ios`, or `.expo` — those contain thousands of long-path PNG caches. Use `mobile_print_agent\prepare_windows_copy.sh` or copy only `dist\SmartWagers-PrintCompanion.apk`. |
 | `service_control.bat start` says **"Unexpected status SERVICE_PAUSED"** and logs are empty | Daphne crashed under the service account. **1)** `memurai-cli ping` must return `PONG`. **2)** Open `C:\SmartWagers\logs\daphne_wrapper.log`. **3)** Manual test: `python -m daphne -v 2 -b 0.0.0.0 -p 8080 GameFowl.asgi:application`. **4)** Re-run `4_install_service.bat` as Administrator after fixing. |
 | Admin pages show **Server Error 500** with `AttributeError: 'super' object has no attribute 'dicts'` | Python 3.14 is not supported by Django 5.1. Install **Python 3.12**, re-run `2_install_deps.bat`, update `deploy\python_path.txt`, and restart the service. A temporary compatibility patch is in `settings.py` for 3.14, but 3.12 is recommended for production. |
-| App redirects to `/master-lock/` | Lock is enabled and expired (or state missing/tampered in production). Enter the master key to **Enable** or **Extend**. |
+| App redirects to `/master-lock/` or shows a read-only banner | The license expired or operations were locked. A superuser can renew or unlock from `/master-lock/` or Settings. Reports remain readable. |
+| Commission email did not arrive | Confirm each superuser account has an address, and that `EMAIL_HOST` in `GameFowl/settings.py` can reach the mail server. Then run `python manage.py send_pending_event_reports`. Ending an event does not roll back if mail fails. |
 | Daphne will not start: `MASTER_LOCK_SIGNING_KEY` / `PASSWORD_HASH` | Set both in `.env`, then restart the service. Generate hash with `python manage.py hash_master_lock_key`. |
 | `init_master_lock` refuses to run | Existing state file is present or unusable. Do **not** overwrite casually — restore from backup or use recovery procedures. |
 
@@ -321,20 +324,74 @@ Rollback is only clean while PostgreSQL has not accepted new production writes:
 
 ## Master Lock
 
-Offline monthly activation. Disabled by default after `6_init_master_lock.bat`.
+The master lock has two separate controls:
 
-| Action | Effect |
-|--------|--------|
-| **Enable** | Requires master key; grants 30 days from now |
-| **Extend** | Requires master key; adds 30 days to `max(now, valid_until)` |
-| **Disable** | Requires master key; turns enforcement off |
+| Control | What it does |
+|---------|----------------|
+| **License enable / extend** | Requires the master key. Grants or adds 30 days. Does not clear a manual operations lock. |
+| **Turn license off** | Requires a logged-in superuser and the master key. Stops the 30-day check. Does not clear a manual operations lock. |
+| **Lock operations** | Requires a logged-in superuser and the master key. Makes the app read-only immediately. |
+| **Unlock operations** | Requires a logged-in superuser and the master key. Clears only the manual lock. An expired license stays read-only. |
 
-- Activation UI: `http://<SERVER-IP>:8080/master-lock/`
-- Admin settings also has Enable / Extend / Disable controls
+While read-only, people can still log in, log out, view reports and dashboards, and open `/health/` and `/master-lock/`. Betting, payouts, event changes, and other writes are rejected. WebSocket connections stay open, but fight and bet commands are ignored.
+
+- Recovery UI: `http://<SERVER-IP>:8080/master-lock/`
+- Admin Settings has the license buttons and **Lock operations** / **Unlock operations**
 - Health probe (always 200 while Daphne is up): `http://127.0.0.1:8080/health/`
 - State file: `C:\SmartWagers\data\master_lock.state` (HMAC-signed; deleting it fails closed in production)
+- Back up that state file before shipment. Deploy scripts do not overwrite it.
 
 **Limitation:** This deters casual tampering. A Windows administrator who can patch Python/source or read process secrets can bypass an offline lock.
+
+### Remote control over a private VPN
+
+Use Tailscale, or an equivalent private VPN, on the Windows server and on each administrator device. Do not port-forward Daphne, PostgreSQL, or Redis to the public internet.
+
+1. Install Tailscale on the server and approve only the administrator devices and accounts that may lock or unlock it.
+2. Add the server's Tailscale IP, and its MagicDNS name if you use one, to `DJANGO_ALLOWED_HOSTS`.
+3. Add the same origin, including `http://` and `:8080`, to `DJANGO_CSRF_TRUSTED_ORIGINS`.
+4. Restart the Daphne service.
+5. From an approved device, open `http://<TAILSCALE-IP>:8080/administrator/settings/`, sign in as a superuser, and use **Lock operations** or **Unlock operations** with the master key.
+
+If the VPN is down, a superuser at the server can still unlock from the local Settings page or `/master-lock/`.
+
+### Commission email
+
+When an event ends, the application emails the per-fight commission breakdown to `EMAIL_HOST_USER` and every active superuser account that has an address. Duplicate addresses are removed. Draws and cancelled fights contribute zero commission. Recipients are hidden from each other. Superuser addresses are stored on those accounts, not in `.env`.
+
+Set the mail server and sender in `GameFowl/settings.py` (`EMAIL_HOST`,
+`EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_USE_TLS`, and `DEFAULT_FROM_EMAIL`).
+Store only the Gmail app password in
+`C:\SmartWagers\GameFowl\.email_password`, as one line with no quotes. This
+file is git-ignored and must not be added to a release archive or source
+control. Leave `.env` free of addresses.
+
+If the network is down, the event still ends. The automatic retry does not send a report again after it succeeds. To see events and send one report again, from `C:\SmartWagers\GameFowl\`:
+
+```cmd
+python manage.py list_events
+python manage.py resend_event_report <EVENT-ID>
+```
+
+Schedule the automatic retry every five minutes from an elevated Command Prompt:
+
+```cmd
+schtasks /Create /TN "SmartWagers Commission Email" /SC MINUTE /MO 5 /TR "cmd /c cd /d C:\SmartWagers\GameFowl && python manage.py send_pending_event_reports"
+```
+
+Use the full path to the same `python.exe` that runs Daphne if `python` is not on the Task Scheduler account's PATH.
+
+### Shipment checklist
+
+- [ ] PostgreSQL, Redis/Memurai, and Daphne start after reboot.
+- [ ] `python manage.py migrate` has been applied, including the commission-email table.
+- [ ] Every superuser who should receive reports has a current email address. Inactive superusers are skipped.
+- [ ] A test event end sends one commission email and a second retry does not send it again.
+- [ ] Disconnecting the network, ending an event, then reconnecting and running `send_pending_event_reports` delivers the queued report.
+- [ ] Tailscale is installed, limited to approved administrator devices, and the VPN address is in `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS`.
+- [ ] From the VPN, a superuser can lock operations, confirm betting is rejected while reports still open, then unlock.
+- [ ] `C:\SmartWagers\data\master_lock.state` is backed up and was not replaced by the deploy copy.
+- [ ] The master key is known to the people who can recover the server, and it is not stored in the repository.
 
 ---
 

@@ -2404,6 +2404,8 @@ def end_event(counted_by):
         event.is_active = False
         event.ended_at = now()
         event.save(update_fields=['is_active', 'ended_at'])
+        from .event_reporting import queue_event_commission_email
+        queue_event_commission_email(event)
 
     logger.info(
         "EVENT ENDED: id=%s name=%r ended_at=%s expected_admin_cash=%.2f "

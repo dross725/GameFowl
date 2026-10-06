@@ -961,3 +961,177 @@ class TestEventBettingSurplusShares:
         assert shares[teller_user.username] == pytest.approx(5000.0)
         assert shares[teller_user2.username] == pytest.approx(-1000.0)
         assert sum(shares.values()) == pytest.approx(4000.0)
+
+
+# ---------------------------------------------------------------------------
+# End-of-event commission email
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestEventCommissionEmail:
+
+    def _close(self, admin_user):
+        services.register_admin_cash_count(0, admin_user)
+
+    def test_snapshots_recipients_and_sends_on_commit(
+            self, active_event, admin_user, default_settings, monkeypatch, settings):
+        from django.contrib.auth.models import User
+        from django.core import mail
+        from SmartWagers.models import EventReportEmail, Fight_Results
+
+        settings.EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+        settings.EMAIL_HOST = 'smtp.example.com'
+        settings.EMAIL_HOST_USER = 'sender@example.com'
+        settings.DEFAULT_FROM_EMAIL = 'reports@example.com'
+        settings.LOCATION = 'Tuba, Benguet'
+
+        User.objects.create_superuser('boss', 'boss@example.com', 'pw')
+        User.objects.create_superuser(
+            'sender-admin',
+            'sender@example.com',
+            'pw',
+        )
+        User.objects.create_user('tellerbox', 'tellerbox@example.com', 'pw')
+        inactive = User.objects.create_superuser('retired', 'retired@example.com', 'pw')
+        inactive.is_active = False
+        inactive.save()
+        missing = User.objects.create_superuser('noemail', 'temp@example.com', 'pw')
+        missing.email = ''
+        missing.save()
+        Fight_Results.objects.create(
+            fightnum=1, side='MERON', mtotal=600, wtotal=400,
+            mpayout=1, wpayout=1, totalpot=1000, odds='1', event=active_event,
+        )
+        Fight_Results.objects.create(
+            fightnum=2, side='DRAW', mtotal=100, wtotal=100,
+            mpayout=0, wpayout=0, totalpot=200, odds='0', event=active_event,
+        )
+
+        callbacks = []
+
+        def capture(callback, using=None, robust=False):
+            callbacks.append(callback)
+
+        monkeypatch.setattr(
+            'SmartWagers.event_reporting.db_transaction.on_commit',
+            capture,
+        )
+        self._close(admin_user)
+        event = services.end_event(admin_user)
+
+        row = EventReportEmail.objects.get(event=event)
+        assert row.status == EventReportEmail.STATUS_PENDING
+        assert row.recipients == ['sender@example.com', 'boss@example.com']
+        assert row.missing_superusers == ['noemail']
+        assert row.payload['total_commission'] == pytest.approx(50.0)
+        assert row.payload['fights'][1]['commission'] == 0
+        assert mail.outbox == []
+        assert len(callbacks) == 1
+
+        callbacks[0]()
+        assert len(mail.outbox) == 1
+        message = mail.outbox[0]
+        assert message.to == []
+        assert message.bcc == ['sender@example.com', 'boss@example.com']
+        assert 'MERON' in message.body
+        assert 'DRAW' in message.body
+        assert 'Location: Tuba, Benguet' in message.body
+        assert 'Plasada: 5.00%' in message.body
+        assert '₱1,000.00' in message.body
+        assert '₱50.00' in message.body
+        assert message.alternatives[0][1] == 'text/html'
+        assert 'Location: Tuba, Benguet' in message.alternatives[0][0]
+        assert 'Plasada: 5.00%' in message.alternatives[0][0]
+        assert '₱1,000.00' in message.alternatives[0][0]
+        assert '₱50.00' in message.alternatives[0][0]
+        row.refresh_from_db()
+        assert row.status == EventReportEmail.STATUS_SENT
+
+        callbacks[0]()
+        assert len(mail.outbox) == 1
+        assert EventReportEmail.objects.filter(event=event).count() == 1
+
+    def test_smtp_failure_keeps_event_and_retries_once(
+            self, active_event, admin_user, default_settings, monkeypatch, settings):
+        from django.contrib.auth.models import User
+        from django.core import mail
+        from django.core.mail import EmailMultiAlternatives
+        from django.core.management import call_command
+        from SmartWagers.models import EventReportEmail
+
+        settings.EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+        settings.EMAIL_HOST = 'smtp.example.com'
+        settings.EMAIL_HOST_USER = 'sender@example.com'
+        settings.DEFAULT_FROM_EMAIL = 'reports@example.com'
+        User.objects.create_superuser('boss', 'boss@example.com', 'pw')
+
+        state = {'fail': True}
+        real_send = EmailMultiAlternatives.send
+
+        def maybe_send(message, fail_silently=False):
+            if state['fail']:
+                raise RuntimeError('smtp down')
+            return real_send(message, fail_silently=fail_silently)
+
+        monkeypatch.setattr(EmailMultiAlternatives, 'send', maybe_send)
+        monkeypatch.setattr(
+            'SmartWagers.event_reporting.db_transaction.on_commit',
+            lambda callback, using=None, robust=False: callback(),
+        )
+        self._close(admin_user)
+        event = services.end_event(admin_user)
+        event.refresh_from_db()
+        assert event.is_active is False
+        row = EventReportEmail.objects.get(event=event)
+        assert row.status == EventReportEmail.STATUS_FAILED
+        assert 'smtp down' in row.last_error
+        assert mail.outbox == []
+
+        state['fail'] = False
+        call_command('send_pending_event_reports')
+        row.refresh_from_db()
+        assert row.status == EventReportEmail.STATUS_SENT
+        assert len(mail.outbox) == 1
+        call_command('send_pending_event_reports')
+        assert len(mail.outbox) == 1
+
+        from io import StringIO
+        listed = StringIO()
+        call_command('list_events', stdout=listed)
+        assert str(event.pk) in listed.getvalue()
+        assert event.name in listed.getvalue()
+
+        call_command('resend_event_report', event.pk)
+        assert len(mail.outbox) == 2
+        row.refresh_from_db()
+        assert row.status == EventReportEmail.STATUS_SENT
+
+    def test_no_recipients_does_not_send(
+            self, active_event, admin_user, default_settings, settings):
+        from SmartWagers.event_reporting import event_report_email_warning
+        from SmartWagers.models import EventReportEmail
+
+        settings.EMAIL_HOST = 'smtp.example.com'
+        settings.EMAIL_HOST_USER = ''
+        self._close(admin_user)
+        event = services.end_event(admin_user)
+        row = EventReportEmail.objects.get(event=event)
+        assert row.status == EventReportEmail.STATUS_NO_RECIPIENTS
+        assert row.recipients == []
+        assert 'email address' in event_report_email_warning(event)
+
+    def test_rollback_removes_queued_email(
+            self, active_event, admin_user, default_settings):
+        from django.contrib.auth.models import User
+        from django.db import transaction
+        from SmartWagers.models import EventReportEmail
+
+        User.objects.create_superuser('boss', 'boss@example.com', 'pw')
+        self._close(admin_user)
+        with pytest.raises(RuntimeError):
+            with transaction.atomic():
+                services.end_event(admin_user)
+                raise RuntimeError('boom')
+        active_event.refresh_from_db()
+        assert active_event.is_active is True
+        assert EventReportEmail.objects.filter(event=active_event).count() == 0

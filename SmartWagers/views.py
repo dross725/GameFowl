@@ -71,6 +71,8 @@ def health(request):
         'ok': True,
         'locked': bool(status.get('locked')),
         'enabled': bool(status.get('enabled')),
+        'manual_locked': bool(status.get('manual_locked')),
+        'lock_reasons': status.get('lock_reasons') or [],
         'valid_until': status.get('valid_until'),
     })
     response['Cache-Control'] = 'no-store'
@@ -91,29 +93,50 @@ def master_lock_page(request):
         action = (request.POST.get('action') or '').strip().lower()
         # Disable is only available to logged-in superusers (Settings page).
         # The locked recovery page may only enable/extend with the master key.
-        if action == 'disable':
+        if action in ('disable', 'lock_now', 'unlock'):
             if not (request.user.is_authenticated and request.user.is_superuser):
                 return JsonResponse(
-                    {'ok': False, 'error': 'Only superusers can disable the master lock.'},
+                    {'ok': False, 'error': 'Only superusers can change the operations lock.'},
                     status=403,
                 )
         master_key = request.POST.get('master_key') or ''
+        actor = request.user.username if request.user.is_authenticated else ''
         try:
             if action == 'enable':
-                status = masterlock.enable_lock(master_key=master_key, client_id=client_id)
+                status = masterlock.enable_lock(
+                    master_key=master_key, client_id=client_id, actor=actor,
+                )
             elif action == 'extend':
-                status = masterlock.extend_lock(master_key=master_key, client_id=client_id)
+                status = masterlock.extend_lock(
+                    master_key=master_key, client_id=client_id, actor=actor,
+                )
             elif action == 'disable':
-                status = masterlock.disable_lock(master_key=master_key, client_id=client_id)
+                status = masterlock.disable_lock(
+                    master_key=master_key, client_id=client_id, actor=actor,
+                )
+            elif action == 'lock_now':
+                status = masterlock.lock_now(
+                    master_key=master_key, client_id=client_id, actor=actor,
+                )
+            elif action == 'unlock':
+                status = masterlock.unlock(
+                    master_key=master_key, client_id=client_id, actor=actor,
+                )
             else:
                 return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=400)
 
             logger.info(
-                'MASTER LOCK UI action=%s ok=1 locked=%s ip=%s',
-                action, status.get('locked'), client_id,
+                'MASTER LOCK UI action=%s ok=1 locked=%s manual_locked=%s actor=%s ip=%s',
+                action,
+                status.get('locked'),
+                status.get('manual_locked'),
+                actor or '?',
+                client_id,
             )
+            notify_lock_change()
             payload = {'ok': True, **{k: status.get(k) for k in (
-                'locked', 'enabled', 'valid_until', 'extension_count', 'extension_days',
+                'locked', 'enabled', 'manual_locked', 'lock_reasons',
+                'valid_until', 'extension_count', 'extension_days',
             )}}
             # Prefer JSON for fetch; form posts without Accept still get JSON.
             return JsonResponse(payload)
@@ -151,6 +174,8 @@ def master_lock_status(request):
         'ok': True,
         'locked': bool(status.get('locked')),
         'enabled': bool(status.get('enabled')),
+        'manual_locked': bool(status.get('manual_locked')),
+        'lock_reasons': status.get('lock_reasons') or [],
         'valid_until': status.get('valid_until'),
         'extension_days': masterlock.EXTENSION_DAYS,
     })
@@ -532,6 +557,25 @@ def notify_pending_bet_approval():
         )
     except Exception:
         logger.exception("notify_pending_bet_approval: broadcast failed")
+
+def notify_lock_change():
+    """Tell open clients to show or hide the read-only operations banner."""
+    status = masterlock.get_status(touch_heartbeat=False)
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    payload = {
+        'type': 'send_data',
+        'app_locked': bool(status.get('locked')),
+        'manual_locked': bool(status.get('manual_locked')),
+        'lock_reasons': status.get('lock_reasons') or [],
+    }
+    for group in ('administrator', 'user', 'index'):
+        try:
+            async_to_sync(channel_layer.group_send)(group, payload)
+        except Exception:
+            logger.exception('notify_lock_change: broadcast to %s failed', group)
+
 
 def notify_event_change():
     """Broadcast an event-state change to all connected clients so they re-poll get_fight_status_view."""
@@ -2281,6 +2325,9 @@ def end_event_view(request):
     logger.info("EVENT END (view): id=%s name=%r admin=%s", event.id, event.name, request.user.username)
 
     wrong_punch = services.get_wrong_punch_leaderboard(event)
+    from .event_reporting import event_report_email_warning
+    from .models import EventReportEmail
+    report_email = EventReportEmail.objects.filter(event=event).first()
 
     return JsonResponse({
         'ok': True,
@@ -2289,6 +2336,10 @@ def end_event_view(request):
         'ended_at': event.ended_at.strftime('%Y-%m-%d %H:%M:%S'),
         'report_url': reverse('admin-event-report') + f'?event_id={event.id}',
         'wrong_punch': wrong_punch,
+        'report_email': {
+            'status': report_email.status if report_email else None,
+            'warning': event_report_email_warning(event),
+        },
     })
 
 
@@ -2379,24 +2430,13 @@ def admin_event_report(request):
     include_archived = reporting.include_archived_for_event(event)
 
     # Commission / fight results
+    from .event_reporting import build_commission_report
     plasada = services.get_comm_val()
+    commission_report = build_commission_report(event, plasada)
+    fight_commissions = commission_report['fights']
+    total_pot_all = commission_report['total_pot']
+    total_commission = commission_report['total_commission']
     fight_results_qs = Fight_Results.objects.filter(event=event).order_by('fightnum')
-    fight_commissions = [
-        {
-            'fightnum': r.fightnum,
-            'side': r.side,
-            'mtotal': r.mtotal,
-            'wtotal': r.wtotal,
-            'mpayout': r.mpayout,
-            'wpayout': r.wpayout,
-            'totalpot': r.totalpot,
-            'commission': 0 if r.side in ('CANCELLED', 'DRAW') else r.totalpot * plasada,
-            'date': r.date,
-        }
-        for r in fight_results_qs
-    ]
-    total_pot_all = sum(fc['totalpot'] for fc in fight_commissions if fc['side'] not in ('CANCELLED', 'DRAW'))
-    total_commission = sum(fc['commission'] for fc in fight_commissions)
 
     # Build payable outcomes for outstanding payout detection.  Winning
     # MERON/WALA tickets are payable, while every ticket from a DRAW or
@@ -2827,26 +2867,11 @@ def admin_commission(request):
     active_event = services.get_active_event()
     plasada = services.get_comm_val()
 
-    result_qs = Fight_Results.objects.all().order_by('fightnum')
-    if active_event is not None:
-        result_qs = result_qs.filter(event=active_event)
-
-    fight_commissions = []
-    total_commission = 0.0
-    total_pot_all = 0.0
-
-    for result in result_qs:
-        commission = 0 if result.side in ('CANCELLED', 'DRAW') else result.totalpot * plasada
-        fight_commissions.append({
-            'fightnum': result.fightnum,
-            'side': result.side,
-            'totalpot': result.totalpot,
-            'commission': commission,
-            'date': result.date,
-        })
-        total_commission += commission
-        if result.side not in ('CANCELLED', 'DRAW'):
-            total_pot_all += result.totalpot
+    from .event_reporting import build_commission_report
+    commission_report = build_commission_report(active_event, plasada)
+    fight_commissions = commission_report['fights']
+    total_commission = commission_report['total_commission']
+    total_pot_all = commission_report['total_pot']
 
     return render(request, 'SmartWagers/admin_commission.html', {
         'fight_commissions': fight_commissions,
@@ -3361,7 +3386,13 @@ def admin_settings(request):
 
             return JsonResponse({'ok': True, 'result_id': result_id, 'side': new_side})
 
-        if action in ('master_lock_enable', 'master_lock_extend', 'master_lock_disable'):
+        if action in (
+            'master_lock_enable',
+            'master_lock_extend',
+            'master_lock_disable',
+            'master_lock_lock',
+            'master_lock_unlock',
+        ):
             if not request.user.is_superuser:
                 logger.warning(
                     'MASTER LOCK admin action=%s denied (not superuser) by=%s',
@@ -3373,29 +3404,51 @@ def admin_settings(request):
                 )
             client_id = _get_client_ip(request)
             master_key = request.POST.get('master_key') or ''
+            actor = request.user.username
             try:
                 if action == 'master_lock_enable':
-                    status = masterlock.enable_lock(master_key=master_key, client_id=client_id)
+                    status = masterlock.enable_lock(
+                        master_key=master_key, client_id=client_id, actor=actor,
+                    )
                 elif action == 'master_lock_extend':
-                    status = masterlock.extend_lock(master_key=master_key, client_id=client_id)
+                    status = masterlock.extend_lock(
+                        master_key=master_key, client_id=client_id, actor=actor,
+                    )
+                elif action == 'master_lock_disable':
+                    status = masterlock.disable_lock(
+                        master_key=master_key, client_id=client_id, actor=actor,
+                    )
+                elif action == 'master_lock_lock':
+                    status = masterlock.lock_now(
+                        master_key=master_key, client_id=client_id, actor=actor,
+                    )
                 else:
-                    status = masterlock.disable_lock(master_key=master_key, client_id=client_id)
+                    status = masterlock.unlock(
+                        master_key=master_key, client_id=client_id, actor=actor,
+                    )
                 logger.info(
-                    'MASTER LOCK admin action=%s by=%s locked=%s',
-                    action, request.user.username, status.get('locked'),
+                    'MASTER LOCK admin action=%s by=%s ip=%s locked=%s manual_locked=%s',
+                    action,
+                    actor,
+                    client_id,
+                    status.get('locked'),
+                    status.get('manual_locked'),
                 )
+                notify_lock_change()
                 return JsonResponse({
                     'ok': True,
                     'locked': status.get('locked'),
                     'enabled': status.get('enabled'),
+                    'manual_locked': status.get('manual_locked'),
+                    'lock_reasons': status.get('lock_reasons') or [],
                     'valid_until': status.get('valid_until'),
                     'extension_count': status.get('extension_count'),
                     'extension_days': masterlock.EXTENSION_DAYS,
                 })
             except masterlock.MasterLockAuthError:
                 logger.warning(
-                    'MASTER LOCK admin action=%s rejected by=%s',
-                    action, request.user.username,
+                    'MASTER LOCK admin action=%s rejected by=%s ip=%s',
+                    action, actor, client_id,
                 )
                 return JsonResponse({'ok': False, 'error': masterlock.GENERIC_AUTH_ERROR}, status=403)
             except masterlock.MasterLockError:

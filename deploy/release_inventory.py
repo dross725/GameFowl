@@ -42,6 +42,7 @@ SKIP_DIRECTORY_NAMES = {
 EXCLUDE_GLOBS = (
     ".env",
     ".env.*",
+    ".email_password",
     ".gitignore",
     "db.sqlite3",
     "db.sqlite3-journal",

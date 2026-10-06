@@ -196,7 +196,7 @@ class TestMasterLockHttp:
             MASTER_LOCK_STATE_PATH=str(lock_env),
         ):
             response = client.post('/administrator/start-event/', {'event_name': 'Night Derby'})
-        assert response.status_code == 403
+        assert response.status_code == 423
         assert response.json()['error'] == 'app_locked'
         assert Event.objects.filter(is_active=True).count() == 0
 
@@ -350,3 +350,121 @@ async def test_websocket_allowed_when_locked(lock_env, teller_user, settings):
     connected, _code = await communicator.connect()
     assert connected
     await communicator.disconnect()
+
+
+def test_manual_lock_is_separate_from_license(lock_env):
+    enabled = masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
+    locked = masterlock.lock_now(master_key=TEST_KEY, client_id='t1', actor='root')
+    assert locked['manual_locked'] is True
+    assert locked['locked'] is True
+    assert locked['valid_until'] == enabled['valid_until']
+    assert locked['lock_reasons'] == ['manual']
+
+    opened = masterlock.unlock(master_key=TEST_KEY, client_id='t1', actor='root')
+    assert opened['manual_locked'] is False
+    assert opened['locked'] is False
+    assert opened['enabled'] is True
+
+
+def test_old_signed_state_without_manual_lock_remains_open(lock_env):
+    payload = masterlock._default_payload()
+    payload.pop('manual_locked')
+    payload['enabled'] = True
+    payload['valid_until'] = masterlock._to_iso(
+        datetime.now(timezone.utc) + timedelta(days=10),
+    )
+    masterlock._write_payload(payload)
+    status = masterlock.get_status(touch_heartbeat=False)
+    assert status['ok'] is True
+    assert status['manual_locked'] is False
+    assert status['locked'] is False
+
+
+def test_unlock_leaves_expired_license_locked(lock_env):
+    masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
+    masterlock.lock_now(master_key=TEST_KEY, client_id='t1')
+    past = datetime.now(timezone.utc) - timedelta(days=1)
+    payload = masterlock._read_envelope(lock_env)
+    payload['valid_until'] = masterlock._to_iso(past)
+    payload['last_seen'] = masterlock._to_iso(past)
+    masterlock._write_payload(payload)
+
+    status = masterlock.unlock(master_key=TEST_KEY, client_id='t1', actor='root')
+    assert status['manual_locked'] is False
+    assert status['locked'] is True
+    assert 'expired' in status['lock_reasons']
+
+
+@pytest.mark.django_db
+def test_manual_lock_blocks_writes_but_allows_report(
+        lock_env, admin_user, default_settings):
+    masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
+    masterlock.lock_now(master_key=TEST_KEY, client_id='t1')
+    client = Client()
+    client.force_login(admin_user)
+    with override_settings(
+        MASTER_LOCK_REQUIRED=True,
+        MASTER_LOCK_SIGNING_KEY=TEST_SIGNING,
+        MASTER_LOCK_PASSWORD_HASH=TEST_HASH,
+        MASTER_LOCK_STATE_PATH=str(lock_env),
+    ):
+        report = client.get('/administrator/event-report/')
+        blocked = client.post('/administrator/start-event/', {'event_name': 'Night'})
+    assert report.status_code == 200
+    assert blocked.status_code == 423
+    assert blocked.json()['error'] == 'app_locked'
+    assert Event.objects.filter(is_active=True).count() == 0
+
+
+@pytest.mark.django_db
+def test_superuser_can_lock_and_unlock_from_settings(
+        lock_env, admin_user, default_settings):
+    masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
+    admin_user.is_superuser = True
+    admin_user.save()
+    client = Client()
+    client.force_login(admin_user)
+    with override_settings(
+        MASTER_LOCK_REQUIRED=True,
+        MASTER_LOCK_SIGNING_KEY=TEST_SIGNING,
+        MASTER_LOCK_PASSWORD_HASH=TEST_HASH,
+        MASTER_LOCK_STATE_PATH=str(lock_env),
+    ):
+        locked = client.post('/administrator/settings/', {
+            'action': 'master_lock_lock',
+            'master_key': TEST_KEY,
+        })
+        assert locked.status_code == 200
+        assert locked.json()['manual_locked'] is True
+        blocked = client.post('/administrator/settings/', {
+            'action': 'update_plasada',
+            'plasada': '6',
+        })
+        assert blocked.status_code == 423
+        opened = client.post('/administrator/settings/', {
+            'action': 'master_lock_unlock',
+            'master_key': TEST_KEY,
+        })
+    assert opened.status_code == 200
+    assert opened.json()['locked'] is False
+    assert masterlock.get_status(touch_heartbeat=False)['manual_locked'] is False
+
+
+@pytest.mark.django_db
+def test_recovery_page_rejects_unlock_without_superuser(lock_env):
+    masterlock.enable_lock(master_key=TEST_KEY, client_id='t1')
+    masterlock.lock_now(master_key=TEST_KEY, client_id='t1')
+    client = Client()
+    with override_settings(
+        MASTER_LOCK_REQUIRED=True,
+        MASTER_LOCK_SIGNING_KEY=TEST_SIGNING,
+        MASTER_LOCK_PASSWORD_HASH=TEST_HASH,
+        MASTER_LOCK_STATE_PATH=str(lock_env),
+    ):
+        response = client.post(
+            '/master-lock/',
+            {'action': 'unlock', 'master_key': TEST_KEY},
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+    assert response.status_code == 403
+    assert masterlock.get_status(touch_heartbeat=False)['manual_locked'] is True

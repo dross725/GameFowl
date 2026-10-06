@@ -567,3 +567,46 @@ class PrintJob(models.Model):
     def __str__(self):
         return f"PrintJob {self.pk} {self.endpoint} {self.status}"
 
+
+class EventReportEmail(models.Model):
+    """One commission-report email per ended event. Successful rows are never resent."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_SENDING = 'sending'
+    STATUS_SENT = 'sent'
+    STATUS_FAILED = 'failed'
+    STATUS_NO_RECIPIENTS = 'no_recipients'
+    STATUS_CHOICES = (
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SENDING, 'Sending'),
+        (STATUS_SENT, 'Sent'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_NO_RECIPIENTS, 'No recipients'),
+    )
+
+    event = models.OneToOneField(
+        Event,
+        on_delete=models.CASCADE,
+        related_name='commission_report_email',
+    )
+    recipients = models.JSONField(default=list)
+    missing_superusers = models.JSONField(default=list)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING,
+        db_index=True,
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"EventReportEmail event={self.event_id} status={self.status}"
+
