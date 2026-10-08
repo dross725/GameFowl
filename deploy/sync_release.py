@@ -77,6 +77,7 @@ EXCLUDE_GLOBS = (
     "**/*.log",
     ".env",
     ".env.*",
+    ".email_password",
     ".gitignore",
     "db.sqlite3",
     "db.sqlite3-journal",

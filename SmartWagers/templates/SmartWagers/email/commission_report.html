@@ -1,0 +1,48 @@
+{% load humanize %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Commission report</title>
+</head>
+<body style="font-family: sans-serif; color: #222;">
+  <h1 style="font-size: 20px;">SmartWagers commission report</h1>
+  <p>
+    <strong>{{ report.event_name }}</strong><br>
+    {% if report.location %}Location: {{ report.location }}<br>{% endif %}
+    Started: {{ report.started_at|default:"—" }}<br>
+    Ended: {{ report.ended_at|default:"—" }}<br>
+    Plasada: {{ report.plasada_pct|floatformat:2 }}%
+  </p>
+  <table cellpadding="6" cellspacing="0" border="1" style="border-collapse: collapse;">
+    <thead>
+      <tr>
+        <th align="left">Fight</th>
+        <th align="left">Result</th>
+        <th align="right">Total pot</th>
+        <th align="right">Commission</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fight in fights %}
+      <tr>
+        <td>{{ fight.fightnum }}</td>
+        <td>{{ fight.side }}</td>
+        <td align="right">₱{{ fight.totalpot|floatformat:2|intcomma }}</td>
+        <td align="right">₱{{ fight.commission|floatformat:2|intcomma }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4">No fights were recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2"><strong>Total</strong></td>
+        <td align="right"><strong>₱{{ report.total_pot|floatformat:2|intcomma }}</strong></td>
+        <td align="right"><strong>₱{{ report.total_commission|floatformat:2|intcomma }}</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+  <p>Draws and cancelled fights have zero commission.</p>
+</body>
+</html>

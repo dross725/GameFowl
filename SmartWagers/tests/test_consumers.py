@@ -243,7 +243,11 @@ async def test_offline_teller_barcode_returns_stable_error_code(
     await communicator.send_json_to({'barcode': '123456'})
     response = await communicator.receive_json_from(timeout=3)
 
-    assert response == {'payout': True, 'error': 'teller_offline'}
+    assert response == {
+        'payout': True,
+        'error': 'teller_offline',
+        'transaction_id': '123456',
+    }
     await communicator.disconnect()
 
 
@@ -397,4 +401,43 @@ async def test_admin_barcode_while_payouts_held_returns_payouts_held(
     response = await communicator.receive_json_from(timeout=3)
     assert response.get('payout') is True
     assert response.get('error') == 'payouts_held'
+    await communicator.disconnect()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_locked_websocket_rejects_writes_and_allows_refresh(
+        admin_user, settings, default_settings, tmp_path):
+    """Mutating socket commands are rejected while a refresh broadcast still works."""
+    from django.contrib.auth.hashers import make_password
+    from SmartWagers import masterlock
+
+    master_key = 'test-master-key-only-for-unit-tests'
+    state = tmp_path / 'master_lock.state'
+    settings.CHANNEL_LAYERS = {
+        'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'},
+    }
+    settings.MASTER_LOCK_REQUIRED = True
+    settings.MASTER_LOCK_SIGNING_KEY = 'unit-test-master-lock-signing-key'
+    settings.MASTER_LOCK_PASSWORD_HASH = make_password(master_key)
+    settings.MASTER_LOCK_STATE_PATH = str(state)
+    masterlock._rate_failures.clear()
+    masterlock.initialize_state()
+    masterlock.enable_lock(master_key=master_key, client_id='ws')
+    masterlock.lock_now(master_key=master_key, client_id='ws')
+
+    communicator = WebsocketCommunicator(application, '/ws/administrator/')
+    communicator.scope['user'] = admin_user
+    connected, _ = await communicator.connect()
+    assert connected
+
+    await communicator.send_json_to({'fight_status': 'START'})
+    denied = await communicator.receive_json_from(timeout=3)
+    assert denied.get('error') == 'app_locked'
+    assert denied.get('app_locked') is True
+
+    await communicator.send_json_to({'update': True})
+    refresh = await communicator.receive_json_from(timeout=3)
+    assert refresh.get('error') != 'app_locked'
+    assert 'mtotal' in refresh
     await communicator.disconnect()

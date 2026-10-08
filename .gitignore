@@ -19,6 +19,7 @@ staticfiles/
 .env
 .env.*
 !.env.example
+.email_password
 deploy/python_path.txt
 deploy/sync_config.env
 deploy/.deploy-last-sync

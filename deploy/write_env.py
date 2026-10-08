@@ -44,6 +44,8 @@ def main() -> int:
 DJANGO_SECRET_KEY={secret_key}
 DJANGO_DEBUG=False
 DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,{server_ip}
+# Add the private Tailscale IP or MagicDNS name before remote lock control.
+# Do not expose Django, PostgreSQL, or Redis to the public internet.
 DJANGO_CSRF_TRUSTED_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,http://{server_ip}:8080
 SMARTWAGERS_SERVER_URL=http://{server_ip}:8080
 WAGER_RECEIPT_PRINTING_ENABLED=True

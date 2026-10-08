@@ -61,6 +61,7 @@ def test_safe_paths_reject_runtime_state_and_traversal(sync_module):
     assert sync_module.is_safe_relative_path("SmartWagers/views.py")
     assert not sync_module.is_safe_relative_path("../.env")
     assert not sync_module.is_safe_relative_path(".env")
+    assert not sync_module.is_safe_relative_path(".email_password")
     assert not sync_module.is_safe_relative_path("deploy/python_path.txt")
     assert not sync_module.is_safe_relative_path("SmartWagers/tests/test_views.py")
     # Expo/RN build trees blow past Windows MAX_PATH — never deploy them.
@@ -167,7 +168,13 @@ def test_dry_run_does_not_create_package(monkeypatch, sync_module, tmp_path):
 
 
 def test_server_validator_rejects_protected_paths(apply_module):
-    for path in (".env", "../outside.py", "deploy/python_path.txt", "staticfiles/app.js"):
+    for path in (
+        ".env",
+        ".email_password",
+        "../outside.py",
+        "deploy/python_path.txt",
+        "staticfiles/app.js",
+    ):
         with pytest.raises(apply_module.ReleaseError):
             apply_module.validate_rel_path(path)
 
@@ -178,6 +185,10 @@ def test_inventory_finds_actual_server_differences(inventory_module, tmp_path):
     for root in (server, local):
         (root / "SmartWagers").mkdir(parents=True)
         (root / ".env").write_text("SECRET=ignored\n", encoding="utf-8")
+        (root / ".email_password").write_text(
+            "SECRET=ignored\n",
+            encoding="utf-8",
+        )
         (root / "staticfiles").mkdir()
         (root / "staticfiles" / "app.js").write_text("ignored\n", encoding="utf-8")
 

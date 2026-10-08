@@ -94,6 +94,7 @@ async function handleUserSocketMessage(event) {
     const data = JSON.parse(event.data);
     console.log("Data received from server: ", data);
     console.log("This is the user.js file");
+    if (window.applyAppLockState) applyAppLockState(data);
 
     // Update left and right values
     if ("mtotal" in data && "wtotal" in data) {

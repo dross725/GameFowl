@@ -69,6 +69,11 @@ class WagersConsumer(AsyncWebsocketConsumer):
             return "teller_offline"
         return None
 
+    @database_sync_to_async
+    def _app_is_locked(self):
+        from . import masterlock
+        return masterlock.is_app_locked(touch_heartbeat=False)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -169,6 +174,20 @@ class WagersConsumer(AsyncWebsocketConsumer):
                 )
                 await self.send(text_data=json.dumps({"error": "unauthorized"}))
                 return
+
+        mutating = action_key in (ADMIN_ONLY_ACTIONS | TELLER_OR_ADMIN_ACTIONS)
+        if mutating and await self._app_is_locked():
+            user = self.scope.get("user")
+            logger.info(
+                "WS BLOCKED (master lock): action=%s user=%s endpoint=/%s/",
+                action_key, getattr(user, 'username', '?'), self.page,
+            )
+            await self.send(text_data=json.dumps({
+                "error": "app_locked",
+                "locked": True,
+                "app_locked": True,
+            }))
+            return
 
         if "fight_status" in data:
             fight_status = data["fight_status"]

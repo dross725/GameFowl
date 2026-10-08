@@ -5,6 +5,7 @@ const socket = new WebSocket(`${signalsWebsocketProtocol}://${window.location.ho
 socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
     console.log("signals.js received:", data);
+    if (window.applyAppLockState) applyAppLockState(data);
 
     if (data.refresh_trends) {
         update_trends();

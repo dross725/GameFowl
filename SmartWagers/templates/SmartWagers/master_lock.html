@@ -38,18 +38,31 @@
   <div class="login-container">
     <h2>Application Locked</h2>
     <div class="lock-meta">
-      <div>SmartWagers requires a valid master lock period.</div>
-      <div>Status:
-        {% if lock_status.enabled %}
-          <strong>Enabled</strong>{% if lock_status.locked %} (expired){% endif %}
+      <div>
+        {% if 'manual' in lock_status.lock_reasons and 'expired' in lock_status.lock_reasons %}
+          Operations were locked remotely, and the license period has expired.
+        {% elif 'manual' in lock_status.lock_reasons %}
+          Operations were locked remotely. Betting and other changes are blocked; reports stay available.
+        {% elif 'expired' in lock_status.lock_reasons %}
+          The license period has expired. Renew it to resume operations.
         {% else %}
-          <strong>Disabled</strong>
+          SmartWagers is read-only until the master lock is cleared.
         {% endif %}
+      </div>
+      <div>License:
+        {% if lock_status.enabled %}
+          <strong>{% if lock_status.expired %}Expired{% else %}Active{% endif %}</strong>
+        {% else %}
+          <strong>Not enforced</strong>
+        {% endif %}
+      </div>
+      <div>Operations:
+        <strong>{% if lock_status.manual_locked %}Locked{% else %}Unlocked{% endif %}</strong>
       </div>
       {% if lock_status.valid_until %}
       <div>Valid until: <strong>{{ lock_status.valid_until }}</strong></div>
       {% endif %}
-      <div>Each enable/extend grants <strong>{{ extension_days }}</strong> days.</div>
+      <div>Each enable/extend grants <strong>{{ extension_days }}</strong> days and does not clear a manual operations lock.</div>
     </div>
 
     <form id="master-lock-form" method="post" autocomplete="off">
@@ -58,13 +71,19 @@
       <input type="password" name="master_key" id="master_key" required autocomplete="off">
 
       <div class="lock-actions">
-        <button type="submit" name="action" value="enable" id="btn-enable">Activate ({{ extension_days }} days)</button>
-        <button type="submit" name="action" value="extend" id="btn-extend">Extend (+{{ extension_days }} days)</button>
+        <button type="submit" name="action" value="enable" id="btn-enable" data-lock-allow="1">Activate license ({{ extension_days }} days)</button>
+        <button type="submit" name="action" value="extend" id="btn-extend" data-lock-allow="1">Extend license (+{{ extension_days }} days)</button>
+        {% if user.is_authenticated and user.is_superuser %}
+        <button type="submit" name="action" value="unlock" id="btn-unlock" data-lock-allow="1">Unlock operations</button>
+        <button type="submit" name="action" value="lock_now" id="btn-lock" data-lock-allow="1">Lock operations</button>
+        {% endif %}
       </div>
       <div class="status-message" id="status-message"></div>
+      {% if not user.is_authenticated or not user.is_superuser %}
       <p style="margin-top:14px;font-size:0.8rem;color:#555;text-align:left;">
-        Disable is only available to a logged-in superuser under Settings.
+        Log in as a superuser to unlock operations. Turning the license off does not clear a manual lock.
       </p>
+      {% endif %}
     </form>
   </div>
   <script>

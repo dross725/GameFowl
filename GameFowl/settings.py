@@ -96,6 +96,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'SmartWagers.middleware.MasterLockMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -343,6 +344,32 @@ WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
     "WAGER_RECEIPT_PRINTING_ENABLED",
     "true",
 ).lower() in ("1", "true", "yes", "on")
+
+# Optional venue shown on commission emails. Accept both LOCATION and the
+# existing mixed-case Location key, and remove matching .env quotes.
+_location = os.environ.get('LOCATION', os.environ.get('Location', '')).strip()
+if len(_location) >= 2 and _location[0] == _location[-1] and _location[0] in ("'", '"'):
+    _location = _location[1:-1].strip()
+LOCATION = _location
+
+
+# Commission mail is configured here, not in .env. Recipients are the email
+# addresses stored on active superuser accounts.
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_HOST_USER = 'atsportsclub1980@gmail.com'
+_email_password_path = BASE_DIR / '.email_password'
+EMAIL_HOST_PASSWORD = (
+    _email_password_path.read_text(encoding='utf-8').strip()
+    if _email_password_path.is_file()
+    else ''
+)
+EMAIL_USE_TLS = True
+EMAIL_USE_SSL = False
+EMAIL_TIMEOUT = 15
+DEFAULT_FROM_EMAIL = f'SmartWagers <{EMAIL_HOST_USER}>'
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # ---------------------------------------------------------------------------
 # Master lock (offline monthly activation)

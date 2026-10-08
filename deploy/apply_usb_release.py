@@ -27,6 +27,7 @@ PACKAGE_TOOL_FILES = {
 DENY_GLOBS = (
     ".env",
     ".env.*",
+    ".email_password",
     "db.sqlite3",
     "db.sqlite3-journal",
     "master_lock.state",
