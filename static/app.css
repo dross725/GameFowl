@@ -258,12 +258,13 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: clamp(24px, 2.6vw, 32px);
+  font-size: clamp(28px, 1.7vw, 56px);
   font-weight: 700;
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-dim);
   border-bottom: 1px solid var(--border);
-  padding: 7px 4px;
+  padding: 10px 6px;
+  min-height: clamp(72px, 9vh, 128px);
   white-space: nowrap;
 }
 
@@ -274,17 +275,21 @@ a:hover {
 
 .sidebar-row {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-items: stretch;
+  gap: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  font-size: clamp(24px, 2.6vw, 32px);
-  padding: 7px 4px;
+  font-size: clamp(28px, 1.7vw, 56px);
+  padding: 8px 6px;
+  min-height: clamp(72px, 9vh, 128px);
   white-space: nowrap;
 }
 
 .fightnum {
   flex: 0 0 auto;
   min-width: 2.5ch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-dim);
   font-style: normal;
   font-weight: 700;
@@ -303,6 +308,9 @@ a:hover {
 .odds {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #f39c12;
   font-weight: 600;
   font-style: normal;
@@ -311,7 +319,7 @@ a:hover {
 }
 
 .winner {
-  font-size: clamp(24px, 2.6vw, 32px);
+  font-size: clamp(28px, 1.7vw, 56px);
   font-weight: 700;
 }
 
