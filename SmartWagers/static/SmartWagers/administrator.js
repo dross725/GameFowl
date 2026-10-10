@@ -964,7 +964,7 @@ function applyEventState(event_active, can_end_event, event_setup_editable) {
                     e.preventDefault();
                     openStartEventModal(true);
                 };
-                startLink.title = 'Correct opening funds or online tellers';
+                startLink.title = 'Correct the event title, opening funds, or online tellers';
             } else {
                 startLink.textContent = '▶ Start Event';
                 startLink.classList.add('nav-event-disabled');

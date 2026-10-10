@@ -86,9 +86,12 @@ class TestEventSetupCorrection:
         TellerStatus.objects.create(user=teller_user2, is_online=True)
         event = services.start_event('Event A')
 
-        services.update_event_setup(event, 75000, 12500, [teller_user.pk])
+        services.update_event_setup(
+            event, 75000, 12500, [teller_user.pk], name='Night Derby',
+        )
 
         event.refresh_from_db()
+        assert event.name == 'Night Derby'
         assert event.admin_opening_fund == 75000
         assert event.teller_opening_fund == 12500
         assert TellerStatus.objects.get(user=teller_user).is_online is True
@@ -113,6 +116,7 @@ class TestEventSetupCorrection:
             services.update_event_setup(event, 75000, 12500, [teller_user.pk])
 
         event.refresh_from_db()
+        assert event.name == 'Event A'
         assert event.admin_opening_fund == default_settings.admin_initial_fund
         assert event.teller_opening_fund == default_settings.teller_initial_fund
 
