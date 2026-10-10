@@ -60,6 +60,18 @@ POSTGRES_PORT=5432
 POSTGRES_CONN_MAX_AGE=60
 POSTGRES_CONNECT_TIMEOUT=5
 
+# Venue name used on commission emails.
+LOCATION=
+
+# SMTP is per site. The password stays in .email_password unless EMAIL_HOST_PASSWORD is set.
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=atsportsclub1980@gmail.com
+EMAIL_USE_TLS=True
+DJANGO_TIME_ZONE=Asia/Manila
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+
 # Master lock - REQUIRED in production
 MASTER_LOCK_REQUIRED=True
 MASTER_LOCK_SIGNING_KEY={lock_signing_key}

@@ -1,5 +1,12 @@
 # SmartWagers — Windows Deployment Guide
 
+Remote updates are the normal path. The release steps for a new venue and for
+an existing venue are in [HOW_TO_RELEASE.md](HOW_TO_RELEASE.md). Fleet command
+details are in [RELEASE_MANAGER_RUNBOOK.md](RELEASE_MANAGER_RUNBOOK.md). USB
+field kits remain the fallback when a site is offline. Day-to-day site
+operation is in [OPERATOR_RUNBOOK.md](OPERATOR_RUNBOOK.md), and failed releases
+are covered in [RECOVERY_RUNBOOK.md](RECOVERY_RUNBOOK.md).
+
 Follow these steps **in order** on the Windows server machine.
 
 ---

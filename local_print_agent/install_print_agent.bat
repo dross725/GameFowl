@@ -150,6 +150,8 @@ echo   %AGENT_DIR%run_print_agent.bat
 echo.
 echo To test: open http://127.0.0.1:8765/health in a browser on this PC.
 echo.
+"%PY%" "%AGENT_DIR%write_installed_version.py"
+echo.
 pause
 endlocal
 exit /b 0

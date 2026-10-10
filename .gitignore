@@ -19,14 +19,21 @@ staticfiles/
 .env
 .env.*
 !.env.example
-.email_password
 deploy/python_path.txt
 deploy/sync_config.env
+deploy/sites.json
+deploy/fleet_history/
+deploy/teller_agent_reports.json
 deploy/.deploy-last-sync
+deploy/.deployed_release.json
+deploy/.last_deploy_failure.json
+deploy/.deploy.lock
+deploy/.last_applied_usb_release.json
 deploy/.last_sync_manifest
 master_lock.state
 master_lock.state.lock
 *.master_lock.*.tmp
+.email_password
 
 # Logs and runtime files
 logs/
@@ -55,6 +62,7 @@ local_print_agent/vendor/_staging/
 local_print_agent/config.json
 local_print_agent/server.env
 local_print_agent/*.log
+local_print_agent/installed_agent_version.txt
 
 # Node/frontend dependencies and builds
 node_modules/

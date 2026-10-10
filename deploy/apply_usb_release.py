@@ -21,6 +21,10 @@ DEFAULT_LOG = Path(r"C:\SmartWagers\logs\usb_release.log")
 PACKAGE_TOOL_FILES = {
     "APPLY_RELEASE.bat",
     "apply_usb_release.py",
+    "apply_engine.py",
+    "release_metadata.py",
+    "collect_diagnostics.py",
+    "postgres_tools.py",
     "EXPORT_SERVER_INVENTORY.bat",
     "release_inventory.py",
 }
@@ -108,7 +112,7 @@ def load_metadata() -> dict[str, Any]:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ReleaseError(f"Cannot read release metadata: {exc}") from exc
-    if metadata.get("package_version") != 1:
+    if metadata.get("package_version") not in {1, 2}:
         raise ReleaseError(f"Unsupported package version: {metadata.get('package_version')!r}")
     return metadata
 
@@ -215,45 +219,22 @@ def apply_release(
     deleted: list[str],
     log_path: Path,
 ) -> None:
-    target = target.resolve()
-    if not (target / "manage.py").is_file():
-        raise ReleaseError(f"Target is not a SmartWagers project directory: {target}")
+    """Apply through the shared staged engine so USB and VPN deploys roll back the same way."""
+    deploy_dir = str(Path(__file__).resolve().parent)
+    if deploy_dir not in sys.path:
+        sys.path.insert(0, deploy_dir)
+    from apply_engine import apply_package
 
-    python_exe = production_python(target)
-    backup_before_migration(target, python_exe, files, log_path)
-
-    for rel_path in files:
-        source = PACKAGE_ROOT / "payload" / rel_path
-        destination = target / Path(*PurePosixPath(rel_path).parts)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-        append_log(log_path, f"COPIED {rel_path}")
-
-    for rel_path in deleted:
-        destination = target / Path(*PurePosixPath(rel_path).parts)
-        if destination.is_file() or destination.is_symlink():
-            destination.unlink()
-            append_log(log_path, f"DELETED {rel_path}")
-
-    apply_manifest = sorted(set(files) | set(deleted))
-    manifest = target / "deploy" / ".last_sync_manifest"
-    manifest.write_text(
-        "\n".join(apply_manifest) + ("\n" if apply_manifest else ""),
-        encoding="utf-8",
+    result = apply_package(
+        target=target,
+        package_root=PACKAGE_ROOT,
+        metadata=metadata,
+        files=files,
+        deleted=deleted,
+        log=lambda message: append_log(log_path, message),
     )
-
-    install_dependencies(target, python_exe, metadata, log_path)
-
-    apply_script = target / "deploy" / "11_apply_release.bat"
-    if not apply_script.is_file():
-        raise ReleaseError(f"Server apply script is missing: {apply_script}")
-    run_checked(["cmd.exe", "/c", str(apply_script)], log_path, target)
-
-    head_ref = metadata.get("head_ref")
-    if head_ref:
-        (target / "deploy" / ".deploy-last-sync").write_text(str(head_ref) + "\n", encoding="utf-8")
-    shutil.copy2(PACKAGE_ROOT / "release.json", target / "deploy" / ".last_applied_usb_release.json")
-    append_log(log_path, f"APPLIED release {head_ref or 'working-tree'}")
+    if not result.ok:
+        raise ReleaseError(result.message)
 
 
 def main() -> int:

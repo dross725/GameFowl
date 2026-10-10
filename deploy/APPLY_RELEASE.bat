@@ -13,15 +13,17 @@ if exist "C:\SmartWagers\GameFowl\deploy\python_path.txt" (
 
 "%PYTHON_EXE%" "%~dp0apply_usb_release.py" %*
 set EXITCODE=%ERRORLEVEL%
-if not "%EXITCODE%"=="0" (
-    echo.
-    echo ERROR: Release was not applied successfully.
-    echo Review C:\SmartWagers\logs\usb_release.log for details.
-    pause
-    exit /b %EXITCODE%
+echo %* | findstr /I /C:"--yes" >nul
+if errorlevel 1 (
+    if not "%EXITCODE%"=="0" (
+        echo.
+        echo ERROR: Release was not applied successfully.
+        echo Review C:\SmartWagers\logs\usb_release.log and deploy\.last_deploy_failure.json.
+        pause
+    ) else (
+        echo.
+        echo Release applied successfully. The USB drive may now be removed.
+        pause
+    )
 )
-
-echo.
-echo Release applied successfully. The USB drive may now be removed.
-pause
-exit /b 0
+exit /b %EXITCODE%

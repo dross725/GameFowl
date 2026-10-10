@@ -245,16 +245,15 @@ Fight and side status changes are also broadcast so each page can update its UI 
 
 ### Prerequisites
 
-- Python 3.10+
-- Redis server running on `127.0.0.1:6379`
+- Python 3.12
+- Redis or Memurai on `127.0.0.1:6379`
+- PostgreSQL for production
 
 ### Install dependencies
 
 ```bash
-pip install django channels daphne channels-redis reportlab python-barcode whitenoise
+pip install -r requirements.txt
 ```
-
-> A `requirements.txt` is not currently included in the repository. Install from the above list or generate one with `pip freeze > requirements.txt` after setting up your environment.
 
 ### Database setup
 
@@ -292,7 +291,7 @@ redis-server
 python manage.py runserver
 ```
 
-The app will be available at `http://localhost:8000/`.
+The development server is available at `http://localhost:8000/`. Production Windows sites serve Daphne on port 8080. How to ship a new site or update an existing one is in [deploy/HOW_TO_RELEASE.md](deploy/HOW_TO_RELEASE.md). Day-to-day operation and recovery are in [deploy/OPERATOR_RUNBOOK.md](deploy/OPERATOR_RUNBOOK.md) and [deploy/RECOVERY_RUNBOOK.md](deploy/RECOVERY_RUNBOOK.md).
 
 - **Login:** `http://localhost:8000/`
 - **Display board:** `http://localhost:8000/index/`

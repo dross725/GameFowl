@@ -12,6 +12,9 @@ BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 STARTUP_LOG_PATH = BASE_DIR / "print_agent_silent.log"
 AGENT_VERSION = "1.13.2-shared-printer"
+# Teller installs older than this are reported as outdated. A server release
+# does not roll back when only the teller agent is behind.
+AGENT_MIN_COMPATIBLE = "1.13.2-shared-printer"
 # Serialize print jobs so concurrent browser requests do not stack open
 # StartDoc handles on the same USB thermal (which can stall other apps' queues).
 _PRINT_LOCK = threading.Lock()

@@ -65,16 +65,35 @@ def unauthorized(request):
 
 @require_GET
 def health(request):
-    """Process readiness probe — always 200 while Daphne is up."""
-    status = masterlock.get_status(touch_heartbeat=False)
-    response = JsonResponse({
-        'ok': True,
-        'locked': bool(status.get('locked')),
-        'enabled': bool(status.get('enabled')),
-        'manual_locked': bool(status.get('manual_locked')),
-        'lock_reasons': status.get('lock_reasons') or [],
-        'valid_until': status.get('valid_until'),
-    })
+    """Process liveness probe. Always 200 while Daphne can serve the view."""
+    from .operations_status import liveness_payload
+
+    response = JsonResponse(liveness_payload())
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@require_GET
+def health_ready(request):
+    """Readiness probe. Returns 503 when the database, Redis, or release state is not usable."""
+    from .operations_status import readiness_payload
+
+    ok, payload = readiness_payload()
+    response = JsonResponse(payload, status=200 if ok else 503)
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+@login_required
+@require_GET
+def operations_status(request):
+    """Superuser or admin operations snapshot. Does not include secret values."""
+    is_admin = request.user.is_superuser or request.user.groups.filter(name='admin').exists()
+    if not is_admin:
+        return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
+    from .operations_status import operations_payload
+
+    response = JsonResponse(operations_payload())
     response['Cache-Control'] = 'no-store'
     return response
 

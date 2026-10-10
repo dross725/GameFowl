@@ -15,6 +15,16 @@ import logging.handlers  # noqa: F401 — ensures RotatingFileHandler is importa
 import os
 import sys
 
+from GameFowl.site_config import (
+    DEV_CSRF_ORIGINS,
+    DEV_HOSTS,
+    SiteConfigError,
+    email_settings as _email_settings,
+    location_name as _location_name,
+    redis_endpoint as _redis_endpoint,
+    resolve_csv,
+)
+
 # ---------------------------------------------------------------------------
 # Python 3.14 + Django < 5.2 compatibility
 # ---------------------------------------------------------------------------
@@ -64,15 +74,11 @@ SECRET_KEY = os.environ.get(
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() not in ('false', '0', 'no', 'off')
 
-_allowed = os.environ.get('DJANGO_ALLOWED_HOSTS', '')
-ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()] or [
-    'localhost',
-    '127.0.0.1',
-    '192.168.1.4',
-    '192.168.0.63',
-    '10.0.0.10',
-    '192.168.0.150',
-]
+try:
+    ALLOWED_HOSTS = resolve_csv(DEBUG, os.environ.get('DJANGO_ALLOWED_HOSTS', ''), 'DJANGO_ALLOWED_HOSTS', DEV_HOSTS)
+except SiteConfigError as exc:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(str(exc)) from exc
 
 
 # Application definition
@@ -102,15 +108,16 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
 ]
 
-_csrf_origins = os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', '')
-CSRF_TRUSTED_ORIGINS =  [o.strip() for o in _csrf_origins.split(',') if o.strip()] or [
-    'http://localhost',
-    'http://127.0.0.1',
-    'http://192.168.1.4',
-    'http://192.168.0.63',
-    'http://10.0.0.10',
-    'http://192.168.0.150',
-]
+try:
+    CSRF_TRUSTED_ORIGINS = resolve_csv(
+        DEBUG,
+        os.environ.get('DJANGO_CSRF_TRUSTED_ORIGINS', ''),
+        'DJANGO_CSRF_TRUSTED_ORIGINS',
+        DEV_CSRF_ORIGINS,
+    )
+except SiteConfigError as exc:
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured(str(exc)) from exc
 
 ROOT_URLCONF = 'GameFowl.urls'
 
@@ -221,7 +228,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'Asia/Manila'
+TIME_ZONE = os.environ.get('DJANGO_TIME_ZONE', 'Asia/Manila').strip() or 'Asia/Manila'
 
 USE_I18N = True
 
@@ -320,11 +327,12 @@ LOGGING = {
 }
 
 #Channels
+REDIS_HOST, REDIS_PORT = _redis_endpoint(os.environ)
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [('127.0.0.1', 6379)],
+            "hosts": [(REDIS_HOST, REDIS_PORT)],
         },
     },
 }
@@ -345,31 +353,22 @@ WAGER_RECEIPT_PRINTING_ENABLED = os.getenv(
     "true",
 ).lower() in ("1", "true", "yes", "on")
 
-# Optional venue shown on commission emails. Accept both LOCATION and the
-# existing mixed-case Location key, and remove matching .env quotes.
-_location = os.environ.get('LOCATION', os.environ.get('Location', '')).strip()
-if len(_location) >= 2 and _location[0] == _location[-1] and _location[0] in ("'", '"'):
-    _location = _location[1:-1].strip()
-LOCATION = _location
+LOCATION = _location_name(os.environ)
 
 
-# Commission mail is configured here, not in .env. Recipients are the email
-# addresses stored on active superuser accounts.
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_HOST_USER = 'atsportsclub1980@gmail.com'
-_email_password_path = BASE_DIR / '.email_password'
-EMAIL_HOST_PASSWORD = (
-    _email_password_path.read_text(encoding='utf-8').strip()
-    if _email_password_path.is_file()
-    else ''
-)
-EMAIL_USE_TLS = True
-EMAIL_USE_SSL = False
-EMAIL_TIMEOUT = 15
-DEFAULT_FROM_EMAIL = f'SmartWagers <{EMAIL_HOST_USER}>'
-SERVER_EMAIL = DEFAULT_FROM_EMAIL
+# Commission mail recipients are the addresses on active superuser accounts.
+# Host, sender, and password are site configuration, not source code.
+_email = _email_settings(os.environ, BASE_DIR)
+EMAIL_BACKEND = _email['EMAIL_BACKEND']
+EMAIL_HOST = _email['EMAIL_HOST']
+EMAIL_PORT = _email['EMAIL_PORT']
+EMAIL_HOST_USER = _email['EMAIL_HOST_USER']
+EMAIL_HOST_PASSWORD = _email['EMAIL_HOST_PASSWORD']
+EMAIL_USE_TLS = _email['EMAIL_USE_TLS']
+EMAIL_USE_SSL = _email['EMAIL_USE_SSL']
+EMAIL_TIMEOUT = _email['EMAIL_TIMEOUT']
+DEFAULT_FROM_EMAIL = _email['DEFAULT_FROM_EMAIL']
+SERVER_EMAIL = _email['SERVER_EMAIL']
 
 # ---------------------------------------------------------------------------
 # Master lock (offline monthly activation)
