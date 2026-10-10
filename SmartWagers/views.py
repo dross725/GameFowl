@@ -2220,6 +2220,12 @@ def event_setup_view(request):
     if active_event is None:
         return JsonResponse({'ok': False, 'error': 'no_active_event'}, status=409)
 
+    event_name = request.POST.get('event_name', '').strip()
+    if not event_name:
+        return JsonResponse({'ok': False, 'error': 'event_name_required'}, status=400)
+    if len(event_name) > 200:
+        return JsonResponse({'ok': False, 'error': 'event_name_too_long'}, status=400)
+
     try:
         admin_opening_fund = _parse_currency_amount(
             request.POST.get('admin_opening_fund')
@@ -2235,6 +2241,7 @@ def event_setup_view(request):
             admin_opening_fund,
             teller_opening_fund,
             online_teller_ids,
+            name=event_name,
         )
     except services.EventSetupLockedError:
         return JsonResponse({'ok': False, 'error': 'match_already_started'}, status=409)

@@ -2194,8 +2194,14 @@ def _opening_fund_transactions(teller, event):
     return qs.order_by('created_at', 'pk')
 
 
-def update_event_setup(event, admin_opening_fund, teller_opening_fund, online_teller_ids):
-    """Correct opening funds and teller participation before match one starts."""
+def update_event_setup(
+        event, admin_opening_fund, teller_opening_fund, online_teller_ids, *, name=None,
+):
+    """Correct the title, opening funds, and teller participation before match one."""
+    if name is not None:
+        name = str(name).strip()
+        if not name or len(name) > 200:
+            raise ValueError('event name is required and must be 200 characters or fewer')
     admin_opening_fund = float(admin_opening_fund)
     teller_opening_fund = float(teller_opening_fund)
     if (
@@ -2219,9 +2225,13 @@ def update_event_setup(event, admin_opening_fund, teller_opening_fund, online_te
             raise ValueError('invalid teller selection')
 
         old_teller_fund = float(event.teller_opening_fund)
+        update_fields = ['admin_opening_fund', 'teller_opening_fund']
         event.admin_opening_fund = round(admin_opening_fund, 2)
         event.teller_opening_fund = round(teller_opening_fund, 2)
-        event.save(update_fields=['admin_opening_fund', 'teller_opening_fund'])
+        if name is not None:
+            event.name = name
+            update_fields.append('name')
+        event.save(update_fields=update_fields)
 
         for teller in tellers:
             should_be_online = teller.pk in requested_ids
@@ -2264,9 +2274,9 @@ def update_event_setup(event, admin_opening_fund, teller_opening_fund, online_te
                     txn.save(update_fields=['cancelled', 'edited', 'updated_at'])
 
         logger.info(
-            "EVENT SETUP UPDATED: event=%s admin_fund=%.2f teller_fund=%.2f "
+            "EVENT SETUP UPDATED: event=%s name=%r admin_fund=%.2f teller_fund=%.2f "
             "previous_teller_fund=%.2f online_tellers=%s",
-            event.pk, admin_opening_fund, teller_opening_fund,
+            event.pk, event.name, admin_opening_fund, teller_opening_fund,
             old_teller_fund, sorted(requested_ids),
         )
     return event

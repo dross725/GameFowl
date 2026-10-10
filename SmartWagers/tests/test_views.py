@@ -1339,6 +1339,7 @@ class TestAdminEventSetup:
         client.force_login(admin_user)
 
         response = client.post('/administrator/event-setup/', {
+            'event_name': 'Night Derby',
             'admin_opening_fund': '75000',
             'teller_opening_fund': '12500',
             'online_teller_ids': [str(teller_user.pk)],
@@ -1346,6 +1347,8 @@ class TestAdminEventSetup:
 
         assert response.status_code == 200
         active_event.refresh_from_db()
+        assert active_event.name == 'Night Derby'
+        assert response.json()['event_name'] == 'Night Derby'
         assert active_event.admin_opening_fund == 75000
         assert active_event.teller_opening_fund == 12500
         assert TellerTransaction.objects.filter(
@@ -1359,6 +1362,7 @@ class TestAdminEventSetup:
         client.force_login(admin_user)
 
         response = client.post('/administrator/event-setup/', {
+            'event_name': 'Renamed After Lock',
             'admin_opening_fund': '75000',
             'teller_opening_fund': '12500',
             'online_teller_ids': [str(teller_user.pk)],
@@ -1366,6 +1370,25 @@ class TestAdminEventSetup:
 
         assert response.status_code == 409
         assert response.json()['error'] == 'match_already_started'
+        active_event.refresh_from_db()
+        assert active_event.name != 'Renamed After Lock'
+
+    def test_setup_requires_event_name(
+            self, admin_user, teller_user, default_settings, active_event):
+        client = Client()
+        client.force_login(admin_user)
+
+        response = client.post('/administrator/event-setup/', {
+            'event_name': '   ',
+            'admin_opening_fund': '75000',
+            'teller_opening_fund': '12500',
+            'online_teller_ids': [str(teller_user.pk)],
+        })
+
+        assert response.status_code == 400
+        assert response.json()['error'] == 'event_name_required'
+        active_event.refresh_from_db()
+        assert active_event.name != ''
 
     def test_teller_cannot_edit_event_setup(self, teller_user, active_event):
         client = Client()

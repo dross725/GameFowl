@@ -79,6 +79,9 @@ def test_event_setup_and_admin_closeout_controls_are_wired():
     assert 'max-height: 140px' in admin_template
     assert 'overflow-y: auto' in admin_template
     assert 'Edit Event Setup' in admin_runtime
+    assert "id='event_name_input' maxlength='200'" in admin_template
+    assert 'nameInput.disabled = false' in admin_template
+    assert 'event_name_too_long' in admin_template
     assert 'closeTellerStation' in tellers_template
     assert 'admin-teller-closeout-close' in tellers_template
 
