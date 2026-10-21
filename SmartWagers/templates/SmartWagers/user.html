@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=32">
+    <link rel='stylesheet' href="{% static 'SmartWagers/user.css' %}?v=34">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=13">
 {% endblock css_files %}
 
@@ -15,7 +15,7 @@
         window.PAYOUTS_HELD = {{ payouts_held|yesno:"true,false" }};
     </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=payout-hold-1"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=sidebar-soft-fade-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=payout-hold-1"></script>
     <script src="{% static 'SmartWagers/user.js' %}?v=payout-hold-2"></script>
 {% endblock script_files %}

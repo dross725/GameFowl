@@ -1,6 +1,6 @@
 {
-  "created_at": "2026-09-28T11:12:28.328163+00:00",
-  "file_count": 211,
+  "created_at": "2026-10-10T10:04:14.621407+00:00",
+  "file_count": 191,
   "files": {
     "GameFowl/__init__.py": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -39,8 +39,8 @@
       "size": 408
     },
     "SmartWagers/consumers.py": {
-      "sha256": "fece8ee016e6a6e87a571a32ddb86cdf203469ca8e5e83e0e9e9f32cc40e76f4",
-      "size": 16286
+      "sha256": "9ad170a2d333ad02bbc15f9e641ea03eb0ca016dad70e1a6857b2358062379b4",
+      "size": 16381
     },
     "SmartWagers/consumers1.py": {
       "sha256": "c632b7ce22157f15fd6af1f3c35e60e38f193849881082f99d16e123dca27e94",
@@ -278,13 +278,29 @@
       "sha256": "0a7dfb1f7268bbe267c7de8640ee5ffd5c84485d508927c0b8c8d99bdcd61bec",
       "size": 7369
     },
+    "SmartWagers/migrations/0047_settings_teller_bet_limit.py": {
+      "sha256": "e1a4a07e112372e5291f7e525b60dfa81835da79683532033f336589e3bea83b",
+      "size": 354
+    },
+    "SmartWagers/migrations/0048_event_payouts_held.py": {
+      "sha256": "977af0d3eae1eee1f5f559eb5cedfeae9f1a25406dfd7a8421fc22e0fa159fed",
+      "size": 354
+    },
+    "SmartWagers/migrations/0049_event_teller_opening_fund.py": {
+      "sha256": "fad26ce50d12d3b161e50b746ee2c2b5f2f4181a04d90afde56e9feb036374c5",
+      "size": 354
+    },
+    "SmartWagers/migrations/0050_mark_and_backfill_opening_funds.py": {
+      "sha256": "4d21f881483d019076478df3707b6e86f85f6b477ba1c4568ef2492ca566d206",
+      "size": 4826
+    },
     "SmartWagers/migrations/__init__.py": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "size": 0
     },
     "SmartWagers/models.py": {
-      "sha256": "921353a841d8e54340a32f3f8391dabb191dbfbb50e781879e16057627b9965d",
-      "size": 21466
+      "sha256": "5b9d9839073fa5d0c696818ae8db22fc7f65a0fb297460d7702a9fcbd1b7f4c0",
+      "size": 21996
     },
     "SmartWagers/print_jobs_consumer.py": {
       "sha256": "8e38b10d6fc177d6e25944c9c4e6007c5a4d63d3006927b588448918fdb6c40b",
@@ -303,16 +319,16 @@
       "size": 592
     },
     "SmartWagers/services.py": {
-      "sha256": "3a611989ce4ed63822d88ba051ba5ba26cf4e3e5dfe3069222a35b7adefbe5ff",
-      "size": 111337
+      "sha256": "09af7e6a3ba16be7ca7c256f8eb3f618ce1347fa2208b5ce6a802fc44c22393f",
+      "size": 127993
     },
     "SmartWagers/signals.py": {
       "sha256": "e6d821cbc1017cb2ea1481ee776f4f9a14e38b895c0c95f496bc7c0bde11db1a",
       "size": 500
     },
     "SmartWagers/static/SmartWagers/admin.css": {
-      "sha256": "bf5645ae320ae447214a4fd53058dce89e320f6912a3ee9aadf970b5f06c4981",
-      "size": 17595
+      "sha256": "9b2bfd7b66a2a7530c87d3bfd53f86fecb3604427e0984d076829cd3015e415a",
+      "size": 19943
     },
     "SmartWagers/static/SmartWagers/admin.js": {
       "sha256": "cdb95082f67f45058fb7279bbf1d34926a17c601a3247048b87a3e519c320bac",
@@ -323,8 +339,8 @@
       "size": 4004
     },
     "SmartWagers/static/SmartWagers/administrator.js": {
-      "sha256": "4731d6f7a14f73beb7b523a9092e4dce83bc36b8a2a1cb324f105ca0b0d537b1",
-      "size": 42222
+      "sha256": "d73f321708ec092ed4896e6767557e3243a498c1d57f5f9fafe585ee19b4b646",
+      "size": 48886
     },
     "SmartWagers/static/SmartWagers/bet_control1.js": {
       "sha256": "e29045da05c62db800beae2a5b9e03a49260bd9279726f6026751e37fcb9e457",
@@ -333,10 +349,6 @@
     "SmartWagers/static/SmartWagers/images/cockpit.png": {
       "sha256": "53a7d59700889d998ce28f9720add9d0c0237143c73a9f04634a616effd6ffe1",
       "size": 1999581
-    },
-    "SmartWagers/static/SmartWagers/images/desktop.ini": {
-      "sha256": "a1edc277e4762553755e848e57a9b9b1f7ead7433e87b9fdd491f465c0bef87e",
-      "size": 47
     },
     "SmartWagers/static/SmartWagers/images/image.png": {
       "sha256": "230820e594afaab8ad34bbcb62a3923d9daed82445afb3a7154431498d01caa8",
@@ -375,8 +387,8 @@
       "size": 154927
     },
     "SmartWagers/static/SmartWagers/index.css": {
-      "sha256": "a4c592f9d8c16c9ad83deb7aa05a0a1dacc476f23e46ac9f13eac2c3db5ea698",
-      "size": 4970
+      "sha256": "bd5a962467cb142fc7fc2fa5c8051705485a24fddedc07d44b3e0a248f1b314b",
+      "size": 8011
     },
     "SmartWagers/static/SmartWagers/index_old.css": {
       "sha256": "e0d70435d317567e05434dda2c80b682fa089559160ab9d36a67988b3d075341",
@@ -387,32 +399,32 @@
       "size": 2479
     },
     "SmartWagers/static/SmartWagers/modal.css": {
-      "sha256": "1260db099088e0823dc70d080aa8513503e83656b1f5028d70369adc79075fa8",
-      "size": 6231
+      "sha256": "df92d2d3400634ea3c01b44dc95239f25313a2b10d3c65e307c349df000bdfd8",
+      "size": 6539
     },
     "SmartWagers/static/SmartWagers/print_client.js": {
-      "sha256": "b6b892f30d5cdbb1f3e17b4d10b53b191e8e6c6e4ee6269333b2612105b970fe",
-      "size": 7388
+      "sha256": "b9249968d227a75e08d71bd28b3122af2ad4c9de98d7e1d248a26fc90be6206e",
+      "size": 7560
     },
     "SmartWagers/static/SmartWagers/signals.js": {
-      "sha256": "58e149dc0695b4dd5b13ca9ada1d13ea3daae4fa827e43f4c595acb9c93c72ab",
-      "size": 6626
+      "sha256": "1d05e162e4c4c0a449de39ba6bb85ea6798dd60d0b5203d897625ec4dc1f599a",
+      "size": 8262
     },
     "SmartWagers/static/SmartWagers/submit_wagers.js": {
-      "sha256": "61431d70d575f007bc57b1e2fc215e15844b96dbd17105dfbae0a1ca49e16e2b",
-      "size": 31670
+      "sha256": "8cd2c6893d31c8a6c5c6f8550d9ceb79c70a04f16fe950d58b0109ecda76fad1",
+      "size": 34895
     },
     "SmartWagers/static/SmartWagers/teller_report.js": {
       "sha256": "e9dc50cf232af93166702e8a2bcc5f53a9342d506b775bbbfabb361fc58bafe7",
       "size": 13782
     },
     "SmartWagers/static/SmartWagers/user.css": {
-      "sha256": "9df8546cc9892c39e18c52fd692024922cbcd9fe370cb9183e4bc40baf493d41",
-      "size": 17910
+      "sha256": "8b24d0553d90ac2bd719dd461376c71433b2d20205e58136276412bd05fa0c75",
+      "size": 18643
     },
     "SmartWagers/static/SmartWagers/user.js": {
-      "sha256": "ca6391b31694fbf6d54319dfb022fec2d6d70e4196b88ee839e968df7f7dcb39",
-      "size": 32603
+      "sha256": "6aaad03b3f9d388e644f3ef92407c1849bed34a58b67bbba8de5737cbf92b847",
+      "size": 34098
     },
     "SmartWagers/static/SmartWagers/user_old.css": {
       "sha256": "5851994043588d0d5af9bcee5faf8509d4cb9261e10092635254414a5f9041e9",
@@ -427,32 +439,32 @@
       "size": 9683
     },
     "SmartWagers/templates/SmartWagers/admin_settings.html": {
-      "sha256": "0e1e6ef493f46c655b4462e86d0bba4628d1fd28d67309c535b2a2785e176179",
-      "size": 36844
+      "sha256": "791810a0fe1c5757b213c6ea50b8fa9fcabfc24bcbe05505ae462ca83abf5b32",
+      "size": 39713
     },
     "SmartWagers/templates/SmartWagers/admin_teller_transactions.html": {
       "sha256": "352234e3a454d9c93bcdd8ceb2a30c8aa9bce24d07fd9d71883c399cea31a021",
       "size": 10468
     },
     "SmartWagers/templates/SmartWagers/admin_tellers.html": {
-      "sha256": "2b328c428e5a73b231370b7ebbc17a1981dc669c2ed1d909b819f2b9534b9ff0",
-      "size": 72677
+      "sha256": "2f1b5d3372089f7baffd954b8efbe849a842dacaa921d1da3a0c33692d30f7a2",
+      "size": 81049
     },
     "SmartWagers/templates/SmartWagers/admin_users.html": {
       "sha256": "f28e1b5ee0ffed3546f327fd082e6bb9f7ea84161676a1c3666dfd1c3de3f007",
       "size": 22789
     },
     "SmartWagers/templates/SmartWagers/administrator.html": {
-      "sha256": "e3f27474727de229f5ae662847466c34386291dacc4801ed12ee4851b20c6385",
-      "size": 47902
+      "sha256": "621c0bd3dbe6472155505d532f2996529877d795a3b2bd66d43163f4b5512c86",
+      "size": 57069
     },
     "SmartWagers/templates/SmartWagers/event_report.html": {
       "sha256": "da415d0fccbe4fda262cb5101ce67ad820671933925c54ec5a3308fce7108539",
       "size": 75292
     },
     "SmartWagers/templates/SmartWagers/index.html": {
-      "sha256": "cc5343b2630c73cf301662187d5e8edbf8f56021b39af1b044fa39c31079931a",
-      "size": 961
+      "sha256": "d30f7ef726f8f4656c04bbd2716a65a7ed25f5c088339824897bcb04328ffcd9",
+      "size": 967
     },
     "SmartWagers/templates/SmartWagers/index_old.html": {
       "sha256": "0429be564671b27a4cedc75390c11244d22a13c511d6ec9eabe129415e31edfc",
@@ -475,28 +487,28 @@
       "size": 108
     },
     "SmartWagers/templates/SmartWagers/teller_report.html": {
-      "sha256": "949aa923faa2900dad70daba480020e10662a8901f8b82c60c0e8a8d193854c7",
-      "size": 31175
+      "sha256": "d6dcbf28af7c889f0fd3ae514e0668a1f969a25919db58b527d0f36bb85bcc54",
+      "size": 31181
     },
     "SmartWagers/templates/SmartWagers/user.html": {
-      "sha256": "f491dedbe2a52c8b91dc720acdf0da177d7a56b2fc9335fa1e38c33cef8998ae",
-      "size": 15046
+      "sha256": "acbefe8ed5de799ef60d1561dbc4ced0517b7d301fb60986117251dcab2f5825",
+      "size": 15845
     },
     "SmartWagers/transaction_ids.py": {
-      "sha256": "2798c1b80c08e8956deacb6bc954cb200e4002fff2707a6a0ebbcf26145dc4f4",
-      "size": 8471
+      "sha256": "be6928b572547d18585694f0149958c69b9521d357bc0c3acf35a56a372492e0",
+      "size": 8516
     },
     "SmartWagers/urls.py": {
-      "sha256": "12c376f2e501d3e2c757a995a04c8b1aeeecc09e5bf9002a5f8cd6a90513c9d0",
-      "size": 5729
+      "sha256": "d05fe70ec1b36345d7aca8027cefdf02daf5ff207dce38784402bdd72bcc9613",
+      "size": 6323
     },
     "SmartWagers/utils.py": {
       "sha256": "c77ecf479c5776af974e6a616bd6f9d1e9710a125c0bb5f9955972755163e575",
       "size": 916
     },
     "SmartWagers/views.py": {
-      "sha256": "87cb3989421cffb63e60fb436e6b8dd45a92de3aa967fa9c88dad4771826984e",
-      "size": 131763
+      "sha256": "2d7f1df7e2e4243b2d5a3bd14cfba8a024b7fab35e31ee6b445ce3afa4604cdd",
+      "size": 148105
     },
     "deploy/10_migrate_users_to_postgres.bat": {
       "sha256": "cb5711efc6308d9031dd3f0fe5dea4cc3119541e9951ff722bcde72bbb4ee20c",
@@ -599,15 +611,15 @@
       "size": 4129
     },
     "deploy/release_inventory.py": {
-      "sha256": "144c4956b4d846ae3d7de64fe4a20efafbf4e7647ff5ce8a6a80aa0c0d5cb415",
-      "size": 7070
+      "sha256": "2189157ddd73b1981b4e6d822b41d426797e795ad1d617a0487417cb06b653aa",
+      "size": 8211
     },
     "deploy/run_daphne.bat": {
       "sha256": "a3ca64889982cd00b18ab3593cdebedf8b9b8653a5ef3a529ad5bc66a8a500ac",
       "size": 4046
     },
     "deploy/server_inventory.json": {
-      "sha256": "b508cf8837aa5a902b676fee4adf84e99cba0f15204349b179557a3a055463ea",
+      "sha256": "bfc791f83450b96734ca978a8ff8f429191263d91d4065b42526d2c51ecf12b5",
       "size": 34667
     },
     "deploy/service_control.bat": {
@@ -631,8 +643,8 @@
       "size": 1193
     },
     "deploy/sync_release.py": {
-      "sha256": "908e5a24193aa5764c57b62f56e186e91c4e3152e28c82fe8a3bab1344f9e4a3",
-      "size": 26146
+      "sha256": "d4418458334892ae45d4b200122e044a831f5f1c0bf3ae507fc55398c77ddb41",
+      "size": 27966
     },
     "deploy/sync_release.sh": {
       "sha256": "0f210a1993ae04701d1cba431baa516f4935f84e3726996bfecca6dee2aa3e9c",
@@ -675,8 +687,8 @@
       "size": 7160
     },
     "local_print_agent/print_agent.py": {
-      "sha256": "cc29c245d89cf6239df950979fcf583457d11a33ae9e1537e408659b7ece341e",
-      "size": 34389
+      "sha256": "23fc3aa16d94e6e7c24bfdf1a496bc6a41225e2611d9d808ea4adaa52319fb5d",
+      "size": 36710
     },
     "local_print_agent/run_print_agent.bat": {
       "sha256": "13d66676cbac690a08c612e79d1985cfecdb028afdc632c80ee74d37ea056918",
@@ -714,98 +726,6 @@
       "sha256": "390fb0571922880c421e75118f20fd8b3b32355068d2cc3313b1fc4bbe87fbe0",
       "size": 664
     },
-    "mobile_print_agent/.gitignore": {
-      "sha256": "0cca2ee2e8b8f1c1ead0d8f2644289eb4158d60ff5e78d41720f9bb7e7155fee",
-      "size": 486
-    },
-    "mobile_print_agent/App.tsx": {
-      "sha256": "649ae2ae3cb9526db13ca6f9f7eaf0d854e9a0cb5721ed759c27a897388b7c51",
-      "size": 12303
-    },
-    "mobile_print_agent/README.md": {
-      "sha256": "b9edba726abc56117374e50f3dbfe4794cb2bb1d571e2f403a3f2f9a6a13cfdf",
-      "size": 3823
-    },
-    "mobile_print_agent/app.json": {
-      "sha256": "691be3eb04546cfc6df7556ea9a5d95d6fc1ff39d5f57d6511fe674827986465",
-      "size": 2097
-    },
-    "mobile_print_agent/assets/adaptive-icon.png": {
-      "sha256": "8e1a5a8a32cf19746e4767415ced2be56e14d08ff2b6287782e33dbb6a4ab84c",
-      "size": 124
-    },
-    "mobile_print_agent/assets/icon.png": {
-      "sha256": "8e1a5a8a32cf19746e4767415ced2be56e14d08ff2b6287782e33dbb6a4ab84c",
-      "size": 124
-    },
-    "mobile_print_agent/assets/splash.png": {
-      "sha256": "aae94fe128d0ea92eed547014eae7694f2acab51301f04877cb0aa2073d7ed5c",
-      "size": 307
-    },
-    "mobile_print_agent/babel.config.js": {
-      "sha256": "c27c3e8f3470c96cfa6f165c5ada8dcd66b1db7556c22c31cb8f0450babdf209",
-      "size": 108
-    },
-    "mobile_print_agent/dist/README.md": {
-      "sha256": "ba503e25c7c3be48dcf8ed3c01b8ea67f6d68bd3e7af6783cd952537d8e21178",
-      "size": 236
-    },
-    "mobile_print_agent/dist/SmartWagers-PrintCompanion.apk": {
-      "sha256": "a9eeb2b860d70810f192cebbf10b961d8036d346cfe87dfacc3c3d2594886392",
-      "size": 61808645
-    },
-    "mobile_print_agent/eas.json": {
-      "sha256": "d3dd6b4f22460c8baf94ff5408a1e3c2a11cadecb3f754cf3ec76dfa5af8d065",
-      "size": 477
-    },
-    "mobile_print_agent/expo-env.d.ts": {
-      "sha256": "df0745fa48abcb0bed0cb25bcf980c9be3340080c1f081f1557d8dfb0ba8eb2a",
-      "size": 116
-    },
-    "mobile_print_agent/package-lock.json": {
-      "sha256": "b6b613664d54a763fa13095bdde4763ccf3ca5bb6f357d95aa7dd3e35ed5804a",
-      "size": 574435
-    },
-    "mobile_print_agent/package.json": {
-      "sha256": "98422f8734bb745ad241130e91d5c28609a435d321160e4ede48be34d552ad9f",
-      "size": 1664
-    },
-    "mobile_print_agent/patches/react-native-background-actions+4.1.0.patch": {
-      "sha256": "199de8992db9c46829ed90bea3eea05e11b0fc2c8e6dfb558ee21cd8fc0ba501",
-      "size": 18429
-    },
-    "mobile_print_agent/prepare_windows_copy.sh": {
-      "sha256": "6975936011c7ab4d07e3d68bd3bc84ce5ae3397c53843fb63680749dda3a9ce7",
-      "size": 1573
-    },
-    "mobile_print_agent/src/api.ts": {
-      "sha256": "54b70eff4750435b535c3e6df389c45b1e873163b5aed5169cbdfbf6929a04d0",
-      "size": 4235
-    },
-    "mobile_print_agent/src/bluetooth.ts": {
-      "sha256": "2f6b247595286cd55f40ed02766d1b7ca9a768939e5ce9767c03ab0ebe019528",
-      "size": 9332
-    },
-    "mobile_print_agent/src/jobLoop.ts": {
-      "sha256": "31154e6c7be3b20604edf29595be6683e13fa28b4bd9a6ec9ab4b1b0c189a37f",
-      "size": 3192
-    },
-    "mobile_print_agent/src/printService.ts": {
-      "sha256": "79fa4d58b90d7a558fbd08416cc53d8e1c21799977bdb7275f0ffd9e87c7c8b0",
-      "size": 4281
-    },
-    "mobile_print_agent/src/storage.ts": {
-      "sha256": "afad7ce67c573819da0141b22bcd5d393f07d719e3216337fa5b306eaa8770cb",
-      "size": 2092
-    },
-    "mobile_print_agent/src/types.ts": {
-      "sha256": "97135d4adf4bd76c91a6ee70f70255a363ba6f7ce4b37772d4051dd5d361d4ad",
-      "size": 493
-    },
-    "mobile_print_agent/tsconfig.json": {
-      "sha256": "fc2d933d166a9c8a2e9be1cb2ed829b23080f1d22a5d2878ef8c7ffe7def8739",
-      "size": 254
-    },
     "payout_receipt.pdf": {
       "sha256": "40d14d2866896a37cd93ce23ccd9b7dba9fd9638229a442b38f454fe4507be55",
       "size": 1968
@@ -827,8 +747,8 @@
       "size": 444
     },
     "server_inventory.json": {
-      "sha256": "afb19dfa02193669e50a904ea9ce4e6af675d806135a67704fd69aa5b9f97a6c",
-      "size": 29509
+      "sha256": "d2a371c35704528edef206b6b2229afce09ab9422d6af237ef5ef86d54bacbf9",
+      "size": 34667
     },
     "static/app copy.css": {
       "sha256": "214787d336bd00ba413a1c3bf0ac21fe29774d7101cac75809df95b467a8378c",

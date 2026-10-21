@@ -2,7 +2,7 @@
 {% load static humanize %}
 
 {% block css_files %}
-    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=33">
+    <link rel='stylesheet' href="{% static 'SmartWagers/admin.css' %}?v=35">
     <link rel='stylesheet' href="{% static 'SmartWagers/modal.css' %}?v=12">
     <style>
       /* ── Teller alert badge on the Tellers button ── */
@@ -268,7 +268,7 @@
     window.PAYOUTS_HOLD_URL = "{% url 'admin-payouts-hold' %}";
 </script>
 <script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
-<script src="{% static 'SmartWagers/administrator.js' %}?v=admin-fight-totals-2"></script>
+<script src="{% static 'SmartWagers/administrator.js' %}?v=sidebar-soft-fade-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=payout-hold-1"></script>
     {% comment %} <script src="{% static 'SmartWagers/signals.js' %}"></script> {% endcomment %}
 

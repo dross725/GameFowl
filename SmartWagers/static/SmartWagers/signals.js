@@ -168,22 +168,25 @@ async function update_trends() {
         fightDiv.className = 'fightnum';
         fightDiv.textContent = match.fightnum;
 
-        const oddsDiv = document.createElement('div');
-        oddsDiv.className = 'odds';
-        oddsDiv.textContent = match.side === 'DRAW'
+        const formattedOdds = match.side === 'DRAW'
             ? 'DRAW'
             : match.odds === 'Llamado'
                 ? 'L'
                 : match.odds === 'Dehado'
                     ? 'D'
                     : '----';
+        const oddsDiv = document.createElement('div');
+        oddsDiv.className = formattedOdds === 'L' || formattedOdds === 'D'
+            ? 'odds odds-mark'
+            : 'odds';
+        oddsDiv.textContent = formattedOdds;
         const colors = {
-            MERON: 'linear-gradient(to bottom, red, black)',
-            WALA: 'linear-gradient(to bottom, blue, black)',
-            DRAW: 'linear-gradient(to bottom, #c8a800, black)',
+            MERON: 'linear-gradient(to bottom, red, #7a1010)',
+            WALA: 'linear-gradient(to bottom, blue, #102070)',
+            DRAW: 'linear-gradient(to bottom, #c8a800, #6e5c00)',
         };
         oddsDiv.style.background = colors[match.side]
-            || 'linear-gradient(to bottom, gray, black)';
+            || 'linear-gradient(to bottom, gray, #4a4a4a)';
         oddsDiv.style.color = 'white';
 
         row.appendChild(fightDiv);
