@@ -408,11 +408,17 @@ def test_concurrent_cancel_bet_thread_stress(default_settings):
 
 @pytest.mark.django_db(transaction=True)
 def test_idempotent_bet_thread_stress(default_settings):
-    """Five concurrent retries with the same client_request_id must create one bet."""
+    """Five concurrent retries with the same client_request_id must create one bet.
+
+    PostgreSQL must commit exactly one wager. SQLite often aborts concurrent
+    writers with OperationalError ('database table is locked') and may commit
+    nothing; that case is an expected xfail, while a committed row must still
+    be the only one and must have updated the pot once.
+    """
     _open_fight(fightnum=1)
     request_id = '33333333-3333-4333-8333-333333333333'
 
-    results, sqlite_errors = _run_threads(
+    results, thread_errors = _run_threads(
         lambda: services.add_wager(
             300, 'MERON', 1, cashier='teller1', client_request_id=request_id,
         ),
@@ -420,15 +426,23 @@ def test_idempotent_bet_thread_stress(default_settings):
     )
 
     created_count = sum(1 for _, created in results if created)
+    stored = Wagers.objects.filter(client_request_id=request_id).count()
     assert created_count <= 1, "Never more than 1 created wager for the same client_request_id"
-    assert Wagers.objects.filter(client_request_id=request_id).count() == 1
+    assert stored <= 1, "Never more than 1 stored wager for the same client_request_id"
+    if stored:
+        m, _, _, _, _, _ = services.get_Totals()
+        assert m == pytest.approx(300.0)
+        assert created_count == 1
 
-    m, _, _, _, _, _ = services.get_Totals()
-    assert m == pytest.approx(300.0)
+    lock_errors = [exc for exc in thread_errors if isinstance(exc, OperationalError)]
+    other_errors = [exc for exc in thread_errors if not isinstance(exc, OperationalError)]
+    assert not other_errors, f"Unexpected bet errors: {other_errors!r}"
 
-    if sqlite_errors and connection.vendor == 'sqlite':
+    if lock_errors and connection.vendor == 'sqlite':
         pytest.xfail(
-            f"SQLite raised {len(sqlite_errors)} OperationalError(s) — "
+            f"SQLite raised {len(lock_errors)} OperationalError(s) — "
             "run on PostgreSQL for full concurrency validation"
         )
-    assert not sqlite_errors, f"PostgreSQL idempotent bet errors: {sqlite_errors!r}"
+    assert not lock_errors, f"PostgreSQL idempotent bet errors: {lock_errors!r}"
+    assert stored == 1
+    assert created_count == 1
