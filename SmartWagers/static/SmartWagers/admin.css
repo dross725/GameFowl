@@ -21,9 +21,9 @@
   inset: 0;
   z-index: 1;
   background: url("images/logo.jpg") center / clamp(420px, 48vw, 780px) no-repeat;
-  filter: grayscale(1) contrast(1.45);
+  filter: grayscale(1) contrast(1.28);
   mix-blend-mode: multiply;
-  opacity: 0.50;
+  opacity: 0.72;
   pointer-events: none;
 }
 

@@ -1875,6 +1875,7 @@ async function searchOldTicket() {
         if (!data.ok) {
             const msgs = {
                 notfound:       `Ticket #${ticketNum} not found for this teller in this event.`,
+                bet_cancelled:  `Ticket #${ticketNum} was cancelled and cannot be paid out.`,
                 already_claimed:`Ticket #${ticketNum} has already been claimed.`,
                 not_a_winner:   `This ticket did not win. Winning side was ${data.winner || '?'}.`,
                 no_result_yet:  'Fight result has not been recorded yet.',

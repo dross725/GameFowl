@@ -243,9 +243,11 @@ a:hover {
 }
 
 #sidebar h1 {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 2px;
+  font-size: clamp(26px, 2vw, 36px);
+  font-weight: 900;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  white-space: nowrap;
   text-transform: uppercase;
   color: white;
   background: linear-gradient(90deg, var(--meron), var(--wala));
@@ -290,9 +292,10 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-dim);
+  color: #c5ced8;
+  font-size: clamp(34px, 2.2vw, 68px);
   font-style: normal;
-  font-weight: 700;
+  font-weight: 1000;
   font-variant-numeric: tabular-nums;
   border: none;
   white-space: nowrap;
@@ -312,10 +315,16 @@ a:hover {
   align-items: center;
   justify-content: center;
   color: #f39c12;
-  font-weight: 600;
+  font-weight: 1000;
   font-style: normal;
   border: none;
   white-space: nowrap;
+  line-height: 1;
+}
+
+.odds.odds-mark {
+  font-size: clamp(48px, calc(9vh - 18px), 104px);
+  line-height: 0.85;
 }
 
 .winner {

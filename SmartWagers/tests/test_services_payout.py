@@ -185,6 +185,26 @@ class TestPayoutRequestErrors:
         result = services.payout_request('999999')
         assert result.get('error') == 'notfound'
 
+    def test_cancelled_bet_returns_bet_cancelled(
+        self, teller_user, default_settings, active_event,
+    ):
+        """A cancelled ticket must not pay out, even when that side wins."""
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        w.cancelled = True
+        w.save(update_fields=['cancelled'])
+        _make_fight_result(1, 'MERON', event=active_event)
+
+        result = services.payout_request(
+            w.transactionid, requesting_cashier=teller_user.username,
+        )
+
+        assert result.get('error') == 'bet_cancelled'
+        w.refresh_from_db()
+        assert w.cashed_out is False
+        assert not TellerTransaction.objects.filter(
+            transaction_type=TellerTransaction.PAYOUT,
+        ).exists()
+
     def test_scanner_stripped_leading_zeros_still_finds_ticket(
         self, teller_user, default_settings, active_event,
     ):
@@ -398,6 +418,20 @@ class TestPayoutOldTicket:
         _make_fight_result(1, 'MERON', event=event)
         result = services.payout_old_ticket(event, teller_user.username, w.transactionid)
         assert result['error'] == 'already_claimed'
+
+    def test_cancelled_bet_returns_bet_cancelled(self, teller_user, default_settings):
+        event = self._ended_event()
+        w = _make_registered_wager(1, 'MERON', 500, teller_user.username)
+        w.cancelled = True
+        w.save(update_fields=['cancelled'])
+        _make_fight_result(1, 'MERON', event=event)
+
+        result = services.payout_old_ticket(event, teller_user.username, w.transactionid)
+
+        assert result['ok'] is False
+        assert result['error'] == 'bet_cancelled'
+        w.refresh_from_db()
+        assert w.cashed_out is False
 
     def test_notfound_when_wrong_teller(self, teller_user, teller_user2, default_settings):
         event = self._ended_event()

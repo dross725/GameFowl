@@ -39,6 +39,7 @@ const PAYOUT_ERROR_MESSAGES = {
     alreadypaid_barcode: "This bet has already been paid out.",
     web_socket_error: "Network error, try hitting F5",
     notfound: "Transaction ID not found.",
+    bet_cancelled: "This bet was cancelled and cannot be paid out.",
     alreadypaid: "This transaction has already been paid out.",
     wrongside: "The selected side did not win. No payout available.",
     exceeds_cash_on_hand: "Insufficient cash on hand to issue this payout.",
@@ -1175,16 +1176,18 @@ async function update_trends() {
         fightDiv.textContent = match.fightnum;
 
         const oddsDiv = document.createElement("div");
-        oddsDiv.className = "odds";
+        oddsDiv.className = formattedOdds === "L" || formattedOdds === "D"
+            ? "odds odds-mark"
+            : "odds";
         oddsDiv.textContent = formattedOdds;
 
         // Color coding based on winner
         const colors = {
-            MERON: "linear-gradient(to bottom, red, black)",
-            WALA:  "linear-gradient(to bottom, blue, black)",
-            DRAW:  "linear-gradient(to bottom, #c8a800, black)",
+            MERON: "linear-gradient(to bottom, red, #7a1010)",
+            WALA:  "linear-gradient(to bottom, blue, #102070)",
+            DRAW:  "linear-gradient(to bottom, #c8a800, #6e5c00)",
         };
-        oddsDiv.style.background = colors[match.side] || "linear-gradient(to bottom, gray, black)";
+        oddsDiv.style.background = colors[match.side] || "linear-gradient(to bottom, gray, #4a4a4a)";
         oddsDiv.style.color = "white";
 
         row.appendChild(fightDiv);

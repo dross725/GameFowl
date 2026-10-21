@@ -2871,7 +2871,7 @@ def _audit_payout_result(transaction_id, requesting_cashier, result):
         if result.get('reprint_available'):
             extra['reprint'] = 'available'
         warning_errors = {
-            'notfound', 'wrong_teller', 'alreadypaid', 'wrongside',
+            'notfound', 'bet_cancelled', 'wrong_teller', 'alreadypaid', 'wrongside',
             'exceeds_cash_on_hand', 'cashier_not_found', 'payouts_held',
         }
         log_teller_action(
@@ -2972,8 +2972,10 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
 
         # Lock the wager row so two simultaneous barcode scans cannot both
         # pass the cashed_out check and issue a double payout.
+        # Include cancelled bets so a later payout attempt is rejected as
+        # cancelled instead of looking like an unknown ticket.
         base_qs = Wagers.objects.select_for_update().filter(
-            transactionid=transaction_id, registered=True, cancelled=False,
+            transactionid=transaction_id, registered=True,
         )
 
         if active_event:
@@ -2984,6 +2986,14 @@ def _payout_request_locked(transaction_id, requesting_cashier=None, cashier_hint
         if payout_data is None or payout_data.transactionid is None:
             logger.warning("PAYOUT: txn=%s not found", transaction_id)
             payout_result['error'] = 'notfound'
+            return payout_result
+
+        if payout_data.cancelled:
+            logger.warning(
+                "PAYOUT REJECTED (bet cancelled): txn=%s fight=%s cashier=%s",
+                transaction_id, payout_data.fightnum, payout_data.cashier,
+            )
+            payout_result['error'] = 'bet_cancelled'
             return payout_result
 
         requesting_cashier = cashier_username(requesting_cashier)
@@ -3203,17 +3213,16 @@ def payout_old_ticket(event, teller_username, transaction_id):
 
     Returns a dict with:
       ok=True  + fight, side, wager, payout_amount, multiplier, odds
-      ok=False + error code (notfound | already_claimed | not_a_winner |
-                             no_result_yet | cancelled | draw)
-    For 'draw' and 'cancelled' the refund is also processed and ok=True is
-    returned so the caller can display the refund details.
+      ok=False + error code (notfound | bet_cancelled | already_claimed |
+                             not_a_winner | no_result_yet | cashier_not_found)
+    Fight-level CANCELLED and DRAW results are refunded with ok=True so the
+    caller can display the refund details. A cancelled bet is rejected.
     """
     transaction_id = normalize_wager_transaction_id(transaction_id)
     wager_qs = Wagers.objects.filter(
         transactionid=transaction_id,
         cashier=teller_username,
         registered=True,
-        cancelled=False,
         created_at__gte=event.started_at,
     )
     if event.ended_at:
@@ -3224,6 +3233,13 @@ def payout_old_ticket(event, teller_username, transaction_id):
 
         if wager is None:
             return {'ok': False, 'error': 'notfound'}
+
+        if wager.cancelled:
+            logger.warning(
+                "PAYOUT OLD TICKET REJECTED (bet cancelled): txn=%s fight=%s cashier=%s",
+                transaction_id, wager.fightnum, wager.cashier,
+            )
+            return {'ok': False, 'error': 'bet_cancelled'}
 
         if wager.cashed_out:
             return {'ok': False, 'error': 'already_claimed'}
