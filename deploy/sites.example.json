@@ -1,0 +1,22 @@
+{
+  "sites": [
+    {
+      "name": "canary-venue",
+      "group": "canary",
+      "host": "canary.tailnet.ts.net",
+      "user": "Administrator",
+      "port": 22,
+      "remote_root": "C:/SmartWagers/GameFowl",
+      "ssh_key": ""
+    },
+    {
+      "name": "venue-two",
+      "group": "fleet",
+      "host": "venue-two.tailnet.ts.net",
+      "user": "Administrator",
+      "port": 22,
+      "remote_root": "C:/SmartWagers/GameFowl",
+      "ssh_key": ""
+    }
+  ]
+}

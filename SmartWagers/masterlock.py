@@ -328,12 +328,21 @@ def _client_rate_key(client_id: str) -> str:
     return client_id or 'unknown'
 
 
+def _redis_client():
+    import redis
+    return redis.Redis(
+        host=getattr(settings, 'REDIS_HOST', '127.0.0.1'),
+        port=int(getattr(settings, 'REDIS_PORT', 6379)),
+        db=0,
+        socket_connect_timeout=0.3,
+    )
+
+
 def check_rate_limit(client_id: str) -> bool:
     """Return True if the client is currently blocked."""
     key = f'sw:masterlock:fail:{_client_rate_key(client_id)}'
     try:
-        import redis
-        client = redis.Redis(host='127.0.0.1', port=6379, db=0, socket_connect_timeout=0.3)
+        client = _redis_client()
         count = int(client.get(key) or 0)
         return count >= RATE_LIMIT_MAX_FAILURES
     except Exception:  # noqa: BLE001 — fall back to process memory
@@ -354,8 +363,7 @@ def check_rate_limit(client_id: str) -> bool:
 def record_auth_failure(client_id: str) -> None:
     key = f'sw:masterlock:fail:{_client_rate_key(client_id)}'
     try:
-        import redis
-        client = redis.Redis(host='127.0.0.1', port=6379, db=0, socket_connect_timeout=0.3)
+        client = _redis_client()
         pipe = client.pipeline()
         pipe.incr(key)
         pipe.expire(key, RATE_LIMIT_COOLDOWN_SEC)
@@ -374,8 +382,7 @@ def record_auth_failure(client_id: str) -> None:
 def clear_auth_failures(client_id: str) -> None:
     key = f'sw:masterlock:fail:{_client_rate_key(client_id)}'
     try:
-        import redis
-        client = redis.Redis(host='127.0.0.1', port=6379, db=0, socket_connect_timeout=0.3)
+        client = _redis_client()
         client.delete(key)
     except Exception:  # noqa: BLE001
         pass

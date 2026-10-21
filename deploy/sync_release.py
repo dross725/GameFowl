@@ -34,6 +34,10 @@ MANIFEST_PATH = DEPLOY_DIR / ".last_sync_manifest"
 PACKAGE_APPLY_FILES = (
     DEPLOY_DIR / "APPLY_RELEASE.bat",
     DEPLOY_DIR / "apply_usb_release.py",
+    DEPLOY_DIR / "apply_engine.py",
+    DEPLOY_DIR / "release_metadata.py",
+    DEPLOY_DIR / "collect_diagnostics.py",
+    DEPLOY_DIR / "postgres_tools.py",
     DEPLOY_DIR / "EXPORT_SERVER_INVENTORY.bat",
     DEPLOY_DIR / "release_inventory.py",
 )
@@ -353,23 +357,43 @@ def download_offline_dependencies(package_dir: Path) -> None:
         sys.exit(1)
 
 
+def _compose_metadata(**kwargs):
+    deploy_dir = str(Path(__file__).resolve().parent)
+    if deploy_dir not in sys.path:
+        sys.path.insert(0, deploy_dir)
+    from release_metadata import compose_package_metadata
+
+    return compose_package_metadata(**kwargs)
+
+
 def build_usb_package(
     output_root: Path,
     files: list[str],
     deleted_files: list[str],
     base_ref: str | None,
     dry_run: bool,
+    source_root: Path | None = None,
+    artifact_kind: str = "incremental",
+    head_ref: str | None = None,
+    skip_wheels: bool = False,
 ) -> Path | None:
-    head_ref = git_ref_or_none("HEAD")
+    source_root = source_root or PROJECT_ROOT
+    if head_ref is None:
+        head_ref = git_ref_or_none("HEAD")
     package_dir = unique_package_dir(output_root, head_ref)
     for rel_path in REQUIRED_PAYLOAD_FILES:
-        if not (PROJECT_ROOT / rel_path).is_file():
+        if not (source_root / rel_path).is_file() and not (PROJECT_ROOT / rel_path).is_file():
             print(f"ERROR: required payload file not found: {rel_path}", file=sys.stderr)
             sys.exit(1)
     payload_files = sorted(set(files) | set(REQUIRED_PAYLOAD_FILES))
-    payload_files = [path for path in payload_files if is_deployable(path, include_tests=True)]
+    payload_files = [
+        path
+        for path in payload_files
+        if (source_root / path).is_file() or (PROJECT_ROOT / path).is_file()
+    ]
+    payload_files = [path for path in payload_files if is_safe_relative_path(path, include_tests=True)]
     assert_windows_safe_payload_paths(payload_files + deleted_files)
-    needs_dependencies = "requirements.txt" in payload_files
+    needs_dependencies = "requirements.txt" in payload_files and not skip_wheels
 
     print(f"USB release folder: {package_dir}")
     for rel_path in payload_files:
@@ -388,7 +412,9 @@ def build_usb_package(
 
     checksums: dict[str, str] = {}
     for rel_path in payload_files:
-        source = PROJECT_ROOT / rel_path
+        source = source_root / rel_path
+        if not source.is_file():
+            source = PROJECT_ROOT / rel_path
         destination = payload_root / rel_path
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
@@ -419,16 +445,16 @@ def build_usb_package(
             if wheel.is_file():
                 checksums[f"wheels/{wheel.name}"] = sha256_file(wheel)
 
-    metadata = {
-        "package_version": 1,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "base_ref": base_ref,
-        "head_ref": head_ref,
-        "files": payload_files,
-        "deleted_files": deleted_files,
-        "requires_dependencies": needs_dependencies,
-        "checksums": checksums,
-    }
+    metadata = _compose_metadata(
+        files=payload_files,
+        deleted_files=deleted_files,
+        checksums=checksums,
+        base_ref=base_ref,
+        head_ref=head_ref,
+        requires_dependencies=needs_dependencies,
+        artifact_kind=artifact_kind,
+        project_root=source_root if (source_root / "VERSION").is_file() or (source_root / "SmartWagers").is_dir() else PROJECT_ROOT,
+    )
     (package_dir / "release.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",

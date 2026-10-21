@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -77,6 +78,47 @@ def run_backup(output: Path | None) -> Path:
     return output
 
 
+def write_backup_status(backup: Path, *, validated: bool, status_path: Path | None = None) -> Path:
+    status = status_path or (backup.parent / "last_backup.json")
+    payload = {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "path": str(backup),
+        "bytes": backup.stat().st_size if backup.is_file() else 0,
+        "validated": validated,
+    }
+    status.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return status
+
+
+def prune_backups(directory: Path, keep: int = 14) -> list[Path]:
+    dumps = sorted(path for path in directory.glob("smartwagers-*.dump") if path.is_file())
+    obsolete = dumps[:-keep] if keep > 0 else dumps
+    for path in obsolete:
+        path.unlink()
+    return obsolete
+
+
+def validate_backup(backup: Path) -> None:
+    if not backup.is_file():
+        raise RuntimeError(f"Backup file not found: {backup}")
+    command = [executable("pg_restore"), "--list", str(backup)]
+    subprocess.run(command, check=True)
+
+
+def backup_maintain(output: Path | None, keep: int = 14) -> Path:
+    backup = run_backup(output)
+    validated = False
+    try:
+        validate_backup(backup)
+        validated = True
+    except Exception:
+        write_backup_status(backup, validated=False)
+        raise
+    prune_backups(backup.parent, keep=keep)
+    write_backup_status(backup, validated=validated)
+    return backup
+
+
 def run_restore(backup: Path, confirmation: str) -> None:
     database = os.environ["POSTGRES_DB"]
     if confirmation != database:
@@ -106,6 +148,17 @@ def main() -> int:
     backup_parser = subparsers.add_parser("backup")
     backup_parser.add_argument("--output", type=Path)
 
+    maintain_parser = subparsers.add_parser("backup-maintain")
+    maintain_parser.add_argument("--output", type=Path)
+    maintain_parser.add_argument("--keep", type=int, default=14)
+
+    validate_parser = subparsers.add_parser("validate")
+    validate_parser.add_argument("backup", type=Path)
+
+    prune_parser = subparsers.add_parser("prune")
+    prune_parser.add_argument("--keep", type=int, default=14)
+    prune_parser.add_argument("--directory", type=Path, default=DEFAULT_BACKUP_DIR)
+
     restore_parser = subparsers.add_parser("restore")
     restore_parser.add_argument("backup", type=Path)
     restore_parser.add_argument(
@@ -120,6 +173,15 @@ def main() -> int:
     if args.command == "backup":
         output = run_backup(args.output)
         print(f"PostgreSQL backup created: {output}")
+    elif args.command == "backup-maintain":
+        output = backup_maintain(args.output, keep=args.keep)
+        print(f"PostgreSQL backup created and validated: {output}")
+    elif args.command == "validate":
+        validate_backup(args.backup)
+        print(f"PostgreSQL backup is readable: {args.backup}")
+    elif args.command == "prune":
+        removed = prune_backups(args.directory, keep=args.keep)
+        print(f"Removed {len(removed)} old backup(s).")
     else:
         run_restore(args.backup, args.confirm_database)
         print(f"PostgreSQL restore completed: {args.backup.resolve()}")

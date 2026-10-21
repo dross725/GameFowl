@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest pytest-django pytest-asyncio
+      - name: Django system check
+        run: python manage.py check
+      - name: Migration check
+        run: python manage.py makemigrations --check --dry-run
+      - name: Test suite
+        run: python -m pytest deploy/tests SmartWagers/tests -q --tb=line

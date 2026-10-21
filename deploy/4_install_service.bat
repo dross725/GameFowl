@@ -236,7 +236,10 @@ if /i not "%_STATE%"=="SERVICE_RUNNING" (
 )
 
 echo.
-echo Verify: open http://localhost:8080/login in a browser.
+echo Scheduling backups and commission-email retry...
+call "%~dp0schedule_maintenance.bat" nopause
+echo.
+echo Verify: open http://localhost:8080/health/ready/ in a browser.
 echo Wrapper log: %LOG_DIR%\daphne_wrapper.log
 echo.
 pause

@@ -10,6 +10,8 @@ urlpatterns = [
     path('logout', views.LogoutViaPost.as_view(next_page='/login'), name='logout'),
     path('unauthorized/', views.unauthorized, name='unauthorized'),
     path('health/', views.health, name='health'),
+    path('health/ready/', views.health_ready, name='health-ready'),
+    path('operations/status/', views.operations_status, name='operations-status'),
     path('master-lock/', views.master_lock_page, name='master-lock'),
     path('master-lock/status/', views.master_lock_status, name='master-lock-status'),
     path("", views.index, name="index"),
