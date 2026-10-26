@@ -243,6 +243,60 @@ class TestEndMatch:
         result = Fight_Results.objects.filter(fightnum=fn).first()
         assert result.side == 'DRAW'
 
+    def test_result_uses_ticket_totals_when_running_totals_drift(self, default_settings):
+        services.startnewmatch()
+        fn = services.get_fightnum()
+        services.add_wager(500, 'MERON', fn, cashier='teller1')
+        services.add_wager(1000, 'WALA', fn, cashier='teller2')
+        services.add_wager(1000, 'WALA', fn, cashier='teller3')
+        # Running totals lost one WALA bet, as in a concurrent cancel race.
+        Totals.objects.create(fightnum=fn, mtotal=500, wtotal=1000,
+                              mpayout=0, wpayout=0, totalpot=1500)
+
+        services.endmatch('WALA')
+
+        result = Fight_Results.objects.get(fightnum=fn)
+        assert result.mtotal == pytest.approx(500.0)
+        assert result.wtotal == pytest.approx(2000.0)
+        assert result.totalpot == pytest.approx(2500.0)
+        assert result.wpayout == pytest.approx(118.75)
+        assert result.mpayout == pytest.approx(475.0)
+
+    def test_result_ticket_totals_exclude_cancelled_and_pending(self, default_settings):
+        services.startnewmatch()
+        fn = services.get_fightnum()
+        services.add_wager(500, 'MERON', fn, cashier='teller1')
+        wala, _ = services.add_wager(1000, 'WALA', fn, cashier='teller2')
+        services.cancel_bet(wala.transactionid)
+        Wagers.objects.create(fightnum=fn, side='WALA', wager=700,
+                              cashier='teller3', registered=False)
+        services.add_wager(2000, 'WALA', fn, cashier='teller4')
+
+        services.endmatch('MERON')
+
+        result = Fight_Results.objects.get(fightnum=fn)
+        assert result.mtotal == pytest.approx(500.0)
+        assert result.wtotal == pytest.approx(2000.0)
+        assert result.totalpot == pytest.approx(2500.0)
+
+    def test_result_ticket_totals_ignore_same_fightnum_from_earlier_event(self, default_settings):
+        Wagers.objects.create(fightnum=1, side='START', wager=0,
+                              cashier='System', registered=True)
+        Wagers.objects.create(fightnum=1, side='MERON', wager=9000,
+                              cashier='old-teller', registered=True)
+        _seed_event_anchor()
+        services.startnewmatch()
+        fn = services.get_fightnum()
+        assert fn == 1
+        services.add_wager(500, 'MERON', fn, cashier='teller1')
+        services.add_wager(1500, 'WALA', fn, cashier='teller2')
+
+        services.endmatch('MERON')
+
+        result = Fight_Results.objects.get(fightnum=fn)
+        assert result.mtotal == pytest.approx(500.0)
+        assert result.wtotal == pytest.approx(1500.0)
+
 
 # ---------------------------------------------------------------------------
 # update_fight_status — explicit status transitions
