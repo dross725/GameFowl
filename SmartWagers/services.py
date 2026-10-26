@@ -1,3 +1,4 @@
+from .models import current_fight_number
 from .models import Wagers
 from .models import Totals
 from .models import Settings
@@ -155,13 +156,7 @@ def send_pdf_to_printer(pdf_path):
         raise RuntimeError(f"Failed to print receipt: {error_message}") from exc
 
 def get_fightnum():
-    wagers = Wagers.objects.filter(registered=True).order_by('-id').first()
-    if wagers == None:
-        #database is empty
-        fight_num = 1
-    else:
-        fight_num = wagers.fightnum
-    return (fight_num)
+    return current_fight_number()
 
 @lru_cache(maxsize=1)
 def get_comm_val():
@@ -3440,6 +3435,7 @@ def build_remit_receipt_payload(txn):
     breakdown = compute_teller_balance_breakdown(
         txn.user, event=event_scope, apply_end_bound=apply_end_bound,
     )
+    fightnum = txn.fightnum if txn.fightnum is not None else get_fightnum()
     return {
         'transaction_type': txn.transaction_type,
         'transaction_id': txn.transaction_id,
@@ -3447,6 +3443,7 @@ def build_remit_receipt_payload(txn):
         'balance': breakdown['balance'],
         'grand_total': breakdown['grand_total'],
         'cashier': str(txn.user),
+        'fightnum': fightnum,
         'date': txn.created_at.strftime("%Y-%m-%d %H:%M:%S"),
     }
 

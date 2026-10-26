@@ -688,9 +688,9 @@ engine as `APPLY_RELEASE.bat`. `verify` reads
 `deploy\.deployed_release.json` from the target server and compares the commit.
 
 ```bash
-python deploy/fleet.py preflight --sites deploy/sites.json --site <venue>
-python deploy/fleet.py deploy --sites deploy/sites.json --site <venue> --package releases/<package>
-python deploy/fleet.py verify --sites deploy/sites.json --site <venue> --expect-sha <commit>
+python deploy/fleet.py preflight --sites deploy/sites.json --site davao-1
+python deploy/fleet.py deploy --sites deploy/sites.json --site davao-1 --package releases/SmartWagers-20261022-025246Z-4133eeb1
+python deploy/fleet.py verify --sites deploy/sites.json --site davao-1 --expect-sha 4133eeb11eaf0515fb4087724e0267a710f866e9
 ```
 
 For several venues, update the canary group first. A failed site stops the rest. Sites that already succeeded stay on the new release until you roll those sites back.

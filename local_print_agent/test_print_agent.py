@@ -64,6 +64,31 @@ def test_escpos_remit_receipt_centers_event_and_uses_whole_amounts():
     assert b"Balance  : 2,000\n" in payload
 
 
+def test_escpos_remit_receipt_prints_fight_number_on_both_copies():
+    advance = print_agent.escpos_remit_receipt(
+        {
+            "transaction_type": "REMIT",
+            "transaction_id": "R123",
+            "amount": 100,
+            "fightnum": 7,
+        }
+    )
+    borrow = print_agent.escpos_remit_receipt(
+        {
+            "receipt_scope": "admin_bank",
+            "transaction_type": "BORROW",
+            "transaction_id": "B000004",
+            "amount": 500,
+            "fightnum": 0,
+        }
+    )
+
+    assert advance.count(b"Fight Number: 7") == 2
+    assert borrow.count(b"Fight Number: 0") == 2
+    assert borrow.count(b"ADMIN COPY") == 1
+    assert borrow.count(b"BANK COPY") == 1
+
+
 def test_escpos_remit_receipt_contains_both_copy_labels():
     payload = print_agent.escpos_remit_receipt(
         {

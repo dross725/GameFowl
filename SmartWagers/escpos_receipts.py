@@ -159,6 +159,14 @@ def transaction_receipt_copies(receipt: Mapping[str, Any]) -> tuple[str, str]:
     return TELLER_TRANSACTION_RECEIPT_COPIES
 
 
+def receipt_fight_number(receipt: Mapping[str, Any]) -> str:
+    """Current fight stamped on advance and borrow receipts. Empty when absent."""
+    raw = receipt.get("fightnum")
+    if raw is None:
+        return ""
+    return str(raw).strip()
+
+
 def escpos_receipt(
     receipt: Mapping[str, Any],
     code_page: str = DEFAULT_CODE_PAGE,
@@ -250,6 +258,7 @@ def escpos_remit_receipt(
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
     event_name = str(receipt.get("event_name", ""))
+    fightnum = receipt_fight_number(receipt)
     is_admin_bank = receipt.get("receipt_scope") == "admin_bank"
     show_barcode = (
         not is_admin_bank
@@ -267,6 +276,8 @@ def escpos_remit_receipt(
         output += b"\x1bE\x01"
         output += text_line(label, code_page)
         output += text_line(copy_label, code_page)
+        if fightnum != "":
+            output += text_line(f"Fight Number: {fightnum}", code_page)
         output += b"\x1bE\x00"
         output += b"\x1ba\x00"  # Detail lines always left for columns
         if event_name:

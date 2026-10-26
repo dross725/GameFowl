@@ -889,6 +889,7 @@ async function submitTellerTransaction(type) {
                 balance: data.balance,
                 grand_total: data.grand_total,
                 cashier: data.cashier,
+                fightnum: data.fightnum,
                 date: data.created_at,
             });
             document.getElementById('payout_message3').innerText = printResult.ok

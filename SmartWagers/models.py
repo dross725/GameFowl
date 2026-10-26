@@ -18,6 +18,19 @@ class TransactionSequence(models.Model):
         return f"{self.key}: {self.value} (cycle {self.cycle})"
 
 
+def current_fight_number():
+    """Latest registered fight, or 1 when no registered wager exists."""
+    latest = (
+        Wagers.objects.filter(registered=True)
+        .order_by('-id')
+        .values_list('fightnum', flat=True)
+        .first()
+    )
+    if latest is None:
+        return 1
+    return latest
+
+
 class Wagers (models.Model):
     transactionid = models.CharField(max_length=10, unique=True, editable=False, default='000000')
     sequence_cycle = models.PositiveBigIntegerField(null=True, blank=True, editable=False)
@@ -151,6 +164,7 @@ class TellerTransaction(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='teller_transactions')
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.FloatField()
+    fightnum = models.IntegerField(null=True, blank=True)
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
     is_opening_fund = models.BooleanField(default=False)
@@ -194,6 +208,8 @@ class TellerTransaction(models.Model):
     def save(self, *args, **kwargs):
         if self.pk is not None:
             return super().save(*args, **kwargs)
+        if self.fightnum is None:
+            self.fightnum = current_fight_number()
         from SmartWagers import transaction_ids
 
         with db_transaction.atomic():
@@ -349,6 +365,7 @@ class AdminBankTransaction(models.Model):
     )
     transaction_type = models.CharField(max_length=10, choices=TRANSACTION_TYPES)
     amount = models.FloatField()
+    fightnum = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -366,6 +383,8 @@ class AdminBankTransaction(models.Model):
     def save(self, *args, **kwargs):
         if self.pk is not None:
             return super().save(*args, **kwargs)
+        if self.fightnum is None:
+            self.fightnum = current_fight_number()
         from SmartWagers import transaction_ids
 
         with db_transaction.atomic():
@@ -419,6 +438,7 @@ class ArchivedTellerTransaction(models.Model):
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='archived_teller_transactions')
     transaction_type = models.CharField(max_length=10, choices=TellerTransaction.TRANSACTION_TYPES)
     amount = models.FloatField()
+    fightnum = models.IntegerField(null=True, blank=True)
     received = models.BooleanField(null=True, blank=True, default=None)
     affects_admin_fund = models.BooleanField(default=True)
     is_opening_fund = models.BooleanField(default=False)
@@ -461,6 +481,7 @@ class ArchivedAdminBankTransaction(models.Model):
     admin = models.ForeignKey(User, on_delete=models.PROTECT, related_name='archived_admin_bank_transactions')
     transaction_type = models.CharField(max_length=10, choices=AdminBankTransaction.TRANSACTION_TYPES)
     amount = models.FloatField()
+    fightnum = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField()
     archived_at = models.DateTimeField(auto_now_add=True)
 
