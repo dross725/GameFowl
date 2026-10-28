@@ -34,6 +34,19 @@ def test_escpos_wager_contains_title_and_barcode():
     assert b'\x1dk\x49' in payload  # CODE128
 
 
+def test_escpos_remit_prints_fight_number_on_both_copies():
+    payload = escpos_receipts.escpos_remit_receipt({
+        'transaction_type': 'COLLECT',
+        'transaction_id': 'R000009',
+        'amount': 250,
+        'balance': 1000,
+        'cashier': 'teller1',
+        'fightnum': 4,
+    })
+    assert payload.count(b'BORROW RECEIPT') == 2
+    assert payload.count(b'Fight Number: 4') == 2
+
+
 def test_escpos_remit_dual_copies():
     payload = escpos_receipts.escpos_remit_receipt({
         'transaction_type': 'REMIT',

@@ -24,6 +24,7 @@ ARCHITECTURE NOTE — SQLite vs PostgreSQL concurrency:
 """
 
 import threading
+import time
 import pytest
 from django.db import OperationalError, connection, connections
 from SmartWagers.models import (
@@ -355,6 +356,59 @@ def test_deduct_then_add_does_not_deadlock(default_settings):
     assert m == pytest.approx(800.0)
     assert w == pytest.approx(800.0)
     assert pot == pytest.approx(1600.0)
+
+
+# ---------------------------------------------------------------------------
+# 6B. Bet and cancel racing on Totals — POSTGRESQL ONLY
+#     Reproduces the lost update from 2 STAG ULUTAN OCT. 23 fight 5: a cancel
+#     waiting on the latest Totals row read it stale after a bet committed a
+#     newer row, erasing the bet from the pot.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db(transaction=True)
+def test_bet_and_cancel_race_does_not_lose_totals(default_settings):
+    if connection.vendor != 'postgresql':
+        pytest.skip("SQLite serializes writers; this race needs PostgreSQL")
+
+    Totals.objects.create(fightnum=5, mtotal=22630, wtotal=21130,
+                          mpayout=0, wpayout=0, totalpot=43760)
+    bet_written = threading.Event()
+    errors = []
+
+    def _bet():
+        from django.db import transaction
+        try:
+            with transaction.atomic():
+                services.add_total(1000, 'WALA')
+                bet_written.set()
+                # Hold the transaction open so the cancel queues behind it.
+                time.sleep(0.5)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+            bet_written.set()
+        finally:
+            connections.close_all()
+
+    def _cancel():
+        try:
+            bet_written.wait(timeout=5)
+            services.deduct_totals('MERON', 500)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+        finally:
+            connections.close_all()
+
+    threads = [threading.Thread(target=_bet), threading.Thread(target=_cancel)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, f"Race threads raised: {errors!r}"
+    m, _, w, _, pot, _ = services.get_Totals()
+    assert m == pytest.approx(22130.0)
+    assert w == pytest.approx(22130.0), "Concurrent cancel erased the WALA bet"
+    assert pot == pytest.approx(44260.0)
 
 
 # ---------------------------------------------------------------------------

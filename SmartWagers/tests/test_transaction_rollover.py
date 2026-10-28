@@ -326,6 +326,7 @@ class TestConflictArchival:
             transaction_id='R000000', sequence_cycle=0,
         )
         assert archived.is_opening_fund is True
+        assert archived.fightnum == old_txn.fightnum
 
 
 @pytest.mark.django_db

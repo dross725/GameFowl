@@ -4,7 +4,7 @@ Build one immutable package from a tested Git commit, deploy it to the canary si
 
 ## One-time management path
 
-1. Install Tailscale on the operator PC and on every Windows server. Approve only the operator and the servers into the tailnet.
+1. Install Tailscale on the operator PC and on every Windows server. Approve only the operator and the servers into the tailnet. Server firewall, OpenSSH, MagicDNS, and `sites.json` steps are in [HOW_TO_RELEASE.md](HOW_TO_RELEASE.md) section 2.6.
 2. Install OpenSSH Server on each Windows server and allow port 22 from the tailnet, not from the public internet.
 3. Do not publish Daphne port 8080, PostgreSQL, Redis, or SSH to the public internet.
 4. Copy [sites.example.json](sites.example.json) to `deploy/sites.json`. `sites.json` is gitignored.

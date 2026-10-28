@@ -166,6 +166,7 @@ def _archive_teller_transaction(txn):
         user=txn.user,
         transaction_type=txn.transaction_type,
         amount=txn.amount,
+        fightnum=txn.fightnum,
         received=txn.received,
         affects_admin_fund=txn.affects_admin_fund,
         is_opening_fund=txn.is_opening_fund,
@@ -203,6 +204,7 @@ def _archive_admin_bank_transaction(txn):
         admin=txn.admin,
         transaction_type=txn.transaction_type,
         amount=txn.amount,
+        fightnum=txn.fightnum,
         created_at=txn.created_at,
     )
     txn.delete()

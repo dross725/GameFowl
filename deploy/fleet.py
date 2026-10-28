@@ -148,15 +148,28 @@ def _windows_path(posix_path: str) -> str:
     return posix_path.replace("/", "\\")
 
 
+def remote_python_command(python_file: str, script: str, arguments: str) -> str:
+    """Run a script with the interpreter path stored on the venue.
+
+    cmd expands %PY% before set /p assigns it. Keeping both operations on one
+    line therefore exits successfully without launching Python. Delayed
+    expansion reads the path after set /p.
+    """
+    return (
+        f'cmd /v:on /c "set /p PY=<{python_file} & '
+        f'\"!PY!\" \"{script}\" {arguments}"'
+    )
+
+
 def deploy_commands(site: Site, package_dir: Path) -> list[list[str]]:
     incoming = f"C:/SmartWagers/incoming/{package_dir.name}"
     incoming_windows = _windows_path(incoming)
     apply_script = f"{incoming_windows}\\apply_usb_release.py"
     python_file = _windows_path(site.remote_root.rstrip("/")) + "\\deploy\\python_path.txt"
-    remote = (
-        f'cmd /c "if not exist C:\\SmartWagers\\incoming mkdir C:\\SmartWagers\\incoming & '
-        f'set /p PY=<{python_file} & '
-        f'\"%PY%\" \"{apply_script}\" --yes --target {_windows_path(site.remote_root)}"'
+    remote = remote_python_command(
+        python_file,
+        apply_script,
+        f"--yes --target {_windows_path(site.remote_root)}",
     )
     return [
         ssh_command(site, 'cmd /c "if not exist C:\\SmartWagers\\incoming mkdir C:\\SmartWagers\\incoming"'),
@@ -183,9 +196,10 @@ def verify_command(site: Site) -> list[str]:
 def rollback_command(site: Site) -> list[str]:
     root = _windows_path(site.remote_root.rstrip("/"))
     python_file = f"{root}\\deploy\\python_path.txt"
-    remote = (
-        f'cmd /c "set /p PY=<{python_file} & '
-        f'\"%PY%\" \"{root}\\deploy\\apply_engine.py\" --rollback --yes --target {root}"'
+    remote = remote_python_command(
+        python_file,
+        f"{root}\\deploy\\apply_engine.py",
+        f"--rollback --yes --target {root}",
     )
     return ssh_command(site, remote)
 
@@ -194,9 +208,10 @@ def diagnostics_command(site: Site) -> list[str]:
     root = _windows_path(site.remote_root.rstrip("/"))
     python_file = f"{root}\\deploy\\python_path.txt"
     output = r"C:\SmartWagers\logs\diagnostics.json"
-    remote = (
-        f'cmd /c "set /p PY=<{python_file} & '
-        f'\"%PY%\" \"{root}\\deploy\\collect_diagnostics.py\" --output {output}"'
+    remote = remote_python_command(
+        python_file,
+        f"{root}\\deploy\\collect_diagnostics.py",
+        f"--output {output}",
     )
     return ssh_command(site, remote)
 

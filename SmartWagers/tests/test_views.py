@@ -512,6 +512,7 @@ class TestReprintWager:
         assert data['receipt']['transaction_id'] == remit.transaction_id
         assert data['receipt']['transaction_type'] == 'REMIT'
         assert data['receipt']['amount'] == 500
+        assert data['receipt']['fightnum'] == remit.fightnum
 
     def test_unpadded_remit_id_still_finds_receipt(
         self, teller_user, active_event,
@@ -655,6 +656,7 @@ class TestTellerTransactionView:
         assert response.status_code == 200
         data = json.loads(response.content)
         assert data['ok'] is True
+        assert data['fightnum'] == 1
         assert TellerTransaction.objects.filter(
             user=teller_user, transaction_type='REMIT', amount=1000
         ).exists()
@@ -684,6 +686,20 @@ class TestTellerTransactionView:
         assert 'balance' in data
         assert 'transaction_id' in data
         assert data['balance'] == 5000
+
+    def test_remit_stamps_current_fight_number(self, teller_user, default_settings):
+        _open_fight(fightnum=12)
+        self._seed_cash_on_hand(teller_user, amount=5000)
+        client = Client()
+        client.force_login(teller_user)
+        response = client.post('/teller_transaction/', {
+            'transaction_type': 'REMIT', 'amount': '200',
+        })
+        data = response.json()
+        assert data['fightnum'] == 12
+        assert TellerTransaction.objects.get(
+            transaction_id=data['transaction_id'],
+        ).fightnum == 12
 
     def test_sequential_remits_second_fails_when_cash_exhausted(
         self, teller_user, default_settings,
@@ -781,6 +797,30 @@ class TestAdminTellerTxnView:
         )
         assert remit.received is True
 
+    def test_admin_advance_and_borrow_stamp_current_fight(
+        self, admin_user, teller_user, default_settings, active_event,
+    ):
+        _open_fight(fightnum=9)
+        self._seed_cash_on_hand(teller_user, amount=800)
+        client = Client()
+        client.force_login(admin_user)
+
+        borrow = client.post('/administrator/teller-txn/', {
+            'teller_id': teller_user.pk,
+            'transaction_type': 'COLLECT',
+            'amount': '100',
+        })
+        advance = client.post('/administrator/teller-txn/', {
+            'teller_id': teller_user.pk,
+            'transaction_type': 'REMIT',
+            'amount': '100',
+        })
+
+        assert borrow.status_code == 200
+        assert advance.status_code == 200
+        assert borrow.json()['fightnum'] == 9
+        assert advance.json()['fightnum'] == 9
+
     def test_admin_collect_uses_shared_admin_fund(
         self, admin_user, teller_user, default_settings, active_event,
     ):
@@ -796,6 +836,7 @@ class TestAdminTellerTxnView:
         assert data['ok'] is True
         assert data['balance'] == 5000
         assert data['admin_fund_balance'] == 95000
+        assert data['fightnum'] == 1
 
     def test_admin_collect_rejected_when_shared_fund_is_insufficient(
         self, admin_user, teller_user, default_settings, active_event,
@@ -867,6 +908,7 @@ class TestAdminFundViews:
         assert borrow_data['created_transaction']['transaction_id'].startswith('B')
         assert borrow_data['created_transaction']['amount'] == 25000
         assert borrow_data['print_required'] is True
+        assert borrow_data['created_transaction']['fightnum'] == 1
 
         remit = client.post('/administrator/fund/bank-transaction/', {
             'transaction_type': 'REMIT',
@@ -880,6 +922,25 @@ class TestAdminFundViews:
         assert remit_data['net_bank_funding'] == 120000
         assert remit_data['created_transaction']['transaction_type'] == 'REMIT'
         assert remit_data['created_transaction']['amount'] == 5000
+        assert remit_data['created_transaction']['fightnum'] == 1
+
+    def test_bank_advance_and_borrow_stamp_current_fight(
+            self, admin_user, active_event):
+        _open_fight(fightnum=5)
+        client = Client()
+        client.force_login(admin_user)
+        borrow = client.post('/administrator/fund/bank-transaction/', {
+            'transaction_type': 'BORROW',
+            'amount': '1000',
+        })
+        remit = client.post('/administrator/fund/bank-transaction/', {
+            'transaction_type': 'REMIT',
+            'amount': '200',
+        })
+        assert borrow.status_code == 200
+        assert remit.status_code == 200
+        assert borrow.json()['created_transaction']['fightnum'] == 5
+        assert remit.json()['created_transaction']['fightnum'] == 5
 
     def test_bank_remit_cannot_exceed_shared_balance(
             self, admin_user, active_event):

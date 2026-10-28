@@ -1,3 +1,4 @@
+from .models import current_fight_number
 from .models import Wagers
 from .models import Totals
 from .models import Settings
@@ -155,13 +156,7 @@ def send_pdf_to_printer(pdf_path):
         raise RuntimeError(f"Failed to print receipt: {error_message}") from exc
 
 def get_fightnum():
-    wagers = Wagers.objects.filter(registered=True).order_by('-id').first()
-    if wagers == None:
-        #database is empty
-        fight_num = 1
-    else:
-        fight_num = wagers.fightnum
-    return (fight_num)
+    return current_fight_number()
 
 @lru_cache(maxsize=1)
 def get_comm_val():
@@ -224,11 +219,28 @@ def compute_payout(m_total, w_total, total_pot):
 
     return (m_payout, w_payout)
 
+TOTALS_ADVISORY_LOCK_KEY = 0x544F54414C53
+
+
+def _lock_totals():
+    """Serialize every write to the append-only Totals ledger.
+
+    Must be called inside an atomic block. SELECT FOR UPDATE on the latest
+    Totals row is not enough on PostgreSQL READ COMMITTED: a writer waiting on
+    that row gets it back unchanged after the holder commits and never sees
+    the newer row, so its update is computed from stale totals. The advisory
+    lock is taken before the read, so the read sees every committed row.
+    SQLite serializes writers at the file level and needs no extra lock.
+    """
+    if connection.vendor == 'postgresql':
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [TOTALS_ADVISORY_LOCK_KEY])
+
+
 def add_total(amount, side):
     with db_transaction.atomic():
-        # Lock the current latest row so concurrent bet registrations are
-        # serialized and cannot read a stale snapshot of the totals.
-        latest = Totals.objects.select_for_update().order_by('-id').first()
+        _lock_totals()
+        latest = Totals.objects.order_by('-id').first()
         if latest:
             m_total   = latest.mtotal
             w_total   = latest.wtotal
@@ -2635,9 +2647,71 @@ def update_wagers(status, fight_num=0):
     updatewagers.save()
 
 
-def update_fightresults(side):
+def _ticket_totals_for_fight(fightnum):
+    """Return (meron, wala) totals from registered, uncancelled tickets.
+
+    Tickets are scoped by the latest START marker for the fight because fight
+    numbers restart every event. Returns None when no marker exists.
+    """
+    from django.db.models import Sum
+
+    start_marker = (
+        Wagers.objects
+        .filter(fightnum=fightnum, side='START', cashier='System')
+        .order_by('-id')
+        .first()
+    )
+    if start_marker is None:
+        return None
+
+    sums = {'MERON': 0.0, 'WALA': 0.0}
+    rows = (
+        Wagers.objects
+        .filter(
+            id__gt=start_marker.id,
+            fightnum=fightnum,
+            side__in=('MERON', 'WALA'),
+            registered=True,
+            cancelled=False,
+        )
+        .values('side')
+        .annotate(total=Sum('wager'))
+    )
+    for row in rows:
+        sums[row['side']] = float(row['total'] or 0)
+    return sums['MERON'], sums['WALA']
+
+
+def _reconciled_fight_totals():
+    """Latest running totals, corrected to the ticket ledger when they drift."""
     m_total, m_payout, w_total, w_payout, total_pot, fightnum = get_Totals()
-    
+    ticket_totals = _ticket_totals_for_fight(fightnum)
+    if ticket_totals is None:
+        return m_total, float(m_payout), w_total, float(w_payout), total_pot, fightnum
+
+    ticket_m, ticket_w = ticket_totals
+    if abs(ticket_m - float(m_total)) > 0.005 or abs(ticket_w - float(w_total)) > 0.005:
+        logger.warning(
+            "TOTALS DRIFT: fight=%s running meron=%.2f wala=%.2f pot=%.2f; "
+            "tickets meron=%.2f wala=%.2f pot=%.2f — using ticket totals",
+            fightnum, float(m_total), float(w_total), float(total_pot),
+            ticket_m, ticket_w, ticket_m + ticket_w,
+        )
+    m_total, w_total = ticket_m, ticket_w
+    total_pot = ticket_m + ticket_w
+    m_payout, w_payout = compute_payout(m_total, w_total, total_pot)
+    return m_total, float(m_payout), w_total, float(w_payout), total_pot, fightnum
+
+
+def update_fightresults(side):
+    with db_transaction.atomic():
+        _lock_totals()
+        _record_fight_result(side)
+
+
+def _record_fight_result(side):
+    m_total, m_payout, w_total, w_payout, total_pot, fightnum = _reconciled_fight_totals()
+
     if m_payout < w_payout:
         meron_odds = "Llamado"
         wala_odds = "Dehado"
@@ -2723,8 +2797,10 @@ def initialize_totals():
     total_pot = 0
     fight_num = get_fightnum()
 
-    addtotal = Totals(fightnum=fight_num, mtotal=m_total, wtotal=w_total, mpayout=m_payout, wpayout=w_payout, totalpot=total_pot)
-    addtotal.save()
+    with db_transaction.atomic():
+        _lock_totals()
+        addtotal = Totals(fightnum=fight_num, mtotal=m_total, wtotal=w_total, mpayout=m_payout, wpayout=w_payout, totalpot=total_pot)
+        addtotal.save()
     return (m_total, m_payout, w_total, w_payout, total_pot)
 
 def initialize_fightnum():
@@ -3359,6 +3435,7 @@ def build_remit_receipt_payload(txn):
     breakdown = compute_teller_balance_breakdown(
         txn.user, event=event_scope, apply_end_bound=apply_end_bound,
     )
+    fightnum = txn.fightnum if txn.fightnum is not None else get_fightnum()
     return {
         'transaction_type': txn.transaction_type,
         'transaction_id': txn.transaction_id,
@@ -3366,6 +3443,7 @@ def build_remit_receipt_payload(txn):
         'balance': breakdown['balance'],
         'grand_total': breakdown['grand_total'],
         'cashier': str(txn.user),
+        'fightnum': fightnum,
         'date': txn.created_at.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
@@ -3519,7 +3597,8 @@ def cancel_bet(transaction_id, requesting_cashier=None):
 #update totals due to cancelled bet
 def deduct_totals(side, amount):
     with db_transaction.atomic():
-        latest = Totals.objects.select_for_update().order_by('-id').first()
+        _lock_totals()
+        latest = Totals.objects.order_by('-id').first()
         if latest:
             m_total   = latest.mtotal
             w_total   = latest.wtotal

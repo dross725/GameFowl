@@ -1886,6 +1886,7 @@ function triggerPrint(data) {
     balance:          data.balance,
     grand_total:      data.grand_total,
     cashier:          data.cashier,
+    fightnum:         data.fightnum,
     date:             data.created_at,
   };
   if (window.SmartWagersPrint && typeof window.SmartWagersPrint.printRemitReceipt === 'function') {

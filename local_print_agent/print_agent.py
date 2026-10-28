@@ -11,10 +11,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 STARTUP_LOG_PATH = BASE_DIR / "print_agent_silent.log"
-AGENT_VERSION = "1.13.2-shared-printer"
+AGENT_VERSION = "1.13.3-receipt-format"
 # Teller installs older than this are reported as outdated. A server release
 # does not roll back when only the teller agent is behind.
-AGENT_MIN_COMPATIBLE = "1.13.2-shared-printer"
+AGENT_MIN_COMPATIBLE = "1.13.3-receipt-format"
 # Serialize print jobs so concurrent browser requests do not stack open
 # StartDoc handles on the same USB thermal (which can stall other apps' queues).
 _PRINT_LOCK = threading.Lock()
@@ -86,13 +86,12 @@ def load_config():
 
 
 def money(value):
-    """Format a monetary amount with centavos, truncating beyond 2 decimals (no rounding)."""
+    """Format a monetary amount as whole pesos, truncating decimals."""
     try:
         num = float(str(value).replace(",", ""))
-        truncated = math.trunc(num * 100) / 100
-        return f"{truncated:,.2f}"
+        return f"{math.trunc(num):,}"
     except (TypeError, ValueError):
-        return str(value or "0.00")
+        return str(value or "0")
 
 
 def text_line(value="", code_page="cp437"):
@@ -245,8 +244,12 @@ def escpos_receipt(
     output += align
     if event_name:
         output += b"\x1bE\x01"
+        # Some low-cost ESC/POS printers reset alignment when bold is enabled,
+        # so centering must be the final command before the event text.
+        output += b"\x1ba\x01"
         output += text_line(event_name, code_page)
         output += b"\x1bE\x00"
+        output += align
     output += text_line(date, code_page)
     output += b"\x1bE\x01"
     output += text_line(receipt_title(receipt), code_page)
@@ -534,13 +537,13 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
             barcode_height = int(dpi_y * 0.55)
             barcode_narrow = max(int(dpi_x * 0.016), 3)
 
-            def draw_line(text, font, gap=None):
+            def draw_line(text, font, gap=None, force_center=False):
                 nonlocal y
                 if gap is None:
                     gap = line_gap
                 dc.SelectObject(font)
                 text_width, text_height = dc.GetTextExtent(text)
-                if align_left:
+                if align_left and not force_center:
                     x = margin_x
                 else:
                     x = max(int((page_width - text_width) / 2), margin_x)
@@ -551,7 +554,7 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
             started = True
             dc.StartPage()
             if event_name:
-                draw_line(event_name, bold_font, tight_gap)
+                draw_line(event_name, bold_font, tight_gap, force_center=True)
             draw_line(date, normal_font, tight_gap)
             draw_line(receipt_title(receipt), bold_font, tight_gap)
             if is_test:
@@ -644,6 +647,14 @@ def transaction_receipt_copies(receipt):
         return ADMIN_BANK_RECEIPT_COPIES
     return TELLER_TRANSACTION_RECEIPT_COPIES
 
+
+def receipt_fight_number(receipt):
+    """Current fight stamped on advance and borrow receipts. Empty when absent."""
+    raw = receipt.get("fightnum")
+    if raw is None:
+        return ""
+    return str(raw).strip()
+
 def escpos_remit_receipt(
     receipt,
     code_page="cp437",
@@ -660,6 +671,7 @@ def escpos_remit_receipt(
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
     event_name = str(receipt.get("event_name", ""))
+    fightnum = receipt_fight_number(receipt)
     is_admin_bank = receipt.get("receipt_scope") == "admin_bank"
     show_barcode = (
         not is_admin_bank
@@ -677,10 +689,13 @@ def escpos_remit_receipt(
         output += b"\x1bE\x01"
         output += text_line(label, code_page)
         output += text_line(copy_label, code_page)
+        if fightnum != "":
+            output += text_line(f"Fight Number: {fightnum}", code_page)
         output += b"\x1bE\x00"
-        output += b"\x1ba\x00"   # Detail lines always left for columns
         if event_name:
+            output += b"\x1ba\x01"
             output += text_line(f"Event    : {event_name}", code_page)
+        output += b"\x1ba\x00"   # Detail lines always left for columns
         actor_label = "Admin" if is_admin_bank else "Teller"
         output += text_line(f"{actor_label:<9}: {cashier}", code_page)
         output += text_line(f"Amount   : {amount}", code_page)
@@ -712,6 +727,7 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
     cashier = str(receipt.get("cashier", ""))
     date = str(receipt.get("date", ""))
     event_name = str(receipt.get("event_name", ""))
+    fightnum = receipt_fight_number(receipt)
     is_admin_bank = receipt.get("receipt_scope") == "admin_bank"
 
     label = "ADVANCE RECEIPT" if transaction_type == "REMIT" else "BORROW RECEIPT"
@@ -748,13 +764,13 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
             barcode_height = int(dpi_y * 0.55)
             barcode_narrow = max(int(dpi_x * 0.016), 3)
 
-            def draw_header(text, font, gap=None):
+            def draw_header(text, font, gap=None, force_center=False):
                 nonlocal y
                 if gap is None:
                     gap = line_gap
                 dc.SelectObject(font)
                 text_width, text_height = dc.GetTextExtent(text)
-                if align_left:
+                if align_left and not force_center:
                     x = margin_x
                 else:
                     x = max(int((page_width - text_width) / 2), margin_x)
@@ -778,8 +794,14 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
                 draw_header(date, normal_font, tight_gap)
                 draw_header(label, bold_font, tight_gap)
                 draw_header(copy_label, bold_font)
+                if fightnum != "":
+                    draw_header(f"Fight Number: {fightnum}", bold_font, tight_gap)
                 if event_name:
-                    draw_left(f"Event     : {event_name}")
+                    draw_header(
+                        f"Event     : {event_name}",
+                        normal_font,
+                        force_center=True,
+                    )
                 actor_label = "Admin" if is_admin_bank else "Teller"
                 draw_left(f"{actor_label:<10}: {cashier}")
                 draw_left(f"Amount    : {amount}")

@@ -73,8 +73,12 @@ def test_deploy_commands_upload_before_apply_and_history_is_appended(fleet, tmp_
     assert commands[0][0] == "ssh"
     assert commands[1][0] == "scp"
     assert commands[2][0] == "ssh"
-    assert "apply_usb_release.py" in commands[2][-1]
-    assert "--yes" in commands[2][-1]
+    remote = commands[2][-1]
+    assert "apply_usb_release.py" in remote
+    assert "--yes" in remote
+    assert "cmd /v:on /c" in remote
+    assert "!PY!" in remote
+    assert "%PY%" not in remote
 
     def runner(command, check=False, capture_output=True, text=True):
         class Process:

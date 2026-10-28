@@ -767,6 +767,7 @@ def _admin_fund_payload(event):
                     or txn.admin.username
                 ),
                 'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'fightnum': txn.fightnum,
             }
             for txn in transactions
         ],
@@ -872,6 +873,7 @@ def admin_bank_transaction(request):
                 or txn.admin.username
             ),
             'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'fightnum': txn.fightnum,
         },
     })
     return JsonResponse(payload)
@@ -1556,6 +1558,7 @@ def teller_transaction(request):
         'transaction_type': transaction_type,
         'amount': amount,
         'transaction_id': txn.transaction_id,
+        'fightnum': txn.fightnum,
         'created_at': txn.created_at.strftime('%Y-%m-%d %H:%M:%S'),
     })
 
@@ -1770,6 +1773,7 @@ def admin_teller_txn(request):
         'teller_id': teller.pk,
         'amount': amount,
         'transaction_type': transaction_type,
+        'fightnum': txn.fightnum,
         'status': txn.status_key,
         'received': bool(txn.received),
         'edited': txn.edited,
