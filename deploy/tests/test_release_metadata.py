@@ -67,7 +67,7 @@ def test_compose_metadata_includes_release_identity(metadata_module):
     assert metadata["app_version"] == "1.14.0"
     assert metadata["commit_sha"] == "abc123"
     assert metadata["required_python"] == "3.12"
-    assert metadata["schema_level"] == "0051_eventreportemail"
+    assert metadata["schema_level"] == "0052_advance_borrow_fightnum"
     assert metadata["allow_from_any_older"] is True
     assert metadata["print_agent_min_version"] == "1.13.3-receipt-format"
     assert metadata["print_agent_version"] == "1.13.3-receipt-format"
