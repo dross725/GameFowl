@@ -504,9 +504,11 @@ class ArchivedAdminBankTransaction(models.Model):
 class PrintDevice(models.Model):
     PLATFORM_ANDROID = 'android'
     PLATFORM_IOS = 'ios'
+    PLATFORM_CHROMEOS = 'chromeos'
     PLATFORM_CHOICES = (
         (PLATFORM_ANDROID, 'Android'),
         (PLATFORM_IOS, 'iOS'),
+        (PLATFORM_CHROMEOS, 'Chrome OS'),
     )
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='print_devices')

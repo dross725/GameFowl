@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SmartWagers Print</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <h1>SmartWagers Print</h1>
+    <p class="subtitle">Chrome OS USB · 58 mm ESC/POS</p>
+  </header>
+
+  <section class="card">
+    <label for="serverUrl">Server URL</label>
+    <input id="serverUrl" type="url" placeholder="http://192.168.1.10:8000" autocomplete="off" />
+
+    <label for="username">Teller username</label>
+    <input id="username" type="text" autocomplete="username" />
+
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" />
+
+    <div class="row">
+      <button id="signIn" type="button" class="primary">Sign in</button>
+      <button id="signOut" type="button" class="ghost">Sign out</button>
+    </div>
+    <p id="sessionLine" class="meta"></p>
+  </section>
+
+  <section class="card">
+    <p id="printerLine" class="meta">No printer selected.</p>
+    <div class="row">
+      <button id="choosePrinter" type="button">Choose printer</button>
+      <button id="testPrint" type="button">Test print</button>
+    </div>
+    <p class="hint">
+      Plug in the 58 mm USB thermal printer. If claim fails, remove the printer under
+      Chrome OS Settings → Printers so this extension can own the USB interface.
+    </p>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <button id="pollNow" type="button">Claim jobs now</button>
+    </div>
+    <p id="statusLine" class="status">Ready.</p>
+  </section>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -21,7 +21,11 @@ from . import escpos_receipts
 from .models import PrintDevice, PrintJob
 
 
-VALID_PLATFORMS = {PrintDevice.PLATFORM_ANDROID, PrintDevice.PLATFORM_IOS}
+VALID_PLATFORMS = {
+    PrintDevice.PLATFORM_ANDROID,
+    PrintDevice.PLATFORM_IOS,
+    PrintDevice.PLATFORM_CHROMEOS,
+}
 VALID_ENDPOINTS = {
     PrintJob.ENDPOINT_WAGER,
     PrintJob.ENDPOINT_PAYOUT,

@@ -157,3 +157,84 @@ def test_print_device_login_and_pending_flow(client, teller_user):
     )
     assert ack.status_code == 200
     assert PrintJob.objects.get(pk=job_id).status == PrintJob.STATUS_PRINTED
+
+
+@pytest.mark.django_db
+def test_print_device_login_rejects_unknown_platform(client, teller_user):
+    login_resp = client.post(
+        '/api/print-devices/login/',
+        data={
+            'username': 'teller1',
+            'password': 'pass12345',
+            'device_id': 'device-bad-platform',
+            'platform': 'windows',
+        },
+        content_type='application/json',
+    )
+    assert login_resp.status_code == 400
+    assert login_resp.json()['error'] == 'invalid_platform'
+    assert not PrintDevice.objects.filter(device_id='device-bad-platform').exists()
+
+
+@pytest.mark.django_db
+def test_chromeos_print_device_login_and_pending_flow(client, teller_user):
+    login_resp = client.post(
+        '/api/print-devices/login/',
+        data={
+            'username': 'teller1',
+            'password': 'pass12345',
+            'device_id': 'chromebook-1',
+            'platform': 'chromeos',
+            'printer_name': 'USB printer (1234:5678)',
+            'printer_address': '1234:5678',
+        },
+        content_type='application/json',
+    )
+    assert login_resp.status_code == 200
+    body = login_resp.json()
+    assert body['ok'] is True
+    assert body['platform'] == 'chromeos'
+    token = body['token']
+    device = PrintDevice.objects.get(device_id='chromebook-1', user=teller_user)
+    assert device.platform == PrintDevice.PLATFORM_CHROMEOS
+
+    client.force_login(teller_user)
+    enqueue_resp = client.post(
+        '/api/print-jobs/',
+        data={
+            'endpoint': 'wager',
+            'receipt': {
+                'receipt_type': 'wager',
+                'transaction_id': '11',
+                'side': 'WALA',
+                'amount': 40,
+                'fightnum': 5,
+                'cashier': 'teller1',
+                'date': '2026-09-10',
+            },
+        },
+        content_type='application/json',
+    )
+    assert enqueue_resp.status_code == 200
+    job_id = enqueue_resp.json()['job_id']
+
+    pending = client.get(
+        '/api/print-jobs/pending/',
+        HTTP_AUTHORIZATION=f'Bearer {token}',
+    )
+    assert pending.status_code == 200
+    jobs = pending.json()['jobs']
+    assert len(jobs) == 1
+    assert jobs[0]['id'] == job_id
+    assert base64.b64decode(jobs[0]['escpos_base64'])
+
+    ack = client.post(
+        f'/api/print-jobs/{job_id}/ack/',
+        data={'status': 'printed'},
+        content_type='application/json',
+        HTTP_AUTHORIZATION=f'Bearer {token}',
+    )
+    assert ack.status_code == 200
+    job = PrintJob.objects.get(pk=job_id)
+    assert job.status == PrintJob.STATUS_PRINTED
+    assert job.device_id == device.pk

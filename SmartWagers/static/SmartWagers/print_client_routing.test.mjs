@@ -18,7 +18,13 @@ function response(ok, body = {}, status = ok ? 200 : 503) {
 
 function loadClient({ ua, mode = 'auto', fetch }) {
   const values = new Map([['smartwagersPrintMode', mode]]);
-  const window = {};
+  const posted = [];
+  const window = {
+    location: { origin: 'http://smartwagers.test' },
+    postMessage: (data, targetOrigin) => {
+      posted.push({ data, targetOrigin });
+    },
+  };
   const context = {
     window,
     navigator: { userAgent: ua },
@@ -36,7 +42,7 @@ function loadClient({ ua, mode = 'auto', fetch }) {
     decodeURIComponent,
   };
   vm.runInNewContext(source, context, { filename: 'print_client.js' });
-  return window.SmartWagersPrint;
+  return { api: window.SmartWagersPrint, posted };
 }
 
 const WINDOWS_UA =
@@ -47,7 +53,7 @@ const CHROMEOS_UA =
   'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 Chrome/120 Safari/537.36';
 
 {
-  const client = loadClient({ ua: WINDOWS_UA, fetch: async () => response(false) });
+  const { api: client } = loadClient({ ua: WINDOWS_UA, fetch: async () => response(false) });
   assert.equal(client.isChromeOS(WINDOWS_UA), false);
   assert.equal(client.isLikelyMobile(ANDROID_UA), true);
   assert.equal(client.prefersCompanionQueue(CHROMEOS_UA), true);
@@ -55,7 +61,7 @@ const CHROMEOS_UA =
 
 {
   const calls = [];
-  const client = loadClient({
+  const { api: client } = loadClient({
     ua: WINDOWS_UA,
     fetch: async (url) => {
       calls.push(url);
@@ -70,7 +76,7 @@ const CHROMEOS_UA =
 
 {
   const calls = [];
-  const client = loadClient({
+  const { api: client, posted } = loadClient({
     ua: CHROMEOS_UA,
     fetch: async (url) => {
       calls.push(url);
@@ -82,11 +88,19 @@ const CHROMEOS_UA =
   assert.equal(result.ok, true);
   assert.equal(result.via, 'server');
   assert.deepEqual(calls, ['http://127.0.0.1:8765/health', '/api/print-jobs/']);
+  assert.equal(posted.length, 1);
+  // Compare via JSON — the payload object is created inside the vm sandbox.
+  assert.deepEqual(JSON.parse(JSON.stringify(posted[0].data)), {
+    source: 'smartwagers-print',
+    type: 'job-queued',
+    job_id: 7,
+  });
+  assert.equal(posted[0].targetOrigin, 'http://smartwagers.test');
 }
 
 {
   const calls = [];
-  const client = loadClient({
+  const { api: client, posted } = loadClient({
     ua: CHROMEOS_UA,
     mode: 'local',
     fetch: async (url) => {
@@ -97,11 +111,12 @@ const CHROMEOS_UA =
   const result = await client.printWagerReceipt({ transaction_id: '3' });
   assert.equal(result.via, 'local');
   assert.deepEqual(calls, ['http://127.0.0.1:8765/print-wager']);
+  assert.equal(posted.length, 0);
 }
 
 {
   const calls = [];
-  const client = loadClient({
+  const { api: client, posted } = loadClient({
     ua: WINDOWS_UA,
     mode: 'server',
     fetch: async (url) => {
@@ -112,6 +127,7 @@ const CHROMEOS_UA =
   const result = await client.printWagerReceipt({ transaction_id: '4' });
   assert.equal(result.via, 'server');
   assert.deepEqual(calls, ['/api/print-jobs/']);
+  assert.equal(posted.length, 0);
 }
 
 console.log('All print_client production routing cases passed.');

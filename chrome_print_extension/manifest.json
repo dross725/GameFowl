@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "SmartWagers Print",
+  "description": "USB ESC/POS print companion for SmartWagers on Chromebooks without the Play Store.",
+  "version": "1.0.0",
+  "action": {
+    "default_title": "SmartWagers Print",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "alarms",
+    "scripting",
+    "storage",
+    "usb"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ]
+}

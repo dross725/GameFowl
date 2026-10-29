@@ -67,6 +67,11 @@ urlpatterns = [
         views.admin_print_agent_android_download,
         name="admin-print-agent-android-download",
     ),
+    path(
+        "administrator/print-agent/chrome/",
+        views.admin_print_agent_chrome_download,
+        name="admin-print-agent-chrome-download",
+    ),
     path("api/print-jobs/", print_queue.enqueue_print_job_view, name="api-print-jobs-enqueue"),
     path("api/print-jobs/pending/", print_queue.print_jobs_pending, name="api-print-jobs-pending"),
     path("api/print-jobs/<int:job_id>/", print_queue.print_job_status_view, name="api-print-jobs-status"),

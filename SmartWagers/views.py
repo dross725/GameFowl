@@ -3526,6 +3526,10 @@ def _mobile_print_agent_dir() -> Path:
     return Path(settings.BASE_DIR) / 'mobile_print_agent'
 
 
+def _chrome_print_extension_dir() -> Path:
+    return Path(settings.BASE_DIR) / 'chrome_print_extension'
+
+
 def _mobile_print_agent_runtime_info():
     mobile_dir = _mobile_print_agent_dir()
     dist_dir = mobile_dir / 'dist'
@@ -3541,6 +3545,59 @@ def _mobile_print_agent_runtime_info():
         'android_apk_path': apk_path,
         'android_apk_name': apk_path.name if apk_path else 'SmartWagers-PrintCompanion.apk',
     }
+
+
+def _chrome_print_extension_runtime_info():
+    extension_dir = _chrome_print_extension_dir()
+    manifest_path = extension_dir / 'manifest.json'
+    return {
+        'extension_dir': extension_dir,
+        'extension_dir_exists': extension_dir.is_dir(),
+        'chrome_extension_ready': manifest_path.is_file(),
+        'chrome_extension_zip_name': 'SmartWagers-ChromePrint.zip',
+    }
+
+
+_CHROME_EXTENSION_ZIP_SKIP_DIR_NAMES = {
+    '__pycache__',
+    '.git',
+    'node_modules',
+}
+_CHROME_EXTENSION_ZIP_SKIP_SUFFIXES = ('.swp', '.swo', '.log')
+
+
+def _should_skip_chrome_extension_path(path: Path, extension_dir: Path) -> bool:
+    try:
+        relative = path.relative_to(extension_dir)
+    except ValueError:
+        return True
+    if any(part in _CHROME_EXTENSION_ZIP_SKIP_DIR_NAMES for part in relative.parts):
+        return True
+    name = path.name
+    if name.startswith('.') and name not in {'.', '..'}:
+        return True
+    if name.endswith(_CHROME_EXTENSION_ZIP_SKIP_SUFFIXES):
+        return True
+    return False
+
+
+def build_chrome_print_extension_zip_bytes() -> bytes:
+    extension_dir = _chrome_print_extension_dir()
+    if not extension_dir.is_dir():
+        raise FileNotFoundError(f'Chrome print extension folder missing: {extension_dir}')
+    if not (extension_dir / 'manifest.json').is_file():
+        raise FileNotFoundError('chrome_print_extension/manifest.json is missing')
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(extension_dir.rglob('*')):
+            if not path.is_file():
+                continue
+            if _should_skip_chrome_extension_path(path, extension_dir):
+                continue
+            arcname = Path('SmartWagers-ChromePrint') / path.relative_to(extension_dir)
+            zf.write(path, arcname.as_posix())
+    return buffer.getvalue()
 
 
 def _print_agent_runtime_info():
@@ -3925,6 +3982,7 @@ def admin_print_agent(request):
     """Admin page: download offline local print agent package for teller PCs."""
     info = _print_agent_runtime_info()
     mobile_info = _mobile_print_agent_runtime_info()
+    chrome_info = _chrome_print_extension_runtime_info()
     return render(request, 'SmartWagers/admin_print_agent.html', {
         'python_ready': info['python_ready'],
         'version_text': info['version_text'],
@@ -3932,6 +3990,9 @@ def admin_print_agent(request):
         'android_apk_ready': mobile_info['android_apk_ready'],
         'android_apk_name': mobile_info['android_apk_name'],
         'mobile_dir_exists': mobile_info['mobile_dir_exists'],
+        'chrome_extension_ready': chrome_info['chrome_extension_ready'],
+        'chrome_extension_zip_name': chrome_info['chrome_extension_zip_name'],
+        'chrome_extension_dir_exists': chrome_info['extension_dir_exists'],
     })
 
 
@@ -3999,6 +4060,45 @@ def admin_print_agent_android_download(request):
         'PRINT_AGENT_ANDROID_DOWNLOAD: admin=%s file=%s',
         request.user.username,
         apk_path.name,
+    )
+    return response
+
+
+@group_required('admin')
+@require_GET
+def admin_print_agent_chrome_download(request):
+    """Stream a zip of chrome_print_extension for Chromebook USB printing."""
+    info = _chrome_print_extension_runtime_info()
+    if not info['chrome_extension_ready']:
+        return HttpResponse(
+            'chrome_print_extension folder is missing on the server.',
+            status=404,
+            content_type='text/plain',
+        )
+    try:
+        payload = build_chrome_print_extension_zip_bytes()
+    except FileNotFoundError as exc:
+        return HttpResponse(str(exc), status=404, content_type='text/plain')
+    except OSError as exc:
+        logger.exception('PRINT_AGENT_CHROME_DOWNLOAD failed: %s', exc)
+        return HttpResponse(
+            'Failed to build Chrome print extension zip.',
+            status=500,
+            content_type='text/plain',
+        )
+
+    buffer = io.BytesIO(payload)
+    response = FileResponse(
+        buffer,
+        as_attachment=True,
+        filename=info['chrome_extension_zip_name'],
+        content_type='application/zip',
+    )
+    response['Content-Length'] = len(payload)
+    logger.info(
+        'PRINT_AGENT_CHROME_DOWNLOAD: admin=%s bytes=%s',
+        request.user.username,
+        len(payload),
     )
     return response
 

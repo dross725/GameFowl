@@ -127,6 +127,26 @@
         }
     }
 
+    /** Wake the Chrome OS USB print extension after a successful enqueue. */
+    function notifyCompanionQueue(jobId) {
+        if (typeof window === "undefined" || typeof window.postMessage !== "function") {
+            return;
+        }
+        if (!isChromeOS()) return;
+        try {
+            window.postMessage(
+                {
+                    source: "smartwagers-print",
+                    type: "job-queued",
+                    job_id: jobId || null,
+                },
+                window.location.origin,
+            );
+        } catch (error) {
+            // Extension absence must not break betting.
+        }
+    }
+
     async function postServerQueue(endpoint, receipt) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SERVER_PRINT_TIMEOUT_MS);
@@ -156,6 +176,7 @@
                     via: "server",
                 };
             }
+            notifyCompanionQueue(result.job_id);
             return {
                 ok: true,
                 message: result.message || "Receipt queued for print companion.",
