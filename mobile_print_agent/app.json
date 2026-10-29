@@ -2,8 +2,8 @@
   "expo": {
     "name": "SmartWagers Print",
     "slug": "smartwagers-print-companion",
-    "version": "1.0.4",
-    "orientation": "portrait",
+    "version": "1.1.0",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
@@ -14,7 +14,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.smartwagers.printcompanion",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "NSBluetoothAlwaysUsageDescription": "SmartWagers Print connects to your Bluetooth receipt printer.",
         "NSBluetoothPeripheralUsageDescription": "SmartWagers Print connects to your Bluetooth receipt printer.",
@@ -25,7 +25,7 @@
     },
     "android": {
       "package": "com.smartwagers.printcompanion",
-      "versionCode": 5,
+      "versionCode": 6,
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -63,7 +63,8 @@
         }
       ],
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      "./plugins/withChromebookCompat.js"
     ]
   }
 }

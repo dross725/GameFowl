@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -7,6 +8,20 @@ SPEC = importlib.util.spec_from_file_location("print_agent_for_test", MODULE_PAT
 assert SPEC and SPEC.loader
 print_agent = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(print_agent)
+
+
+def test_load_config_migrates_only_unversioned_left_layout(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    monkeypatch.setattr(print_agent, "CONFIG_PATH", config_path)
+
+    config_path.write_text(json.dumps({"text_align": "left"}), encoding="utf-8")
+    assert print_agent.load_config()["text_align"] == "center"
+
+    config_path.write_text(
+        json.dumps({"text_align": "left", "receipt_layout_version": 2}),
+        encoding="utf-8",
+    )
+    assert print_agent.load_config()["text_align"] == "left"
 
 
 def test_transaction_receipt_copies_for_teller():
@@ -30,21 +45,73 @@ def test_money_shows_whole_pesos_without_rounding():
     assert print_agent.money("1,250.75") == "1,250"
 
 
-def test_escpos_receipt_centers_event_then_restores_configured_alignment():
+def test_double_width_amount_is_centered():
+    payload = print_agent.escpos_receipt(
+        {
+            "receipt_type": "wager",
+            "side": "MERON",
+            "amount": "1000",
+        },
+        text_align="center",
+    )
+
+    # 16 double-width columns. "Amount: 1,000" is 13, so one leading space.
+    assert b"\x1d!\x11\x1ba\x00 Amount: 1,000\n" in payload
+    assert b"\x1ba\x01" not in payload
+    assert b"\x1b$" not in payload
+
+
+def test_layout_uses_same_normalized_width_for_setup_and_centering():
+    payload = print_agent.escpos_receipt(
+        {"receipt_type": "wager", "side": "X", "amount": "1"},
+        paper_width_dots=100,
+    )
+
+    assert b"\x1dW\xc0\x00" in payload
+    assert b"\x1d!\x11\x1ba\x00   X\n" in payload
+
+
+def test_escpos_receipt_centers_event_when_body_is_left():
     payload = print_agent.escpos_receipt(
         {
             "receipt_type": "wager",
             "event_name": "Sunday Derby",
+            "side": "MERON",
             "amount": "100.00",
         },
         text_align="left",
     )
 
-    event = payload.index(b"Sunday Derby")
-    title = payload.index(b"BET RECEIPT")
-    assert b"\x1bE\x01\x1ba\x01Sunday Derby\n" in payload
-    assert payload.rfind(b"\x1ba\x00", event, title) != -1
+    assert b"\x1dL\x00\x00\x1dW" in payload
+    assert b"\x1ba\x00\x1bE\x01\x1ba\x00          Sunday Derby\n" in payload
+    assert b"\x1dL\x00\x00\x1ba\x00\x1bE\x01\x1ba\x00BET RECEIPT\n" in payload
+    assert b"\x1d!\x11\x1ba\x00MERON\n" in payload
+    assert b"\x1ba\x01" not in payload
+    assert b"\x1b$" not in payload
     assert b"Amount: 100\n" in payload
+
+
+def test_escpos_receipt_centers_text_and_barcode():
+    payload = print_agent.escpos_receipt(
+        {
+            "receipt_type": "wager",
+            "transaction_id": "42",
+            "event_name": "Sunday Derby",
+            "side": "MERON",
+            "amount": "100.00",
+            "fightnum": 3,
+        },
+        text_align="center",
+    )
+
+    assert b"\x1dL\x00\x00\x1dW" in payload
+    assert b"\x1ba\x00\x1bE\x01\x1ba\x00          Sunday Derby\n" in payload
+    assert b"\x1ba\x00\x1bE\x01\x1ba\x00        Fight Number: 3\n" in payload
+    assert b"\x1d!\x11\x1ba\x00     MERON\n" in payload
+    assert b"\x1d!\x11\x1ba\x00  Amount: 100\n" in payload
+    assert b"\x1ba\x01" not in payload
+    assert b"\x1b$" not in payload
+    assert b"\x1dk\x49" in payload
 
 
 def test_escpos_remit_receipt_centers_event_and_uses_whole_amounts():
@@ -59,8 +126,9 @@ def test_escpos_remit_receipt_centers_event_and_uses_whole_amounts():
 
     first_event = payload.index(b"Event    : Sunday Derby")
     first_amount = payload.index(b"Amount   : 1,250")
-    assert payload.rfind(b"\x1ba\x01", 0, first_event) != -1
+    assert b"\x1ba\x00\x1bE\x00\x1ba\x00    Event    : Sunday Derby\n" in payload
     assert payload.rfind(b"\x1ba\x00", first_event, first_amount) != -1
+    assert b"\x1ba\x00\x1bE\x00\x1ba\x00Amount   : 1,250\n" in payload
     assert b"Balance  : 2,000\n" in payload
 
 

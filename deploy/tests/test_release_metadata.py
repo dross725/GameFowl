@@ -44,12 +44,12 @@ def test_full_release_allows_older_schema(metadata_module):
 
 
 def test_print_agent_contract(metadata_module):
-    assert metadata_module.is_agent_compatible("1.13.3-receipt-format")
-    assert not metadata_module.is_agent_compatible("1.13.2-shared-printer")
+    assert metadata_module.is_agent_compatible("1.13.10-receipt-center")
+    assert not metadata_module.is_agent_compatible("1.13.9-receipt-center")
     outdated = metadata_module.outdated_agents(
-        [{"host": "teller-1", "version": "1.13.2-shared-printer"}, {"host": "teller-2", "version": "1.13.3-receipt-format"}]
+        [{"host": "teller-1", "version": "1.13.9-receipt-center"}, {"host": "teller-2", "version": "1.13.10-receipt-center"}]
     )
-    assert outdated == [{"host": "teller-1", "version": "1.13.2-shared-printer", "minimum": "1.13.3-receipt-format"}]
+    assert outdated == [{"host": "teller-1", "version": "1.13.9-receipt-center", "minimum": "1.13.10-receipt-center"}]
 
 
 def test_compose_metadata_includes_release_identity(metadata_module):
@@ -69,5 +69,5 @@ def test_compose_metadata_includes_release_identity(metadata_module):
     assert metadata["required_python"] == "3.12"
     assert metadata["schema_level"] == "0052_advance_borrow_fightnum"
     assert metadata["allow_from_any_older"] is True
-    assert metadata["print_agent_min_version"] == "1.13.3-receipt-format"
-    assert metadata["print_agent_version"] == "1.13.3-receipt-format"
+    assert metadata["print_agent_min_version"] == "1.13.10-receipt-center"
+    assert metadata["print_agent_version"] == "1.13.11-receipt-fit"

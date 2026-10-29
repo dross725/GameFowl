@@ -113,11 +113,15 @@ Windows agent):
 localStorage.setItem("smartwagersPrintMode", "server"); // or "local" or "auto"
 ```
 
-## Mobile Bluetooth
+## Mobile / Chromebook companion
 
-Android/iOS Bluetooth printing is handled by the companion app in
-`../mobile_print_agent/` (not this Windows agent). See that README and
-**Admin → Print Agent** for APK / TestFlight install steps.
+Android/iOS/Chromebook printing is handled by the companion app in
+`../mobile_print_agent/` (not this Windows agent). Chrome OS has no Windows
+print agent — the browser queues jobs to `/api/print-jobs/` and the Android
+companion (Play Store / ARC) prints over Bluetooth or USB.
+
+See that README (Chrome OS + Distribution sections) and **Admin → Print Agent**
+for APK / managed Play / TestFlight install steps.
 
 ## Endpoints
 

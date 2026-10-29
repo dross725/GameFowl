@@ -9,7 +9,7 @@ from pathlib import Path
 
 PACKAGE_VERSION = 2
 REQUIRED_PYTHON = "3.12"
-PRINT_AGENT_MIN_VERSION = "1.13.3-receipt-format"
+PRINT_AGENT_MIN_VERSION = "1.13.10-receipt-center"
 SUPPORTED_PACKAGE_VERSIONS = {1, 2}
 
 _AGENT_VERSION_RE = re.compile(r"^AGENT_VERSION\s*=\s*\"([^\"]+)\"", re.MULTILINE)

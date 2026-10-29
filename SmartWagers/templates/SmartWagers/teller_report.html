@@ -744,7 +744,7 @@
     tellerName: "{{ teller_name|escapejs }}",
   };
 </script>
-<script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
+<script src="{% static 'SmartWagers/print_client.js' %}?v=chromeos-1"></script>
 <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=amount-lock-side-1"></script>
 <script src="{% static 'SmartWagers/teller_report.js' %}?v=fund-txns-1"></script>
 <script>
@@ -794,7 +794,7 @@ async function reprintFromReport(btn, transactionId) {
         const printResult = await printWagerReceipt(data.receipt);
         showReprintToast(
             printResult.ok
-                ? reportTxnMessage('Receipt sent to printer.', transactionId)
+                ? reportTxnMessage(printResult.message || 'Receipt sent to printer.', transactionId)
                 : reportTxnMessage('Print failed: ' + printResult.message, transactionId),
             printResult.ok ? 'success' : 'error',
         );

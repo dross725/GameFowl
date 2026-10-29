@@ -179,7 +179,10 @@ async function handleUserSocketMessage(event) {
                 );
                 const printResult = await printWagerReceipt(data.receipt);
                 document.getElementById('payout_message3').innerText = printResult.ok
-                    ? formatTransactionMessage("Cancel receipt sent to printer.", data.transaction_id)
+                    ? formatTransactionMessage(
+                        printResult.message || "Cancel receipt sent to printer.",
+                        data.transaction_id,
+                    )
                     : formatTransactionMessage("Cancel receipt print failed: " + printResult.message, data.transaction_id);
             }
         }
@@ -893,7 +896,7 @@ async function submitTellerTransaction(type) {
                 date: data.created_at,
             });
             document.getElementById('payout_message3').innerText = printResult.ok
-                ? 'Receipt sent to printer.'
+                ? (printResult.message || 'Receipt sent to printer.')
                 : 'Print failed: ' + printResult.message;
         } else {
             document.getElementById('payout_message3').innerText = '';

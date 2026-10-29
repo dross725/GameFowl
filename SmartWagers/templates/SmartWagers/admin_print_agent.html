@@ -183,7 +183,7 @@
 <div id="pa-wrapper">
   <div>
     <div id="pa-title">Print Agents</div>
-    <div id="pa-subtitle">Windows USB agent and Android / iOS Bluetooth companion apps.</div>
+    <div id="pa-subtitle">Windows USB agent, Android / iOS Bluetooth companion, and Chromebook (ARC) companion.</div>
   </div>
 
   <div class="pa-panel">
@@ -255,10 +255,10 @@
     </div>
     <p class="pa-text">
       Mobile tellers use the SmartWagers website in the phone browser. A small companion app
-      stays signed in, claims queued receipts, and prints over Bluetooth ESC/POS.
+      stays signed in, claims queued receipts, and prints over Bluetooth ESC/POS (USB on Android).
     </p>
     <p class="pa-text">
-      <strong>Android:</strong> Classic Bluetooth SPP (pair the printer in system settings first).<br>
+      <strong>Android:</strong> Classic Bluetooth SPP (pair in system settings) or USB ESC/POS.<br>
       <strong>iOS:</strong> BLE / dual-mode printers only — Classic-SPP-only units will not work on iPhone.
     </p>
     {% if android_apk_ready %}
@@ -275,10 +275,41 @@
     <ol class="pa-steps">
       <li>Install the companion (Android sideload APK, or iOS TestFlight / Ad Hoc).</li>
       <li>Open the app → enter the SmartWagers server URL → sign in as the teller.</li>
-      <li>Scan / select the Bluetooth printer → Test print.</li>
+      <li>Scan / select the Bluetooth or USB printer → Test print.</li>
       <li>Tap <strong>Start service</strong> and leave the app running.</li>
       <li>Use the phone browser for betting; receipts print through the companion.</li>
     </ol>
+  </div>
+
+  <div class="pa-panel">
+    <div class="pa-panel-title">Chromebook (Chrome OS) — Android companion</div>
+    <p class="pa-text">
+      The Windows localhost agent cannot run on Chrome OS. Chromebook tellers use the
+      <strong>same Android companion APK</strong> via Google Play / ARC. Chrome queues receipts
+      to the server; the companion prints over Bluetooth or USB.
+    </p>
+    <p class="pa-text">
+      Requires <strong>Google Play</strong> (or ADB install on unmanaged devices). Managed fleets
+      that disable Android apps cannot use this path.
+    </p>
+    {% if android_apk_ready %}
+      <a class="pa-download-btn" href="{% url 'admin-print-agent-android-download' %}">Download Android APK</a>
+    {% else %}
+      <a class="pa-download-btn is-disabled" href="#">Android APK unavailable</a>
+    {% endif %}
+    <ol class="pa-steps">
+      <li>Install the companion from managed Play (preferred) or sideload via ADB — see <span class="pa-code">mobile_print_agent/README.md</span> Distribution.</li>
+      <li>Open SmartWagers Print → enter the server URL → sign in as the teller.</li>
+      <li>Bluetooth: pair the printer in Chrome OS / Android settings, then Scan.<br>
+          USB: plug the ESC/POS printer, allow USB access when prompted, then Scan.</li>
+      <li>Select the printer → Test print → tap <strong>Start service</strong>.</li>
+      <li>Use Chrome on the same Chromebook for betting (same teller account). Keep the companion service notification visible.</li>
+    </ol>
+    <p class="pa-note">
+      Chrome OS browsers auto-route to the server print queue when
+      <span class="pa-code">127.0.0.1:8765</span> is not running. Force with
+      <span class="pa-code">localStorage.setItem("smartwagersPrintMode", "server")</span>.
+    </p>
   </div>
 </div>
 {% endblock content %}

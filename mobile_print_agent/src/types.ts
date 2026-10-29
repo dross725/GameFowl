@@ -12,7 +12,7 @@ export type PrinterInfo = {
   id: string;
   name: string;
   address: string;
-  transport: 'classic' | 'ble';
+  transport: 'classic' | 'ble' | 'usb';
 };
 
 export type PrintJobPayload = {

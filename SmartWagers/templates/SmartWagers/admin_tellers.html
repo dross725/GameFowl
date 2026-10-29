@@ -1430,7 +1430,7 @@
   </div>
 </div>
 
-<script src="{% static 'SmartWagers/print_client.js' %}?v=desktop-local-2"></script>
+<script src="{% static 'SmartWagers/print_client.js' %}?v=chromeos-1"></script>
 <script>
 const TELLER_TXN_URL      = "{% url 'admin-teller-txn' %}";
 const TELLER_EDIT_URL     = "{% url 'admin-edit-teller-txn' %}";
@@ -1893,7 +1893,8 @@ function triggerPrint(data) {
     window.SmartWagersPrint.printRemitReceipt(receipt).catch(() => {});
     return;
   }
-  // Fallback: local agent only (legacy).
+  // Legacy fallback: local only. Server queue routing belongs to print_client.js,
+  // which enforces platform and forced-local safeguards.
   const url = (localStorage.getItem('smartwagersPrintAgentUrl') || 'http://127.0.0.1:8765').replace(/\/$/, '') + '/print-remit';
   fetch(url, {
     method: 'POST',
