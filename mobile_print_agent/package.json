@@ -1,6 +1,6 @@
 {
   "name": "smartwagers-print-companion",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "main": "expo/AppEntry.js",
   "scripts": {
@@ -9,9 +9,11 @@
     "ios": "expo run:ios",
     "prebuild": "expo prebuild",
     "typecheck": "tsc --noEmit",
+    "test:routing": "node ../SmartWagers/static/SmartWagers/print_client_routing.test.mjs",
     "build:android": "CI=1 expo prebuild --platform android --no-install && cd android && ./gradlew assembleRelease && mkdir -p ../dist && cp -f app/build/outputs/apk/release/app-release.apk ../dist/SmartWagers-PrintCompanion.apk",
     "build:ios:eas": "eas build --platform ios --profile preview",
-    "build:android:eas": "eas build --platform android --profile preview",
+    "build:android:eas": "eas build --platform android --profile production",
+    "build:android:eas:preview": "eas build --platform android --profile preview",
     "lint": "echo \"no lint configured\"",
     "postinstall": "patch-package"
   },
@@ -40,7 +42,8 @@
     "react-native": "0.76.9",
     "react-native-background-actions": "^4.1.0",
     "react-native-ble-plx": "^3.2.1",
-    "react-native-bluetooth-classic": "^1.73.0-rc.13"
+    "react-native-bluetooth-classic": "^1.73.0-rc.13",
+    "usb-escpos": "file:modules/usb-escpos"
   },
   "devDependencies": {
     "@babel/core": "^7.25.0",

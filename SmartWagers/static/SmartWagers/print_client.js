@@ -1,6 +1,6 @@
 /**
  * SmartWagers print router: Windows localhost agent when healthy, else server queue
- * for mobile Bluetooth companion apps.
+ * for Android / iOS / Chrome OS companion apps.
  */
 (function (global) {
     "use strict";
@@ -30,8 +30,25 @@
         return match ? decodeURIComponent(match[1]) : "";
     }
 
-    function isLikelyMobile() {
-        return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || "");
+    /** @param {string} [ua] */
+    function isChromeOS(ua) {
+        return /\bCrOS\b/i.test(ua || (typeof navigator !== "undefined" ? navigator.userAgent : "") || "");
+    }
+
+    /** @param {string} [ua] */
+    function isLikelyMobile(ua) {
+        return /Android|iPhone|iPad|iPod|Mobile/i.test(
+            ua || (typeof navigator !== "undefined" ? navigator.userAgent : "") || "",
+        );
+    }
+
+    /**
+     * Platforms that should fall back to the server companion queue when the
+     * Windows localhost agent is missing or unhealthy (auto mode).
+     * @param {string} [ua]
+     */
+    function prefersCompanionQueue(ua) {
+        return isLikelyMobile(ua) || isChromeOS(ua);
     }
 
     async function probeLocalAgent(force) {
@@ -61,9 +78,9 @@
         const mode = getPrintMode();
         if (mode === "local") return true;
         if (mode === "server") return false;
-        // Desktop cashier PCs always prefer the Windows localhost agent.
-        // Only mobile browsers fall through to the Bluetooth companion queue.
-        if (!isLikelyMobile()) return true;
+        // Windows cashier PCs always prefer the localhost agent.
+        // Mobile + Chrome OS probe first, then fall through to the companion queue.
+        if (!prefersCompanionQueue()) return true;
         return probeLocalAgent(false);
     }
 
@@ -141,7 +158,7 @@
             }
             return {
                 ok: true,
-                message: result.message || "Receipt queued for mobile print companion.",
+                message: result.message || "Receipt queued for print companion.",
                 job_id: result.job_id,
                 via: "server",
             };
@@ -167,9 +184,9 @@
         if (useLocal) {
             const localResult = await postLocal(path, receipt, options);
             if (localResult.ok) return localResult;
-            // Windows tellers / forced-local: never silently enqueue Bluetooth jobs.
-            // Mobile auto may fall back to the companion queue when localhost fails.
-            if (mode === "local" || !isLikelyMobile()) return localResult;
+            // Windows tellers / forced-local: never silently enqueue companion jobs.
+            // Mobile / Chrome OS auto may fall back when localhost fails.
+            if (mode === "local" || !prefersCompanionQueue()) return localResult;
             return postServerQueue(endpoint, receipt);
         }
         return postServerQueue(endpoint, receipt);
@@ -192,6 +209,9 @@
         getLocalPrintAgentUrl,
         getPrintMode,
         probeLocalAgent,
+        isChromeOS,
+        isLikelyMobile,
+        prefersCompanionQueue,
         printWagerReceipt,
         printPayoutReceipt,
         printRemitReceipt,

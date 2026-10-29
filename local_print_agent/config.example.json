@@ -6,7 +6,8 @@
   "code_page": "cp437",
   "font_scale": 1.0,
   "paper_width_dots": 384,
-  "text_align": "left",
+  "text_align": "center",
+  "receipt_layout_version": 2,
   "barcode_module_width": 3,
   "barcode_height": 120
 }

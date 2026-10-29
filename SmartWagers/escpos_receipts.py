@@ -10,7 +10,7 @@ from typing import Any, Mapping
 
 DEFAULT_CODE_PAGE = "cp437"
 DEFAULT_PAPER_WIDTH_DOTS = 384
-DEFAULT_TEXT_ALIGN = "left"
+DEFAULT_TEXT_ALIGN = "center"
 DEFAULT_BARCODE_MODULE_WIDTH = 3
 DEFAULT_BARCODE_HEIGHT = 120
 
@@ -41,6 +41,14 @@ def money(value: Any) -> str:
         return str(value or "0.00")
 
 
+FONT_A_WIDTH_DOTS = 12
+
+
+def normalize_paper_width_dots(paper_width_dots: Any) -> int:
+    """Return the printable width used consistently by all layout helpers."""
+    return max(int(paper_width_dots or DEFAULT_PAPER_WIDTH_DOTS), 192)
+
+
 def text_line(value: Any = "", code_page: str = DEFAULT_CODE_PAGE) -> bytes:
     return f"{value}\n".encode(code_page, errors="replace")
 
@@ -55,9 +63,60 @@ def escpos_align_byte(text_align: str = DEFAULT_TEXT_ALIGN) -> bytes:
     return b"\x1ba\x00"
 
 
+def fit_centered_text(text: Any, paper_width_dots: int, double: bool = False) -> str:
+    """Pad a line so it sits in the middle of a 58mm head.
+
+    LogicOwl ESC a center uses an 80mm page. On 58mm paper that parks the
+    bold event title on the left and clips the last digits of a double-width
+    amount. Font A is 12 dots, so 384 dots is 32 columns (16 when doubled).
+    """
+    raw = str(text)
+    cell = FONT_A_WIDTH_DOTS * (2 if double else 1)
+    columns = max(normalize_paper_width_dots(paper_width_dots) // cell, 1)
+    if len(raw) >= columns:
+        return raw
+    return (" " * ((columns - len(raw)) // 2)) + raw
+
+
+def place_line(
+    text: Any,
+    code_page: str,
+    paper_width_dots: int,
+    text_align: str = "center",
+    bold: bool | None = None,
+    double: bool = False,
+    force_center: bool = False,
+) -> bytes:
+    """Print one line from the left edge, centered with spaces when asked."""
+    mode = "center" if force_center else str(text_align or "center").strip().lower()
+    if mode == "center":
+        rendered = fit_centered_text(text, paper_width_dots, double)
+        align = b"\x1ba\x00"
+    elif mode == "right":
+        rendered = str(text)
+        align = b"\x1ba\x02"
+    else:
+        rendered = str(text)
+        align = b"\x1ba\x00"
+    output = bytearray()
+    output += b"\x1dL\x00\x00"
+    output += align
+    if bold is True:
+        output += b"\x1bE\x01"
+    elif bold is False:
+        output += b"\x1bE\x00"
+    if double:
+        output += b"\x1d!\x11"
+    output += align
+    output += text_line(rendered, code_page)
+    if double:
+        output += b"\x1d!\x00"
+    return bytes(output)
+
+
 def escpos_page_setup(paper_width_dots: int = DEFAULT_PAPER_WIDTH_DOTS) -> bytes:
-    """Lock printable area to 58mm so layout matches left-fed paper."""
-    width = max(int(paper_width_dots or DEFAULT_PAPER_WIDTH_DOTS), 192)
+    """Lock the printable area to the 58mm roll and clear the left margin."""
+    width = normalize_paper_width_dots(paper_width_dots)
     n_l = width & 0xFF
     n_h = (width >> 8) & 0xFF
     output = bytearray()
@@ -65,6 +124,33 @@ def escpos_page_setup(paper_width_dots: int = DEFAULT_PAPER_WIDTH_DOTS) -> bytes
     output += b"\x1dL\x00\x00"  # GS L: left margin = 0
     output += b"\x1dW" + bytes([n_l, n_h])  # GS W: print area width
     output += b"\x1b3\x14"  # Tight line spacing (20 dots)
+    return bytes(output)
+
+
+def code128_width_dots(transaction_id: Any, module_width: int = DEFAULT_BARCODE_MODULE_WIDTH) -> int:
+    """Dot width of the CODE128 symbol printed for this transaction id."""
+    tid = normalize_receipt_transaction_id(transaction_id)
+    modules = 11 * (len(tid) + 2) + 13
+    width = max(2, min(int(module_width or DEFAULT_BARCODE_MODULE_WIDTH), 6))
+    return modules * width
+
+
+def position_barcode(
+    transaction_id: Any,
+    paper_width_dots: int,
+    text_align: str,
+    module_width: int,
+) -> bytes:
+    """Place the barcode on the 58mm head. ESC a center would use 80mm."""
+    output = bytearray()
+    if str(text_align or "center").strip().lower() == "center":
+        bar_width = code128_width_dots(transaction_id, module_width)
+        offset = max((normalize_paper_width_dots(paper_width_dots) - bar_width) // 2, 0)
+        output += bytes([0x1D, 0x4C, offset & 0xFF, (offset >> 8) & 0xFF])
+        output += b"\x1ba\x00"
+    else:
+        output += b"\x1dL\x00\x00"
+        output += escpos_align_byte(text_align)
     return bytes(output)
 
 
@@ -175,6 +261,7 @@ def escpos_receipt(
     barcode_module_width: int = DEFAULT_BARCODE_MODULE_WIDTH,
     barcode_height: int = DEFAULT_BARCODE_HEIGHT,
 ) -> bytes:
+    paper_width_dots = normalize_paper_width_dots(paper_width_dots)
     transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     event_name = str(receipt.get("event_name", "")).strip()
     side = str(receipt.get("side", "")).upper()
@@ -190,49 +277,48 @@ def escpos_receipt(
     is_refund = is_refund_receipt(receipt)
     show_txn = should_print_transaction_id(receipt) and bool(transaction_id)
     show_barcode = should_print_barcode(receipt) and bool(transaction_id)
-    align = escpos_align_byte(text_align)
+
+    def emit(text: Any, bold: bool | None = None, double: bool = False, force_center: bool = False) -> bytes:
+        return place_line(
+            text,
+            code_page,
+            paper_width_dots,
+            text_align,
+            bold=bold,
+            double=double,
+            force_center=force_center,
+        )
 
     output = bytearray()
     output += escpos_page_setup(paper_width_dots)
-    output += align
     if event_name:
-        output += b"\x1bE\x01"
-        output += text_line(event_name, code_page)
-        output += b"\x1bE\x00"
-    output += text_line(date, code_page)
-    output += b"\x1bE\x01"
-    output += text_line(receipt_title(receipt), code_page)
+        output += emit(event_name, bold=True, force_center=True)
+    output += emit(date, bold=False)
+    output += emit(receipt_title(receipt), bold=True)
     if is_test:
-        output += text_line(f"Teller: {cashier}", code_page)
-        output += text_line("Current Total:", code_page)
-        output += b"\x1d!\x11"  # Double width + double height
-        output += text_line(amount, code_page)
-        output += b"\x1d!\x00"
+        output += emit(f"Teller: {cashier}", bold=True)
+        output += emit("Current Total:", bold=True)
+        output += emit(amount, bold=True, double=True)
     else:
-        output += text_line(f"Fight Number: {fightnum}", code_page)
+        output += emit(f"Fight Number: {fightnum}", bold=True)
     if is_wager:
-        output += b"\x1d!\x11"
-        output += text_line(side, code_page)
-        output += text_line(f"Amount: {amount}", code_page)
-        output += b"\x1d!\x00"
+        output += emit(side, bold=True, double=True)
+        output += emit(f"Amount: {amount}", bold=True, double=True)
     elif not is_test:
-        output += b"\x1d!\x11"
-        output += text_line(f"{side} - {odds}", code_page)
-        output += b"\x1d!\x00"
-        output += text_line(f"Amount: {amount}", code_page)
-        output += text_line(f"Odds: {multiplier}", code_page)
-        output += text_line("Refund Amount:" if is_refund else "Payout Amount:", code_page)
-        output += b"\x1d!\x11"
-        output += text_line(total_payout, code_page)
-        output += b"\x1d!\x00"
-    output += b"\x1bE\x00"
+        output += emit(f"{side} - {odds}", bold=True, double=True)
+        output += emit(f"Amount: {amount}", bold=True)
+        output += emit(f"Odds: {multiplier}", bold=True)
+        output += emit("Refund Amount:" if is_refund else "Payout Amount:", bold=True)
+        output += emit(total_payout, bold=True, double=True)
     if not is_test:
-        output += text_line(f"Cashier: {cashier}", code_page)
+        output += emit(f"Cashier: {cashier}", bold=False)
     if show_txn:
-        output += text_line(f"{transaction_id}", code_page)
+        output += emit(transaction_id, bold=False)
 
     if show_barcode:
-        output += align
+        output += position_barcode(
+            transaction_id, paper_width_dots, text_align, barcode_module_width,
+        )
         output += escpos_barcode(
             transaction_id,
             module_width=barcode_module_width,
@@ -251,6 +337,7 @@ def escpos_remit_receipt(
     barcode_module_width: int = DEFAULT_BARCODE_MODULE_WIDTH,
     barcode_height: int = DEFAULT_BARCODE_HEIGHT,
 ) -> bytes:
+    paper_width_dots = normalize_paper_width_dots(paper_width_dots)
     transaction_type = str(receipt.get("transaction_type", "REMIT")).upper()
     transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     amount = money(receipt.get("amount"))
@@ -265,32 +352,42 @@ def escpos_remit_receipt(
         and is_teller_remit_receipt(receipt)
         and bool(transaction_id)
     )
-    align = escpos_align_byte(text_align)
 
     label = "ADVANCE RECEIPT" if transaction_type == "REMIT" else "BORROW RECEIPT"
     output = bytearray()
     for copy_label in transaction_receipt_copies(receipt):
         output += escpos_page_setup(paper_width_dots)
-        output += align
-        output += text_line(date, code_page)
-        output += b"\x1bE\x01"
-        output += text_line(label, code_page)
-        output += text_line(copy_label, code_page)
+        output += place_line(date, code_page, paper_width_dots, text_align, bold=False)
+        output += place_line(label, code_page, paper_width_dots, text_align, bold=True)
+        output += place_line(copy_label, code_page, paper_width_dots, text_align, bold=True)
         if fightnum != "":
-            output += text_line(f"Fight Number: {fightnum}", code_page)
-        output += b"\x1bE\x00"
-        output += b"\x1ba\x00"  # Detail lines always left for columns
+            output += place_line(
+                f"Fight Number: {fightnum}", code_page, paper_width_dots, text_align, bold=True,
+            )
         if event_name:
-            output += text_line(f"Event    : {event_name}", code_page)
+            output += place_line(
+                f"Event    : {event_name}",
+                code_page,
+                paper_width_dots,
+                text_align,
+                bold=False,
+                force_center=True,
+            )
         actor_label = "Admin" if is_admin_bank else "Teller"
-        output += text_line(f"{actor_label:<9}: {cashier}", code_page)
-        output += text_line(f"Amount   : {amount}", code_page)
-        output += text_line(f"Balance  : {balance}", code_page)
+        output += place_line(
+            f"{actor_label:<9}: {cashier}", code_page, paper_width_dots, "left", bold=False,
+        )
+        output += place_line(f"Amount   : {amount}", code_page, paper_width_dots, "left", bold=False)
+        output += place_line(f"Balance  : {balance}", code_page, paper_width_dots, "left", bold=False)
         if transaction_id:
-            output += text_line(f"Txn ID   : {transaction_id}", code_page)
+            output += place_line(
+                f"Txn ID   : {transaction_id}", code_page, paper_width_dots, "left", bold=False,
+            )
 
         if show_barcode:
-            output += align
+            output += position_barcode(
+                transaction_id, paper_width_dots, text_align, barcode_module_width,
+            )
             output += escpos_barcode(
                 transaction_id,
                 module_width=barcode_module_width,

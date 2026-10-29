@@ -1,15 +1,16 @@
 import { Buffer } from 'buffer';
 import { PermissionsAndroid, Platform } from 'react-native';
 import type { Device } from 'react-native-ble-plx';
+import { isUsbEscPosAvailable, listUsbDevices, printUsbRawBase64 } from 'usb-escpos';
 import type { PrinterInfo } from './types';
 
 /**
- * Bluetooth print transport.
- * - Android: Classic Bluetooth SPP (RFCOMM) via react-native-bluetooth-classic
- * - iOS: BLE GATT via react-native-ble-plx (Classic SPP is not available on iOS)
+ * Print transport.
+ * - Android: Classic Bluetooth SPP (RFCOMM) + USB host bulk-OUT
+ * - iOS: BLE GATT only (Classic SPP and USB host are not available)
  *
  * Native modules are loaded lazily so importing this file does not initialize
- * platform-incompatible Bluetooth stacks at module load time.
+ * platform-incompatible stacks at module load time.
  */
 
 const BLE_SERVICE_HINTS = [
@@ -119,6 +120,23 @@ async function listClassicPrinters(): Promise<PrinterInfo[]> {
   }));
 }
 
+async function listUsbPrinters(): Promise<PrinterInfo[]> {
+  if (Platform.OS !== 'android' || !isUsbEscPosAvailable()) return [];
+  const devices = await listUsbDevices();
+  return devices.map((device) => {
+    const label =
+      String(device.productName || '').trim() ||
+      String(device.manufacturerName || '').trim() ||
+      `USB ${device.vendorId}:${device.productId}`;
+    return {
+      id: `usb:${device.stableId}`,
+      name: label,
+      address: device.stableId,
+      transport: 'usb' as const,
+    };
+  });
+}
+
 async function disconnectClassic(address: string): Promise<void> {
   try {
     const RNBluetoothClassic = loadClassic();
@@ -154,9 +172,16 @@ async function printClassic(printer: PrinterInfo, bytes: Uint8Array): Promise<vo
   }
 }
 
+async function printUsb(printer: PrinterInfo, bytes: Uint8Array): Promise<void> {
+  const deviceName = printer.address || printer.id.replace(/^usb:/, '');
+  await printUsbRawBase64(deviceName, toBase64(bytes));
+}
+
 /** Drop any lingering Classic SPP link (e.g. when the print service stops). */
 export async function releaseClassicPrinter(printer: PrinterInfo | null): Promise<void> {
-  if (!printer || printer.transport === 'ble' || Platform.OS === 'ios') return;
+  if (!printer || printer.transport === 'ble' || printer.transport === 'usb' || Platform.OS === 'ios') {
+    return;
+  }
   await ensureBluetoothPermissions().catch(() => undefined);
   await disconnectClassic(printer.address || printer.id);
 }
@@ -293,10 +318,35 @@ export async function listPrinters(): Promise<PrinterInfo[]> {
   if (Platform.OS === 'ios') {
     return listBlePrinters();
   }
-  return listClassicPrinters();
+
+  const errors: string[] = [];
+  let classic: PrinterInfo[] = [];
+  let usb: PrinterInfo[] = [];
+
+  try {
+    classic = await listClassicPrinters();
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  try {
+    usb = await listUsbPrinters();
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  const found = [...usb, ...classic];
+  if (!found.length && errors.length) {
+    throw new Error(errors.join(' · '));
+  }
+  return found;
 }
 
 export async function printRaw(printer: PrinterInfo, bytes: Uint8Array): Promise<void> {
+  if (printer.transport === 'usb') {
+    await printUsb(printer, bytes);
+    return;
+  }
   if (Platform.OS === 'ios' || printer.transport === 'ble') {
     await printBle(printer, bytes);
     return;
@@ -312,7 +362,7 @@ export function platformPrintHint(): string {
     );
   }
   return (
-    'Android uses Classic Bluetooth SPP. Pair the printer in Android Settings first, ' +
-    'allow Bluetooth / Nearby devices when prompted, then Scan.'
+    'Android / Chromebook: Classic Bluetooth SPP or USB ESC/POS. ' +
+    'Pair Bluetooth in system settings, or plug in USB and allow access when prompted, then Scan.'
   );
 }

@@ -137,7 +137,7 @@ def enqueue_print_job_view(request):
         'ok': True,
         'job_id': job.pk,
         'status': job.status,
-        'message': 'Receipt queued for mobile print companion.',
+        'message': 'Receipt queued for print companion.',
     })
 
 

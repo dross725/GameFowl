@@ -161,7 +161,10 @@ administratorSocket.onmessage = async (event) => {
                 );
                 const printResult = await printWagerReceipt(data.receipt);
                 document.getElementById('payout_message3').innerText = printResult.ok
-                    ? formatTransactionMessage("Cancel receipt sent to printer.", data.transaction_id)
+                    ? formatTransactionMessage(
+                        printResult.message || "Cancel receipt sent to printer.",
+                        data.transaction_id,
+                    )
                     : formatTransactionMessage("Cancel receipt print failed: " + printResult.message, data.transaction_id);
             }
         }
@@ -241,7 +244,10 @@ async function reprintPaidPayoutReceipt() {
     const printResult = await printPayoutReceipt({ receipt: payoutReprintReceipt });
     if (status) {
         status.innerText = printResult.ok
-            ? formatTransactionMessage('Payout receipt sent to printer.', txn)
+            ? formatTransactionMessage(
+                printResult.message || 'Payout receipt sent to printer.',
+                txn,
+            )
             : formatTransactionMessage('Payout receipt print failed: ' + printResult.message, txn);
     }
     if (button) button.disabled = false;
@@ -670,7 +676,10 @@ async function handlePayoutMessage(data) {
             document.getElementById('payout_message3').innerText = "Sending cancelled fight refund receipt to local printer...";
             const printResult = await printPayoutReceipt(data);
             document.getElementById('payout_message3').innerText = printResult.ok
-                ? formatTransactionMessage("Cancelled fight refund receipt sent to printer.", data.transaction_id)
+                ? formatTransactionMessage(
+                    printResult.message || "Cancelled fight refund receipt sent to printer.",
+                    data.transaction_id,
+                )
                 : formatTransactionMessage("Cancelled fight refund receipt print failed: " + printResult.message, data.transaction_id);
         } else {
             document.getElementById('payout_message3').innerText = "";
@@ -689,7 +698,10 @@ async function handlePayoutMessage(data) {
             document.getElementById('payout_message3').innerText = "Sending draw refund receipt to local printer...";
             const printResult = await printPayoutReceipt(data);
             document.getElementById('payout_message3').innerText = printResult.ok
-                ? formatTransactionMessage("Draw refund receipt sent to printer.", data.transaction_id)
+                ? formatTransactionMessage(
+                    printResult.message || "Draw refund receipt sent to printer.",
+                    data.transaction_id,
+                )
                 : formatTransactionMessage("Draw refund receipt print failed: " + printResult.message, data.transaction_id);
         } else {
             document.getElementById('payout_message3').innerText = "";
@@ -1129,7 +1141,10 @@ async function reprintReceipt() {
                 (data.receipt && data.receipt.transaction_id) || transactionId
             );
         document.getElementById('payout_message2').innerText = printResult.ok
-            ? formatTransactionMessage('Receipt sent to printer successfully.', transactionId)
+            ? formatTransactionMessage(
+                printResult.message || 'Receipt sent to printer successfully.',
+                transactionId,
+            )
             : formatTransactionMessage('Print failed: ' + printResult.message, transactionId);
         document.getElementById('payout_message3').innerText = '';
         document.getElementById('payout_print_modal').style.display = 'flex';

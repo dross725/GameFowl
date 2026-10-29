@@ -35,7 +35,7 @@ import {
 } from './src/storage';
 import type { PrinterInfo, Session } from './src/types';
 
-const APP_VERSION = Constants.expoConfig?.version || '1.0.4';
+const APP_VERSION = Constants.expoConfig?.version || '1.1.0';
 
 export default function App() {
   const [booting, setBooting] = useState(true);
@@ -244,7 +244,7 @@ export default function App() {
       <View style={styles.header}>
         <Text style={styles.brand}>SmartWagers Print</Text>
         <Text style={styles.sub}>
-          Bluetooth companion · {currentPlatform()} · v{APP_VERSION}
+          BT / USB companion · {currentPlatform()} · v{APP_VERSION}
         </Text>
       </View>
 
@@ -326,7 +326,9 @@ export default function App() {
         data={printers}
         keyExtractor={(item) => item.id}
         style={styles.list}
-        ListHeaderComponent={printers.length ? <Text style={styles.label}>Nearby / bonded</Text> : null}
+        ListHeaderComponent={
+          printers.length ? <Text style={styles.label}>USB / Bluetooth printers</Text> : null
+        }
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.printerRow} onPress={() => onSelectPrinter(item)}>
             <Text style={styles.printerName}>{item.name}</Text>

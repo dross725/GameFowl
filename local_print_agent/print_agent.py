@@ -11,10 +11,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = BASE_DIR / "config.json"
 STARTUP_LOG_PATH = BASE_DIR / "print_agent_silent.log"
-AGENT_VERSION = "1.13.3-receipt-format"
+AGENT_VERSION = "1.13.11-receipt-fit"
 # Teller installs older than this are reported as outdated. A server release
 # does not roll back when only the teller agent is behind.
-AGENT_MIN_COMPATIBLE = "1.13.3-receipt-format"
+AGENT_MIN_COMPATIBLE = "1.13.10-receipt-center"
 # Serialize print jobs so concurrent browser requests do not stack open
 # StartDoc handles on the same USB thermal (which can stall other apps' queues).
 _PRINT_LOCK = threading.Lock()
@@ -27,8 +27,9 @@ DEFAULT_CONFIG = {
     "font_scale": 1.0,
     # 58mm roll printable width is typically 384 dots (48mm @ 203dpi).
     "paper_width_dots": 384,
-    # 58mm paper sits on the left of the printer path - use left by default.
-    "text_align": "left",
+    # Whole 58mm slip is centered on the 384-dot head.
+    "text_align": "center",
+    "receipt_layout_version": 2,
     # Barcode size (ESC/POS). Width 2-6; height in dots (e.g. 80-162).
     "barcode_module_width": 3,
     "barcode_height": 120,
@@ -82,6 +83,11 @@ def load_config():
 
     merged_config = DEFAULT_CONFIG.copy()
     merged_config.update(config)
+    # v1 shipped "left" as the generated default. Treat only unversioned configs
+    # as legacy so upgraded tellers receive the v2 centered receipt layout while
+    # explicit choices in versioned configs remain untouched.
+    if "receipt_layout_version" not in config and config.get("text_align") == "left":
+        merged_config["text_align"] = "center"
     return merged_config
 
 
@@ -94,13 +100,21 @@ def money(value):
         return str(value or "0")
 
 
+FONT_A_WIDTH_DOTS = 12
+
+
+def normalize_paper_width_dots(paper_width_dots):
+    """Return the printable width used consistently by all layout helpers."""
+    return max(int(paper_width_dots or 384), 192)
+
+
 def text_line(value="", code_page="cp437"):
     return f"{value}\n".encode(code_page, errors="replace")
 
 
-def escpos_align_byte(text_align="left"):
+def escpos_align_byte(text_align="center"):
     """ESC a n - 0 left, 1 center, 2 right."""
-    align = str(text_align or "left").strip().lower()
+    align = str(text_align or "center").strip().lower()
     if align == "center":
         return b"\x1ba\x01"
     if align == "right":
@@ -108,13 +122,52 @@ def escpos_align_byte(text_align="left"):
     return b"\x1ba\x00"
 
 
-def escpos_page_setup(paper_width_dots=384):
-    """Lock printable area to 58mm so layout matches left-fed paper.
+def fit_centered_text(text, paper_width_dots, double=False):
+    """Pad a line so it sits in the middle of a 58mm head.
 
-    Many XP-58 printers default to an 80mm-wide print area. Centering against
-    that wider area pushes content to the right on 58mm paper.
+    LogicOwl ESC a center uses an 80mm page. On 58mm paper that parks the
+    bold event title on the left and clips the last digits of a double-width
+    amount. Font A is 12 dots, so 384 dots is 32 columns (16 when doubled).
     """
-    width = max(int(paper_width_dots or 384), 192)
+    raw = str(text)
+    cell = FONT_A_WIDTH_DOTS * (2 if double else 1)
+    columns = max(normalize_paper_width_dots(paper_width_dots) // cell, 1)
+    if len(raw) >= columns:
+        return raw
+    return (" " * ((columns - len(raw)) // 2)) + raw
+
+
+def place_line(text, code_page, paper_width_dots, text_align="center", bold=None, double=False, force_center=False):
+    """Print one line from the left edge, centered with spaces when asked."""
+    mode = "center" if force_center else str(text_align or "center").strip().lower()
+    if mode == "center":
+        rendered = fit_centered_text(text, paper_width_dots, double)
+        align = b"\x1ba\x00"
+    elif mode == "right":
+        rendered = str(text)
+        align = b"\x1ba\x02"
+    else:
+        rendered = str(text)
+        align = b"\x1ba\x00"
+    output = bytearray()
+    output += b"\x1dL\x00\x00"
+    output += align
+    if bold is True:
+        output += b"\x1bE\x01"
+    elif bold is False:
+        output += b"\x1bE\x00"
+    if double:
+        output += b"\x1d!\x11"
+    output += align
+    output += text_line(rendered, code_page)
+    if double:
+        output += b"\x1d!\x00"
+    return bytes(output)
+
+
+def escpos_page_setup(paper_width_dots=384):
+    """Lock the printable area to the 58mm roll and clear the left margin."""
+    width = normalize_paper_width_dots(paper_width_dots)
     n_l = width & 0xFF
     n_h = (width >> 8) & 0xFF
     output = bytearray()
@@ -122,6 +175,28 @@ def escpos_page_setup(paper_width_dots=384):
     output += b"\x1dL\x00\x00"    # GS L: left margin = 0
     output += b"\x1dW" + bytes([n_l, n_h])  # GS W: print area width
     output += b"\x1b3\x14"        # Tight line spacing (20 dots)
+    return bytes(output)
+
+
+def code128_width_dots(transaction_id, module_width=3):
+    """Dot width of the CODE128 symbol printed for this transaction id."""
+    tid = normalize_receipt_transaction_id(transaction_id)
+    modules = 11 * (len(tid) + 2) + 13
+    width = max(2, min(int(module_width or 3), 6))
+    return modules * width
+
+
+def position_barcode(transaction_id, paper_width_dots, text_align, module_width):
+    """Place the barcode on the 58mm head. ESC a center would use 80mm."""
+    output = bytearray()
+    if str(text_align or "center").strip().lower() == "center":
+        bar_width = code128_width_dots(transaction_id, module_width)
+        offset = max((normalize_paper_width_dots(paper_width_dots) - bar_width) // 2, 0)
+        output += bytes([0x1D, 0x4C, offset & 0xFF, (offset >> 8) & 0xFF])
+        output += b"\x1ba\x00"
+    else:
+        output += b"\x1dL\x00\x00"
+        output += escpos_align_byte(text_align)
     return bytes(output)
 
 
@@ -218,10 +293,11 @@ def escpos_receipt(
     receipt,
     code_page="cp437",
     paper_width_dots=384,
-    text_align="left",
+    text_align="center",
     barcode_module_width=3,
     barcode_height=120,
 ):
+    paper_width_dots = normalize_paper_width_dots(paper_width_dots)
     transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     event_name = str(receipt.get("event_name", "")).strip()
     side = str(receipt.get("side", "")).upper()
@@ -237,53 +313,48 @@ def escpos_receipt(
     is_refund = is_refund_receipt(receipt)
     show_txn = should_print_transaction_id(receipt) and bool(transaction_id)
     show_barcode = should_print_barcode(receipt) and bool(transaction_id)
-    align = escpos_align_byte(text_align)
+
+    def emit(text, bold=None, double=False, force_center=False):
+        return place_line(
+            text,
+            code_page,
+            paper_width_dots,
+            text_align,
+            bold=bold,
+            double=double,
+            force_center=force_center,
+        )
 
     output = bytearray()
     output += escpos_page_setup(paper_width_dots)
-    output += align
     if event_name:
-        output += b"\x1bE\x01"
-        # Some low-cost ESC/POS printers reset alignment when bold is enabled,
-        # so centering must be the final command before the event text.
-        output += b"\x1ba\x01"
-        output += text_line(event_name, code_page)
-        output += b"\x1bE\x00"
-        output += align
-    output += text_line(date, code_page)
-    output += b"\x1bE\x01"
-    output += text_line(receipt_title(receipt), code_page)
+        output += emit(event_name, bold=True, force_center=True)
+    output += emit(date, bold=False)
+    output += emit(receipt_title(receipt), bold=True)
     if is_test:
-        output += text_line(f"Teller: {cashier}", code_page)
-        output += text_line("Current Total:", code_page)
-        output += b"\x1d!\x11"  # Double width + double height
-        output += text_line(amount, code_page)
-        output += b"\x1d!\x00"  # Back to normal size
+        output += emit(f"Teller: {cashier}", bold=True)
+        output += emit("Current Total:", bold=True)
+        output += emit(amount, bold=True, double=True)
     else:
-        output += text_line(f"Fight Number: {fightnum}", code_page)
+        output += emit(f"Fight Number: {fightnum}", bold=True)
     if is_wager:
-        output += b"\x1d!\x11"  # Double width + double height
-        output += text_line(side, code_page)
-        output += text_line(f"Amount: {amount}", code_page)
-        output += b"\x1d!\x00"  # Back to normal size
+        output += emit(side, bold=True, double=True)
+        output += emit(f"Amount: {amount}", bold=True, double=True)
     elif not is_test:
-        output += b"\x1d!\x11"  # Double width + double height
-        output += text_line(f"{side} - {odds}", code_page)
-        output += b"\x1d!\x00"  # Back to normal size
-        output += text_line(f"Amount: {amount}", code_page)
-        output += text_line(f"Odds: {multiplier}", code_page)
-        output += text_line("Refund Amount:" if is_refund else "Payout Amount:", code_page)
-        output += b"\x1d!\x11"  # Double width + double height
-        output += text_line(total_payout, code_page)
-        output += b"\x1d!\x00"  # Back to normal size
-    output += b"\x1bE\x00"
+        output += emit(f"{side} - {odds}", bold=True, double=True)
+        output += emit(f"Amount: {amount}", bold=True)
+        output += emit(f"Odds: {multiplier}", bold=True)
+        output += emit("Refund Amount:" if is_refund else "Payout Amount:", bold=True)
+        output += emit(total_payout, bold=True, double=True)
     if not is_test:
-        output += text_line(f"Cashier: {cashier}", code_page)
+        output += emit(f"Cashier: {cashier}", bold=False)
     if show_txn:
-        output += text_line(f"{transaction_id}", code_page)
+        output += emit(transaction_id, bold=False)
 
     if show_barcode:
-        output += align
+        output += position_barcode(
+            transaction_id, paper_width_dots, text_align, barcode_module_width,
+        )
         output += escpos_barcode(
             transaction_id,
             module_width=barcode_module_width,
@@ -481,7 +552,13 @@ def start_print_doc(dc, title):
         raise RuntimeError(f"StartDoc failed for Windows GDI printing ({exc}). {hint}") from exc
 
 
-def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left"):
+def print_windows_driver(
+    printer_name,
+    receipt,
+    font_scale=1.0,
+    text_align="center",
+    paper_width_dots=384,
+):
     win32ui = get_win32ui()
     win32con = get_win32con()
     transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
@@ -509,6 +586,10 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
             dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
             dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
             page_width = dc.GetDeviceCaps(win32con.HORZRES)
+            receipt_width = min(
+                page_width,
+                max(int(normalize_paper_width_dots(paper_width_dots) * dpi_x / 203), 1),
+            )
             margin_x = max(int(dpi_x * 0.10), 20)
             y = max(int(dpi_y * 0.04), 8)
             line_gap = int(dpi_y * 0.04 * font_scale)
@@ -546,7 +627,7 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
                 if align_left and not force_center:
                     x = margin_x
                 else:
-                    x = max(int((page_width - text_width) / 2), margin_x)
+                    x = max(int((receipt_width - text_width) / 2), margin_x)
                 dc.TextOut(x, y, text)
                 y += text_height + gap
 
@@ -580,7 +661,7 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
                 if align_left:
                     barcode_x = margin_x
                 else:
-                    barcode_x = max(int((page_width - barcode_width) / 2), margin_x)
+                    barcode_x = max(int((receipt_width - barcode_width) / 2), margin_x)
                 draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
                 y += barcode_height + tight_gap
                 draw_line(transaction_id, barcode_font, tight_gap)
@@ -609,7 +690,7 @@ def print_windows_driver(printer_name, receipt, font_scale=1.0, text_align="left
 def print_receipt(config, printer_name, receipt):
     print_mode = str(config.get("print_mode", "windows_driver")).lower()
     font_scale = float(config.get("font_scale", 1.0))
-    text_align = str(config.get("text_align", "left"))
+    text_align = str(config.get("text_align", "center"))
     if print_mode == "escpos":
         payload = escpos_receipt(
             receipt,
@@ -622,7 +703,11 @@ def print_receipt(config, printer_name, receipt):
         return print_raw(printer_name, payload)
     if print_mode == "windows_driver":
         return print_windows_driver(
-            printer_name, receipt, font_scale=font_scale, text_align=text_align,
+            printer_name,
+            receipt,
+            font_scale=font_scale,
+            text_align=text_align,
+            paper_width_dots=int(config.get("paper_width_dots", 384)),
         )
 
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
@@ -659,10 +744,11 @@ def escpos_remit_receipt(
     receipt,
     code_page="cp437",
     paper_width_dots=384,
-    text_align="left",
+    text_align="center",
     barcode_module_width=3,
     barcode_height=120,
 ):
+    paper_width_dots = normalize_paper_width_dots(paper_width_dots)
     transaction_type = str(receipt.get("transaction_type", "REMIT")).upper()
     transaction_id = normalize_receipt_transaction_id(receipt.get("transaction_id", ""))
     amount = money(receipt.get("amount"))
@@ -678,33 +764,42 @@ def escpos_remit_receipt(
         and is_teller_remit_receipt(receipt)
         and bool(transaction_id)
     )
-    align = escpos_align_byte(text_align)
 
     label = "ADVANCE RECEIPT" if transaction_type == "REMIT" else "BORROW RECEIPT"
     output = bytearray()
     for copy_label in transaction_receipt_copies(receipt):
         output += escpos_page_setup(paper_width_dots)
-        output += align
-        output += text_line(date, code_page)
-        output += b"\x1bE\x01"
-        output += text_line(label, code_page)
-        output += text_line(copy_label, code_page)
+        output += place_line(date, code_page, paper_width_dots, text_align, bold=False)
+        output += place_line(label, code_page, paper_width_dots, text_align, bold=True)
+        output += place_line(copy_label, code_page, paper_width_dots, text_align, bold=True)
         if fightnum != "":
-            output += text_line(f"Fight Number: {fightnum}", code_page)
-        output += b"\x1bE\x00"
+            output += place_line(
+                f"Fight Number: {fightnum}", code_page, paper_width_dots, text_align, bold=True,
+            )
         if event_name:
-            output += b"\x1ba\x01"
-            output += text_line(f"Event    : {event_name}", code_page)
-        output += b"\x1ba\x00"   # Detail lines always left for columns
+            output += place_line(
+                f"Event    : {event_name}",
+                code_page,
+                paper_width_dots,
+                text_align,
+                bold=False,
+                force_center=True,
+            )
         actor_label = "Admin" if is_admin_bank else "Teller"
-        output += text_line(f"{actor_label:<9}: {cashier}", code_page)
-        output += text_line(f"Amount   : {amount}", code_page)
-        output += text_line(f"Balance  : {balance}", code_page)
+        output += place_line(
+            f"{actor_label:<9}: {cashier}", code_page, paper_width_dots, "left", bold=False,
+        )
+        output += place_line(f"Amount   : {amount}", code_page, paper_width_dots, "left", bold=False)
+        output += place_line(f"Balance  : {balance}", code_page, paper_width_dots, "left", bold=False)
         if transaction_id:
-            output += text_line(f"Txn ID   : {transaction_id}", code_page)
+            output += place_line(
+                f"Txn ID   : {transaction_id}", code_page, paper_width_dots, "left", bold=False,
+            )
 
         if show_barcode:
-            output += align
+            output += position_barcode(
+                transaction_id, paper_width_dots, text_align, barcode_module_width,
+            )
             output += escpos_barcode(
                 transaction_id,
                 module_width=barcode_module_width,
@@ -715,7 +810,13 @@ def escpos_remit_receipt(
     return bytes(output)
 
 
-def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align="left"):
+def print_windows_driver_remit(
+    printer_name,
+    receipt,
+    font_scale=1.0,
+    text_align="center",
+    paper_width_dots=384,
+):
     win32ui = get_win32ui()
     win32con = get_win32con()
 
@@ -746,6 +847,10 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
             dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
             dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
             page_width = dc.GetDeviceCaps(win32con.HORZRES)
+            receipt_width = min(
+                page_width,
+                max(int(normalize_paper_width_dots(paper_width_dots) * dpi_x / 203), 1),
+            )
             margin_x = max(int(dpi_x * 0.10), 20)
             top_margin = max(int(dpi_y * 0.04), 8)
             y = top_margin
@@ -773,7 +878,7 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
                 if align_left and not force_center:
                     x = margin_x
                 else:
-                    x = max(int((page_width - text_width) / 2), margin_x)
+                    x = max(int((receipt_width - text_width) / 2), margin_x)
                 dc.TextOut(x, y, text)
                 y += text_height + gap
 
@@ -811,7 +916,9 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
                     draw_left(f"Txn ID    : {transaction_id}", gap=tight_gap)
                 if show_barcode:
                     barcode_width = code39_width(transaction_id, barcode_narrow)
-                    barcode_x = margin_x if align_left else max(int((page_width - barcode_width) / 2), margin_x)
+                    barcode_x = margin_x if align_left else max(
+                        int((receipt_width - barcode_width) / 2), margin_x,
+                    )
                     draw_code39(dc, transaction_id, barcode_x, y, barcode_narrow, barcode_height)
                     y += barcode_height + tight_gap
                     draw_header(transaction_id, barcode_font, tight_gap)
@@ -840,7 +947,7 @@ def print_windows_driver_remit(printer_name, receipt, font_scale=1.0, text_align
 def print_remit_receipt(config, printer_name, receipt):
     print_mode = str(config.get("print_mode", "windows_driver")).lower()
     font_scale = float(config.get("font_scale", 1.0))
-    text_align = str(config.get("text_align", "left"))
+    text_align = str(config.get("text_align", "center"))
     if print_mode == "escpos":
         payload = escpos_remit_receipt(
             receipt,
@@ -853,7 +960,11 @@ def print_remit_receipt(config, printer_name, receipt):
         return print_raw(printer_name, payload)
     if print_mode == "windows_driver":
         return print_windows_driver_remit(
-            printer_name, receipt, font_scale=font_scale, text_align=text_align,
+            printer_name,
+            receipt,
+            font_scale=font_scale,
+            text_align=text_align,
+            paper_width_dots=int(config.get("paper_width_dots", 384)),
         )
 
     raise RuntimeError("Invalid print_mode. Use 'windows_driver' or 'escpos'.")
@@ -907,7 +1018,7 @@ class PrintAgentHandler(BaseHTTPRequestHandler):
                 "version": AGENT_VERSION,
                 "config_path": str(CONFIG_PATH),
                 "print_mode": print_mode,
-                "text_align": str(config.get("text_align", "left")),
+                "text_align": str(config.get("text_align", "center")),
                 "paper_width_dots": int(config.get("paper_width_dots", 384)),
                 "printer_name": config.get("printer_name") or "(Windows default)",
                 "pywin32": status,

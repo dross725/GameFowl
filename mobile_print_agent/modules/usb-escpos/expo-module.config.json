@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["com.smartwagers.usbescpos.UsbEscPosModule"]
+  }
+}

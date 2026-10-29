@@ -25,5 +25,7 @@ jobs:
         run: python manage.py check
       - name: Migration check
         run: python manage.py makemigrations --check --dry-run
+      - name: Print client routing tests
+        run: node SmartWagers/static/SmartWagers/print_client_routing.test.mjs
       - name: Test suite
         run: python -m pytest deploy/tests SmartWagers/tests -q --tb=line

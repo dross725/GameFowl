@@ -30,8 +30,28 @@ def test_escpos_wager_contains_title_and_barcode():
     })
     assert b'BET RECEIPT' in payload
     assert b'MERON' in payload
+    assert b'\x1dL\x00\x00\x1dW' in payload
+    assert b'\x1ba\x00\x1bE\x01\x1ba\x00          Sunday Derby\n' in payload
+    assert b'\x1ba\x00\x1bE\x01\x1ba\x00          BET RECEIPT\n' in payload
+    assert b'\x1d!\x11\x1ba\x00     MERON\n' in payload
+    assert b'\x1ba\x01' not in payload
+    assert b'\x1b$' not in payload
+    assert b'\x1dk\x49' in payload
     assert b'000042' in payload
     assert b'\x1dk\x49' in payload  # CODE128
+
+
+@pytest.mark.parametrize(('configured', 'normalized'), [(0, 384), (100, 192)])
+def test_escpos_layout_uses_normalized_paper_width(configured, normalized):
+    assert escpos_receipts.normalize_paper_width_dots(configured) == normalized
+    payload = escpos_receipts.escpos_receipt(
+        {'receipt_type': 'wager', 'side': 'X', 'amount': 1},
+        paper_width_dots=configured,
+    )
+    width_bytes = bytes((normalized & 0xFF, (normalized >> 8) & 0xFF))
+    expected_spaces = (normalized // 24 - len('X')) // 2
+    assert b'\x1dW' + width_bytes in payload
+    assert b'\x1d!\x11\x1ba\x00' + (b' ' * expected_spaces) + b'X\n' in payload
 
 
 def test_escpos_remit_prints_fight_number_on_both_copies():
