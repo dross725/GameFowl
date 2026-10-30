@@ -1,21 +1,25 @@
 /**
- * Raw ESC/POS over USB bulk-OUT (same strategy as the Android UsbEscPos module).
+ * Raw ESC/POS over WebUSB bulk-OUT.
+ *
+ * chrome.usb is a Chrome Apps API and is undefined in extensions, which
+ * throws "Cannot read properties of undefined (reading 'getUserSelectedDevices')".
+ * Extensions use navigator.usb instead. requestDevice() has to run in a
+ * normal window (picker.html): service workers cannot show the chooser,
+ * and extension popups often cannot either.
  */
 
 const CHUNK_SIZE = 16384;
-const TRANSFER_TIMEOUT_MS = 15000;
 
-function usbCall(fn, ...args) {
-  return new Promise((resolve, reject) => {
-    fn(...args, (result) => {
-      const err = chrome.runtime.lastError;
-      if (err) {
-        reject(new Error(err.message || String(err)));
-        return;
-      }
-      resolve(result);
-    });
-  });
+/** Printer class (7) and vendor-specific (255). WebUSB rejects an empty filter list. */
+const DEVICE_FILTERS = [
+  { classCode: 7 },
+  { classCode: 0xff },
+];
+
+function requireWebUsb() {
+  if (!navigator.usb) {
+    throw new Error('WebUSB is not available in this Chrome window.');
+  }
 }
 
 export function printerLabel(device) {
@@ -24,52 +28,76 @@ export function printerLabel(device) {
 }
 
 export function printerIdentity(device) {
+  let serialNumber = '';
+  try {
+    serialNumber = device.serialNumber || '';
+  } catch {
+    serialNumber = '';
+  }
   return {
     vendorId: device.vendorId,
     productId: device.productId,
+    serialNumber,
     productName: device.productName || '',
     manufacturerName: device.manufacturerName || '',
     label: printerLabel(device),
   };
 }
 
-/** User-gesture picker (popup button). Empty filters list every attached USB device. */
+/** User-gesture picker. Call from picker.html, not the extension popup. */
 export async function choosePrinter() {
-  const devices = await usbCall(chrome.usb.getUserSelectedDevices.bind(chrome.usb), {
-    multiple: false,
-    filters: [],
-  });
-  if (!devices || !devices.length) {
-    throw new Error('No USB printer selected.');
+  requireWebUsb();
+  if (typeof navigator.usb.requestDevice !== 'function') {
+    throw new Error('This page cannot show the USB device picker.');
   }
-  return printerIdentity(devices[0]);
+  let device;
+  try {
+    device = await navigator.usb.requestDevice({ filters: DEVICE_FILTERS });
+  } catch (error) {
+    if (error && error.name === 'NotFoundError') {
+      throw new Error('No USB printer selected.');
+    }
+    throw error;
+  }
+  return printerIdentity(device);
 }
 
 async function findDevice(printer) {
-  const devices = await usbCall(chrome.usb.getDevices.bind(chrome.usb), {
-    filters: [
-      {
-        vendorId: printer.vendorId,
-        productId: printer.productId,
-      },
-    ],
+  requireWebUsb();
+  const devices = await navigator.usb.getDevices();
+  const match = (devices || []).find((device) => {
+    if (device.vendorId !== printer.vendorId || device.productId !== printer.productId) {
+      return false;
+    }
+    if (!printer.serialNumber) return true;
+    try {
+      return !device.serialNumber || device.serialNumber === printer.serialNumber;
+    } catch {
+      return true;
+    }
   });
-  if (!devices || !devices.length) {
+  if (!match) {
     throw new Error(
       'USB printer not found. Reconnect it, then Choose printer again.',
     );
   }
-  return devices[0];
+  return match;
 }
 
-function findBulkOut(interfaces) {
-  for (const iface of interfaces || []) {
-    for (const endpoint of iface.endpoints || []) {
-      if (endpoint.type === 'bulk' && endpoint.direction === 'out') {
-        return {
-          interfaceNumber: iface.interfaceNumber,
-          endpointAddress: endpoint.address,
-        };
+function findBulkOut(device) {
+  for (const config of device.configurations || []) {
+    for (const iface of config.interfaces || []) {
+      for (const alt of iface.alternates || []) {
+        for (const endpoint of alt.endpoints || []) {
+          if (endpoint.type === 'bulk' && endpoint.direction === 'out') {
+            return {
+              configurationValue: config.configurationValue,
+              interfaceNumber: iface.interfaceNumber,
+              alternateSetting: alt.alternateSetting,
+              endpointNumber: endpoint.endpointNumber,
+            };
+          }
+        }
       }
     }
   }
@@ -77,7 +105,7 @@ function findBulkOut(interfaces) {
 }
 
 /**
- * Claim, write chunked bulk-OUT, release, close.
+ * Open, write chunked bulk-OUT, release, close.
  * Do not leave the interface open — the service worker may sleep.
  */
 export async function printRaw(printer, bytes) {
@@ -90,8 +118,7 @@ export async function printRaw(printer, bytes) {
   }
 
   const device = await findDevice(printer);
-  const interfaces = await usbCall(chrome.usb.listInterfaces.bind(chrome.usb), device);
-  const bulk = findBulkOut(interfaces);
+  const bulk = findBulkOut(device);
   if (!bulk) {
     throw new Error(
       'This USB device has no bulk-OUT printer endpoint. '
@@ -99,14 +126,16 @@ export async function printRaw(printer, bytes) {
     );
   }
 
-  const handle = await usbCall(chrome.usb.openDevice.bind(chrome.usb), device);
+  await device.open();
   try {
+    if (device.configuration === null) {
+      await device.selectConfiguration(bulk.configurationValue);
+    }
+    if (bulk.alternateSetting) {
+      await device.selectAlternateInterface(bulk.interfaceNumber, bulk.alternateSetting);
+    }
     try {
-      await usbCall(
-        chrome.usb.claimInterface.bind(chrome.usb),
-        handle,
-        bulk.interfaceNumber,
-      );
+      await device.claimInterface(bulk.interfaceNumber);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -120,36 +149,23 @@ export async function printRaw(printer, bytes) {
       while (offset < payload.length) {
         const length = Math.min(CHUNK_SIZE, payload.length - offset);
         const chunk = payload.subarray(offset, offset + length);
-        const result = await usbCall(
-          chrome.usb.bulkTransfer.bind(chrome.usb),
-          handle,
-          {
-            direction: 'out',
-            endpoint: bulk.endpointAddress,
-            data: chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength),
-            timeout: TRANSFER_TIMEOUT_MS,
-          },
-        );
-        const written = Number(result && result.bytesTransferred);
-        if (!(written > 0)) {
+        const result = await device.transferOut(bulk.endpointNumber, chunk);
+        if (!result || result.status !== 'ok') {
           throw new Error(`USB bulk transfer failed at byte ${offset}.`);
         }
-        offset += written;
+        const written = Number(result.bytesWritten);
+        offset += written > 0 ? written : length;
       }
     } finally {
       try {
-        await usbCall(
-          chrome.usb.releaseInterface.bind(chrome.usb),
-          handle,
-          bulk.interfaceNumber,
-        );
+        await device.releaseInterface(bulk.interfaceNumber);
       } catch {
         // Best-effort release.
       }
     }
   } finally {
     try {
-      await usbCall(chrome.usb.closeDevice.bind(chrome.usb), handle);
+      await device.close();
     } catch {
       // Best-effort close.
     }

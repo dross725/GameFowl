@@ -6,7 +6,7 @@ import {
   loadState,
   saveState,
 } from './lib/storage.js';
-import { choosePrinter, printRaw } from './lib/usb.js';
+import { printRaw } from './lib/usb.js';
 
 const els = {
   serverUrl: document.getElementById('serverUrl'),
@@ -136,26 +136,25 @@ els.signOut.addEventListener('click', async () => {
 els.choosePrinter.addEventListener('click', async () => {
   els.choosePrinter.disabled = true;
   try {
-    const printer = await choosePrinter();
-    await saveState({
-      printer,
-      statusMessage: `Selected ${printer.label}`,
+    await chrome.windows.create({
+      url: chrome.runtime.getURL('picker.html'),
+      type: 'normal',
+      width: 440,
+      height: 320,
+      focused: true,
     });
-    const state = await loadState();
-    if (state.token && state.serverUrl) {
-      await registerPrinter(
-        { serverUrl: state.serverUrl, token: state.token },
-        printer.label,
-        printerAddress(printer),
-      );
-    }
-    await refresh();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     setStatus(message);
     await saveState({ statusMessage: message });
   } finally {
     els.choosePrinter.disabled = false;
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes.printer || changes.statusMessage || changes.token)) {
+    refresh().catch(() => undefined);
   }
 });
 

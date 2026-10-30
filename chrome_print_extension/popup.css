@@ -21,6 +21,11 @@ body {
   color: var(--text);
 }
 
+body.picker {
+  width: auto;
+  min-width: 360px;
+}
+
 header {
   margin-bottom: 12px;
 }

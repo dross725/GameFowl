@@ -13,7 +13,7 @@ Classic Bluetooth printers are not supported from a Chrome extension.
 2. Open `chrome://extensions`, enable **Developer mode**.
 3. **Load unpacked** → select this `chrome_print_extension` folder.
 4. Open the extension popup → enter the SmartWagers LAN URL → sign in as the teller.
-5. **Choose printer** → allow the USB device → **Test print**.
+5. **Choose printer**. A separate window opens; click **Select USB printer** and allow the device → **Test print**.
 6. Place bets in Chrome as the same teller. Receipts queue to the server and print here.
 
 If `claimInterface` fails, remove the printer under **Settings → Printers** so

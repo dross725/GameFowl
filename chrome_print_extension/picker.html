@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Choose USB printer</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body class="picker">
+  <header>
+    <h1>Choose USB printer</h1>
+    <p class="subtitle">SmartWagers Print · 58 mm ESC/POS</p>
+  </header>
+
+  <section class="card">
+    <p class="hint">
+      Plug in the receipt printer, then select it. Chrome only shows this list in a
+      normal window, not inside the extension popup.
+    </p>
+    <div class="row">
+      <button id="selectPrinter" type="button" class="primary">Select USB printer</button>
+    </div>
+    <p id="statusLine" class="status">Ready.</p>
+  </section>
+
+  <script type="module" src="picker.js"></script>
+</body>
