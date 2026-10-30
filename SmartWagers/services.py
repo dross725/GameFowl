@@ -2544,7 +2544,7 @@ def print_payout_reciept(payout_data):
     cashier = payout_data['cashier']
 
     width = 58 * mm
-    height = 70 * mm
+    height = 80 * mm
 
     temp_file = tempfile.NamedTemporaryFile(
         prefix=f"payout_receipt_{transaction_id}_",
@@ -2567,12 +2567,13 @@ def print_payout_reciept(payout_data):
     c.drawCentredString(width / 2, height - 80, f"{side.upper()} - {bet_odds}")
     wager_amount = payout_data.get('wager', payout_data.get('amount', ''))
     c.drawCentredString(width / 2, height - 95, f"Amount: {wager_amount}")
-    c.drawCentredString(width / 2, height - 110, f"Odds: {odds}")
-    c.drawCentredString(width / 2, height - 125, f"Payout Amount: {math.trunc(amount)}")
+    c.drawCentredString(width / 2, height - 110, f"Amount Won: {math.trunc(amount)}")
+    c.drawCentredString(width / 2, height - 125, f"Odds: {odds}")
+    c.drawCentredString(width / 2, height - 140, f"Payout Amount: {math.trunc(amount)}")
     
     c.setFont("Helvetica", 10)
-    c.drawCentredString(width / 2, height - 145, f"Cashier: {cashier}")
-    c.drawCentredString(width / 2, height - 155, f"Transaction ID: {transaction_id}")
+    c.drawCentredString(width / 2, height - 160, f"Cashier: {cashier}")
+    c.drawCentredString(width / 2, height - 170, f"Transaction ID: {transaction_id}")
     
     # Generate barcode (can be a transaction ID, order number, etc.)
     barcode_value = transaction_id
@@ -2580,7 +2581,7 @@ def print_payout_reciept(payout_data):
 
     # Draw barcode (centered horizontally)
     barcode_x = (width - barcode.width) / 2
-    barcode_y = height - 185
+    barcode_y = height - 200
     barcode.drawOn(c, barcode_x, barcode_y)
 
     # Finalize PDF

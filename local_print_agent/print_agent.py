@@ -343,6 +343,8 @@ def escpos_receipt(
     elif not is_test:
         output += emit(f"{side} - {odds}", bold=True, double=True)
         output += emit(f"Amount: {amount}", bold=True)
+        if not is_refund:
+            output += emit(f"Amount Won: {total_payout}", bold=True)
         output += emit(f"Odds: {multiplier}", bold=True)
         output += emit("Refund Amount:" if is_refund else "Payout Amount:", bold=True)
         output += emit(total_payout, bold=True, double=True)
@@ -649,6 +651,8 @@ def print_windows_driver(
             elif not is_test:
                 draw_line(f"{side} - {odds}", highlight_font)
                 draw_line(f"Amount: {amount}", bold_font)
+                if not is_refund:
+                    draw_line(f"Amount Won: {total_payout}", bold_font)
                 draw_line(f"Odds: {multiplier}", bold_font)
                 draw_line("Refund Amount:" if is_refund else "Payout Amount:", bold_font)
                 draw_line(total_payout, highlight_font)

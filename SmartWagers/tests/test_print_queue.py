@@ -54,6 +54,37 @@ def test_escpos_layout_uses_normalized_paper_width(configured, normalized):
     assert b'\x1d!\x11\x1ba\x00' + (b' ' * expected_spaces) + b'X\n' in payload
 
 
+def test_payout_receipt_shows_amount_won_under_bet():
+    payload = escpos_receipts.escpos_receipt({
+        'receipt_type': 'payout',
+        'side': 'MERON',
+        'odds': 'Llamado',
+        'amount': '100.00',
+        'multiplier': '1.9000',
+        'Total_Payout': '190',
+        'fightnum': 3,
+        'cashier': 'teller1',
+    })
+    text = payload.decode('cp437', errors='replace')
+    amount_at = text.index('Amount: 100.00')
+    won_at = text.index('Amount Won: 190.00')
+    odds_at = text.index('Odds: 1.9000')
+    assert amount_at < won_at < odds_at
+
+
+def test_refund_receipt_omits_amount_won():
+    payload = escpos_receipts.escpos_receipt({
+        'receipt_type': 'draw_refund',
+        'side': 'DRAW',
+        'odds': 'FULL REFUND',
+        'amount': '100.00',
+        'multiplier': '1.00',
+        'Total_Payout': '100.00',
+    })
+    assert b'Amount Won:' not in payload
+    assert b'Refund Amount:' in payload
+
+
 def test_escpos_remit_prints_fight_number_on_both_copies():
     payload = escpos_receipts.escpos_remit_receipt({
         'transaction_type': 'COLLECT',

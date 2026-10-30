@@ -307,6 +307,8 @@ def escpos_receipt(
     elif not is_test:
         output += emit(f"{side} - {odds}", bold=True, double=True)
         output += emit(f"Amount: {amount}", bold=True)
+        if not is_refund:
+            output += emit(f"Amount Won: {total_payout}", bold=True)
         output += emit(f"Odds: {multiplier}", bold=True)
         output += emit("Refund Amount:" if is_refund else "Payout Amount:", bold=True)
         output += emit(total_payout, bold=True, double=True)
