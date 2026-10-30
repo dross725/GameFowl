@@ -45,7 +45,8 @@ export async function loginCompanion({
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `Cannot reach ${url} (${detail}). Use the LAN URL, e.g. http://192.168.1.10:8000.`,
+      `Cannot reach ${url} (${detail}). Use the address in this Chromebook's `
+        + 'SmartWagers tab, including port 8080. localhost is this Chromebook, not the server.',
     );
   }
   const data = await readJson(response);

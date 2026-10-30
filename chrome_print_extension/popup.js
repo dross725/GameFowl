@@ -46,8 +46,56 @@ function render(state) {
   }
 }
 
+function urlNeedsReplacement(value) {
+  const base = normalizeServerUrl(value);
+  if (!base) return true;
+  let url;
+  try {
+    url = new URL(base);
+  } catch {
+    return true;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return true;
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return true;
+  if (url.port === '8000') return true;
+  return false;
+}
+
+/** Origin of the SmartWagers tab, which is the only address this Chromebook can already reach. */
+async function serverUrlFromOpenTab() {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  } catch {
+    return '';
+  }
+  const tab = tabs && tabs[0];
+  if (!tab || !tab.url) return '';
+  let url;
+  try {
+    url = new URL(tab.url);
+  } catch {
+    return '';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return '';
+  return url.origin;
+}
+
+async function resolveServerUrl(typed) {
+  const entered = normalizeServerUrl(typed);
+  if (!urlNeedsReplacement(entered)) return entered;
+  const fromTab = await serverUrlFromOpenTab();
+  return fromTab || entered;
+}
+
 async function refresh() {
-  render(await loadState());
+  const state = await loadState();
+  render(state);
+  if (urlNeedsReplacement(els.serverUrl.value)) {
+    const fromTab = await serverUrlFromOpenTab();
+    if (fromTab) els.serverUrl.value = fromTab;
+  }
 }
 
 async function requestHostAccess(serverUrl) {
@@ -84,11 +132,15 @@ function printerAddress(printer) {
 els.signIn.addEventListener('click', async () => {
   els.signIn.disabled = true;
   try {
-    const serverUrl = normalizeServerUrl(els.serverUrl.value);
+    const serverUrl = await resolveServerUrl(els.serverUrl.value);
+    els.serverUrl.value = serverUrl;
     const username = String(els.username.value || '').trim();
     const password = String(els.password.value || '');
     if (!serverUrl || !username || !password) {
-      throw new Error('Server URL, username, and password are required.');
+      throw new Error(
+        'Open SmartWagers on this Chromebook first, then sign in here. '
+          + 'Server URL must be that tab\'s address, including port 8080.',
+      );
     }
     await requestHostAccess(serverUrl);
     const deviceId = await ensureDeviceId();

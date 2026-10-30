@@ -43,8 +43,9 @@
     }
 
     /**
-     * Platforms that should fall back to the server companion queue when the
-     * Windows localhost agent is missing or unhealthy (auto mode).
+     * Chrome OS and mobile have no Windows print agent. Auto mode sends
+     * receipts to the server companion queue and does not probe
+     * 127.0.0.1:8765, which the browser reports as connection refused.
      * @param {string} [ua]
      */
     function prefersCompanionQueue(ua) {
@@ -78,10 +79,10 @@
         const mode = getPrintMode();
         if (mode === "local") return true;
         if (mode === "server") return false;
-        // Windows cashier PCs always prefer the localhost agent.
-        // Mobile + Chrome OS probe first, then fall through to the companion queue.
-        if (!prefersCompanionQueue()) return true;
-        return probeLocalAgent(false);
+        // Windows cashier PCs use the localhost agent. Chrome OS and mobile
+        // go straight to the companion queue.
+        if (prefersCompanionQueue()) return false;
+        return true;
     }
 
     async function postLocal(path, receipt, options) {

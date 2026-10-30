@@ -87,7 +87,7 @@ const CHROMEOS_UA =
   const result = await client.printWagerReceipt({ transaction_id: '2' });
   assert.equal(result.ok, true);
   assert.equal(result.via, 'server');
-  assert.deepEqual(calls, ['http://127.0.0.1:8765/health', '/api/print-jobs/']);
+  assert.deepEqual(calls, ['/api/print-jobs/']);
   assert.equal(posted.length, 1);
   // Compare via JSON — the payload object is created inside the vm sandbox.
   assert.deepEqual(JSON.parse(JSON.stringify(posted[0].data)), {
