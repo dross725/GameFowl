@@ -129,9 +129,20 @@ def test_payout_receipt_shows_amount_won_under_bet():
     )
     text = payload.decode("cp437", errors="replace")
     amount_at = text.index("Amount: 100")
-    won_at = text.index("Amount Won: 190")
+    won_at = text.index("Amount Won: 90")
     odds_at = text.index("Odds: 1.9000")
     assert amount_at < won_at < odds_at
+    assert b"Payout Amount:" in payload
+
+    short_payout = print_agent.escpos_receipt(
+        {
+            "receipt_type": "payout",
+            "side": "MERON",
+            "amount": "200.00",
+            "Total_Payout": "165",
+        }
+    )
+    assert b"Amount Won: -35" in short_payout
 
 
 def test_refund_receipt_omits_amount_won():

@@ -2566,8 +2566,12 @@ def print_payout_reciept(payout_data):
     c.drawCentredString(width / 2, height - 65, f"Fight Number: {fightnum}")
     c.drawCentredString(width / 2, height - 80, f"{side.upper()} - {bet_odds}")
     wager_amount = payout_data.get('wager', payout_data.get('amount', ''))
+    try:
+        bet_value = float(str(wager_amount).replace(",", ""))
+    except (TypeError, ValueError):
+        bet_value = 0.0
     c.drawCentredString(width / 2, height - 95, f"Amount: {wager_amount}")
-    c.drawCentredString(width / 2, height - 110, f"Amount Won: {math.trunc(amount)}")
+    c.drawCentredString(width / 2, height - 110, f"Amount Won: {math.trunc(amount - bet_value)}")
     c.drawCentredString(width / 2, height - 125, f"Odds: {odds}")
     c.drawCentredString(width / 2, height - 140, f"Payout Amount: {math.trunc(amount)}")
     
