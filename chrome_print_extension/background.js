@@ -1,8 +1,6 @@
 import { ackJob, fetchPendingJobs, healthCheck, normalizeServerUrl } from './lib/api.js';
 import { decodeEscposBase64 } from './lib/escpos.js';
 import { loadState, saveState } from './lib/storage.js';
-import { printRaw } from './lib/usb.js';
-
 const POLL_ALARM = 'smartwagers-print-poll';
 const CONTENT_SCRIPT_ID = 'smartwagers-print-bridge';
 
@@ -22,6 +20,26 @@ function originFromServerUrl(serverUrl) {
   }
 }
 
+async function injectBridge(origin) {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({ url: `${origin}/*` });
+  } catch {
+    return;
+  }
+  await Promise.all(tabs.map(async (tab) => {
+    if (!tab.id) return;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['content.js'],
+      });
+    } catch {
+      // Discarded or internal tabs cannot take the bridge.
+    }
+  }));
+}
+
 async function registerContentScript(origin) {
   try {
     await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
@@ -37,6 +55,68 @@ async function registerContentScript(origin) {
       persistAcrossSessions: true,
     },
   ]);
+  // A newly registered script does not attach to tabs that are already open.
+  await injectBridge(origin);
+}
+
+function whenPrintTabReady() {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.runtime.onMessage.removeListener(onMessage);
+      reject(new Error('The printer tab did not open.'));
+    }, 8000);
+    function onMessage(message) {
+      if (!message || message.type !== 'print-page-ready') return;
+      clearTimeout(timer);
+      chrome.runtime.onMessage.removeListener(onMessage);
+      resolve();
+    }
+    chrome.runtime.onMessage.addListener(onMessage);
+  });
+}
+
+function isReceiptTab(tab) {
+  const url = tab && tab.url ? tab.url : '';
+  return url.includes('/print.html') && !url.includes('mode=test');
+}
+
+async function ensurePrintTab(forceReload) {
+  const url = chrome.runtime.getURL('print.html');
+  const tabs = await chrome.tabs.query({ url: chrome.runtime.getURL('*') });
+  const existing = (tabs || []).find(isReceiptTab);
+  const reusable = existing && existing.id && !forceReload && !existing.discarded && existing.status === 'complete';
+  if (reusable) return existing.id;
+
+  const ready = whenPrintTabReady();
+  if (existing && existing.id) {
+    await chrome.tabs.reload(existing.id);
+  } else {
+    await chrome.tabs.create({ url, active: false });
+  }
+  await ready;
+  return null;
+}
+
+async function printReceiptBytes(printer, bytes) {
+  await ensurePrintTab(false);
+  let response;
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: 'print-usb',
+      printer,
+      bytes: Array.from(bytes),
+    });
+  } catch (error) {
+    await ensurePrintTab(true);
+    response = await chrome.runtime.sendMessage({
+      type: 'print-usb',
+      printer,
+      bytes: Array.from(bytes),
+    });
+  }
+  if (!response || !response.ok) {
+    throw new Error((response && response.error) || 'The printer tab could not print.');
+  }
 }
 
 async function sessionFromState(state) {
@@ -56,7 +136,7 @@ async function handleJob(session, printer, job) {
     }
     const bytes = decodeEscposBase64(job.escpos_base64);
     await setStatus(`Printing job #${job.id} (${job.endpoint})…`);
-    await printRaw(printer, bytes);
+    await printReceiptBytes(printer, bytes);
     await ackJob(session, job.id, 'printed');
     await setStatus(`Printed job #${job.id}`);
   } catch (error) {
@@ -77,7 +157,9 @@ async function pollPendingJobs() {
     const state = await loadState();
     const session = await sessionFromState(state);
     if (!session) {
-      return { ok: false, error: 'Not signed in.' };
+      const message = 'Not signed in. Open SmartWagers Print and sign in as this teller.';
+      await setStatus(message);
+      return { ok: false, error: message };
     }
     const jobs = await fetchPendingJobs(session);
     for (const job of jobs) {
@@ -156,4 +238,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-ensurePollAlarm().catch(() => undefined);
+async function resume() {
+  await ensurePollAlarm();
+  const state = await loadState();
+  if (!state.token) return;
+  const origin = originFromServerUrl(state.serverUrl);
+  if (origin) {
+    try {
+      await registerContentScript(origin);
+    } catch {
+      // Host permission is granted again at the next sign-in.
+    }
+  }
+  if (state.printer) {
+    ensurePrintTab(false).catch(() => undefined);
+  }
+  await pollPendingJobs();
+}
+
+resume().catch(() => undefined);

@@ -81,13 +81,17 @@ const CHROMEOS_UA =
     fetch: async (url) => {
       calls.push(url);
       if (url.endsWith('/health')) return response(false);
+      if (String(url).includes('/api/print-jobs/7')) {
+        return response(true, { ok: true, job: { status: 'printed' } });
+      }
       return response(true, { ok: true, job_id: 7 });
     },
   });
   const result = await client.printWagerReceipt({ transaction_id: '2' });
   assert.equal(result.ok, true);
+  assert.equal(result.message, 'Receipt printed.');
   assert.equal(result.via, 'server');
-  assert.deepEqual(calls, ['/api/print-jobs/']);
+  assert.deepEqual(calls, ['/api/print-jobs/', '/api/print-jobs/7/']);
   assert.equal(posted.length, 1);
   // Compare via JSON — the payload object is created inside the vm sandbox.
   assert.deepEqual(JSON.parse(JSON.stringify(posted[0].data)), {
@@ -121,12 +125,16 @@ const CHROMEOS_UA =
     mode: 'server',
     fetch: async (url) => {
       calls.push(url);
+      if (String(url).includes('/api/print-jobs/8')) {
+        return response(true, { ok: true, job: { status: 'printed' } });
+      }
       return response(true, { ok: true, job_id: 8 });
     },
   });
   const result = await client.printWagerReceipt({ transaction_id: '4' });
   assert.equal(result.via, 'server');
-  assert.deepEqual(calls, ['/api/print-jobs/']);
+  assert.equal(result.message, 'Receipt printed.');
+  assert.deepEqual(calls, ['/api/print-jobs/', '/api/print-jobs/8/']);
   assert.equal(posted.length, 0);
 }
 

@@ -1,12 +1,10 @@
 import { loginCompanion, normalizeServerUrl, registerPrinter } from './lib/api.js';
-import { buildTestEscposBytes } from './lib/escpos.js';
 import {
   clearSession,
   ensureDeviceId,
   loadState,
   saveState,
 } from './lib/storage.js';
-import { printRaw } from './lib/usb.js';
 
 const els = {
   serverUrl: document.getElementById('serverUrl'),
@@ -57,7 +55,6 @@ function urlNeedsReplacement(value) {
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return true;
   if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return true;
-  if (url.port === '8000') return true;
   return false;
 }
 
@@ -188,12 +185,9 @@ els.signOut.addEventListener('click', async () => {
 els.choosePrinter.addEventListener('click', async () => {
   els.choosePrinter.disabled = true;
   try {
-    await chrome.windows.create({
+    await chrome.tabs.create({
       url: chrome.runtime.getURL('picker.html'),
-      type: 'normal',
-      width: 440,
-      height: 320,
-      focused: true,
+      active: true,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -217,9 +211,11 @@ els.testPrint.addEventListener('click', async () => {
     if (!state.printer) {
       throw new Error('Choose a USB printer first.');
     }
-    setStatus('Sending test print…');
-    await printRaw(state.printer, buildTestEscposBytes());
-    const message = 'Test print sent.';
+    await chrome.tabs.create({
+      url: chrome.runtime.getURL('print.html') + '?mode=test',
+      active: true,
+    });
+    const message = 'Test print opened in a new tab.';
     setStatus(message);
     await saveState({ statusMessage: message });
   } catch (error) {

@@ -12,8 +12,8 @@ Classic Bluetooth printers are not supported from a Chrome extension.
 1. Plug the 58 mm USB ESC/POS printer into the Chromebook.
 2. Open `chrome://extensions`, enable **Developer mode**.
 3. **Load unpacked** → select this `chrome_print_extension` folder.
-4. Open SmartWagers in Chrome on this Chromebook (`http://<server>:8080`). Then open the extension popup. Server URL should match that tab, including port 8080. Sign in as the same teller. `localhost` and port 8000 are refused: nothing on the Chromebook is the server.
-5. **Choose printer**. A separate window opens; click **Select USB printer** and allow the device → **Test print**.
+4. Open SmartWagers in Chrome on this Chromebook. Then open the extension popup. Server URL should match that tab, including the port. Sign in as the same teller. `localhost` is refused: nothing on the Chromebook is the server.
+5. **Choose printer**. A browser tab opens; click **Select USB printer** and allow the device → **Test print**. Chrome only exposes WebUSB in that tab, not in the extension popup. Leave the SmartWagers Print tab open in the background so receipts do not open a new tab on every bet.
 6. Place bets in Chrome as the same teller. Receipts queue to the server and print here.
 
 If `claimInterface` fails, remove the printer under **Settings → Printers** so

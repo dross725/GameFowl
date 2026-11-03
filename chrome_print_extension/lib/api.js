@@ -46,7 +46,7 @@ export async function loginCompanion({
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Cannot reach ${url} (${detail}). Use the address in this Chromebook's `
-        + 'SmartWagers tab, including port 8080. localhost is this Chromebook, not the server.',
+        + 'SmartWagers tab. localhost is this Chromebook, not the server.',
     );
   }
   const data = await readJson(response);

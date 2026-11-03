@@ -18,7 +18,9 @@ const DEVICE_FILTERS = [
 
 function requireWebUsb() {
   if (!navigator.usb) {
-    throw new Error('WebUSB is not available in this Chrome window.');
+    throw new Error(
+      'WebUSB is not available in this tab. Update Chrome to version 118 or newer and allow WebUSB.',
+    );
   }
 }
 

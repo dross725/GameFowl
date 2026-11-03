@@ -148,6 +148,70 @@
         }
     }
 
+    function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function readJobStatus(jobId) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        try {
+            const response = await fetch(`/api/print-jobs/${jobId}/`, {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                credentials: "same-origin",
+                cache: "no-store",
+                signal: controller.signal,
+            });
+            let result = {};
+            try {
+                result = await response.json();
+            } catch (error) {
+                result = {};
+            }
+            if (!response.ok || !result.ok || !result.job) return null;
+            return result.job;
+        } catch (error) {
+            return null;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    async function waitForCompanion(jobId) {
+        const waiting = "Receipt is still waiting for SmartWagers Print on this Chromebook. Sign in as this teller, choose the printer, then click Claim jobs now.";
+        const deadline = Date.now() + 6000;
+        while (Date.now() < deadline) {
+            const job = await readJobStatus(jobId);
+            if (job && job.status === "printed") {
+                return {
+                    ok: true,
+                    message: "Receipt printed.",
+                    job_id: jobId,
+                    via: "server",
+                };
+            }
+            if (job && job.status === "failed") {
+                return {
+                    ok: false,
+                    message: job.error_text || "SmartWagers Print could not print this receipt.",
+                    job_id: jobId,
+                    via: "server",
+                };
+            }
+            await sleep(200);
+        }
+        return {
+            ok: false,
+            message: waiting,
+            job_id: jobId,
+            via: "server",
+        };
+    }
+
     async function postServerQueue(endpoint, receipt) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SERVER_PRINT_TIMEOUT_MS);
@@ -178,12 +242,7 @@
                 };
             }
             notifyCompanionQueue(result.job_id);
-            return {
-                ok: true,
-                message: result.message || "Receipt queued for print companion.",
-                job_id: result.job_id,
-                via: "server",
-            };
+            return waitForCompanion(result.job_id);
         } catch (error) {
             return {
                 ok: false,
