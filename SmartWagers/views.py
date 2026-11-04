@@ -678,14 +678,9 @@ def Main_admin(request):
             return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
         if services.is_discard_trailing_3_6_enabled() and services.is_wrong_punch_amount(wager):
-            punch = services.record_wrong_punch(request.user)
             return JsonResponse({
                 'ok': False,
                 'error': 'wrong_punch',
-                'count': punch['count'],
-                'rank': punch['rank'],
-                'tellers_counted': punch['tellers_counted'],
-                'event_name': punch['event_name'],
             }, status=400)
 
         if not services.is_match_open():
@@ -920,14 +915,9 @@ def Teller(request):
             return JsonResponse({'ok': False, 'error': 'invalid_amount'}, status=400)
 
         if services.is_discard_trailing_3_6_enabled() and services.is_wrong_punch_amount(wager):
-            punch = services.record_wrong_punch(request.user)
             return JsonResponse({
                 'ok': False,
                 'error': 'wrong_punch',
-                'count': punch['count'],
-                'rank': punch['rank'],
-                'tellers_counted': punch['tellers_counted'],
-                'event_name': punch['event_name'],
             }, status=400)
 
         if not services.is_betting_open(wager_id):
@@ -985,30 +975,6 @@ def Teller(request):
     return render(request, 'SmartWagers/user.html', user_page_context())
 
 
-@login_required
-@require_http_methods(['POST'])
-def record_wrong_punch_view(request):
-    """Increment the caller's per-event wrong-punch counter (teller/admin)."""
-    if not request.user.groups.filter(name__in=('teller', 'admin')).exists():
-        return JsonResponse({'ok': False, 'error': 'Forbidden'}, status=403)
-
-    if not services.is_discard_trailing_3_6_enabled():
-        return JsonResponse({
-            'ok': False,
-            'error': 'disabled',
-            'discard_trailing_3_6': False,
-        })
-
-    punch = services.record_wrong_punch(request.user)
-    return JsonResponse({
-        'ok': True,
-        'count': punch['count'],
-        'rank': punch['rank'],
-        'tellers_counted': punch['tellers_counted'],
-        'event_name': punch['event_name'],
-    })
-
-
 @group_required('teller')
 def teller_report(request):
     from SmartWagers import reporting
@@ -1045,7 +1011,6 @@ def teller_report(request):
     balance_breakdown = services.compute_teller_balance_breakdown(
         request.user, event=event_scope, apply_end_bound=apply_end_bound,
     ) if event_scope else None
-    wrong_punch = services.get_wrong_punch_stats(request.user, event=event_scope)
 
     txn_qs = TellerTransaction.objects.filter(user=request.user)
     if event_scope is not None:
@@ -1069,7 +1034,6 @@ def teller_report(request):
         'expected_balance': balance_breakdown['balance'] if balance_breakdown else 0.0,
         'balance_breakdown': balance_breakdown,
         'current_fightnum': current_fightnum,
-        'wrong_punch': wrong_punch,
         'fund_transactions': fund_transactions,
     })
 
@@ -2354,7 +2318,6 @@ def end_event_view(request):
     notify_event_change()
     logger.info("EVENT END (view): id=%s name=%r admin=%s", event.id, event.name, request.user.username)
 
-    wrong_punch = services.get_wrong_punch_leaderboard(event)
     from .event_reporting import event_report_email_warning
     from .models import EventReportEmail
     report_email = EventReportEmail.objects.filter(event=event).first()
@@ -2365,7 +2328,6 @@ def end_event_view(request):
         'event_name': event.name,
         'ended_at': event.ended_at.strftime('%Y-%m-%d %H:%M:%S'),
         'report_url': reverse('admin-event-report') + f'?event_id={event.id}',
-        'wrong_punch': wrong_punch,
         'report_email': {
             'status': report_email.status if report_email else None,
             'warning': event_report_email_warning(event),

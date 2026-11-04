@@ -17,6 +17,13 @@ def teller_user(db):
     return user
 
 
+def test_money_shows_whole_pesos_without_rounding():
+    assert escpos_receipts.money('165.50') == '165'
+    assert escpos_receipts.money(200.99) == '200'
+    assert escpos_receipts.money(1000) == '1,000'
+    assert escpos_receipts.money('1,250.75') == '1,250'
+
+
 def test_escpos_wager_contains_title_and_barcode():
     payload = escpos_receipts.escpos_receipt({
         'receipt_type': 'wager',
@@ -66,8 +73,8 @@ def test_payout_receipt_shows_amount_won_under_bet():
         'cashier': 'teller1',
     })
     text = payload.decode('cp437', errors='replace')
-    amount_at = text.index('Amount: 100.00')
-    won_at = text.index('Amount Won: 90.00')
+    amount_at = text.index('Amount: 100')
+    won_at = text.index('Amount Won: 90')
     odds_at = text.index('Odds: 1.9000')
     assert amount_at < won_at < odds_at
     assert b'Payout Amount:' in payload
@@ -78,7 +85,7 @@ def test_payout_receipt_shows_amount_won_under_bet():
         'amount': '200.00',
         'Total_Payout': '165',
     })
-    assert b'Amount Won: -35.00' in short_payout
+    assert b'Amount Won: -35' in short_payout
 
 
 def test_refund_receipt_omits_amount_won():

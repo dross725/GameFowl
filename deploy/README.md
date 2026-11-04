@@ -380,11 +380,7 @@ python manage.py list_events
 python manage.py resend_event_report <EVENT-ID>
 ```
 
-Schedule the automatic retry every five minutes from an elevated Command Prompt:
-
-```cmd
-schtasks /Create /TN "SmartWagers Commission Email" /SC MINUTE /MO 5 /TR "cmd /c cd /d C:\SmartWagers\GameFowl && python manage.py send_pending_event_reports"
-```
+`deploy\schedule_maintenance.bat` schedules the automatic retry once a day at 03:00 as `SmartWagers-SendPendingReports`. To replace an older every-five-minutes task, run that script again from an elevated Command Prompt. It uses `/F`, so the existing task is overwritten.
 
 Use the full path to the same `python.exe` that runs Daphne if `python` is not on the Task Scheduler account's PATH.
 

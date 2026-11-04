@@ -32,13 +32,12 @@ def escpos_feed_and_cut(feed_lines: int = DEFAULT_CUT_FEED_LINES) -> bytes:
 
 
 def money(value: Any) -> str:
-    """Format a monetary amount with centavos, truncating beyond 2 decimals (no rounding)."""
+    """Format a monetary amount as whole pesos, truncating decimals."""
     try:
         num = float(str(value).replace(",", ""))
-        truncated = math.trunc(num * 100) / 100
-        return f"{truncated:,.2f}"
+        return f"{math.trunc(num):,}"
     except (TypeError, ValueError):
-        return str(value or "0.00")
+        return str(value or "0")
 
 
 def amount_won(payout: Any, bet: Any) -> str:
