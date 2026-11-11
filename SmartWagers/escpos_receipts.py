@@ -32,13 +32,21 @@ def escpos_feed_and_cut(feed_lines: int = DEFAULT_CUT_FEED_LINES) -> bytes:
 
 
 def money(value: Any) -> str:
-    """Format a monetary amount with centavos, truncating beyond 2 decimals (no rounding)."""
+    """Format a monetary amount as whole pesos, truncating decimals."""
     try:
         num = float(str(value).replace(",", ""))
-        truncated = math.trunc(num * 100) / 100
-        return f"{truncated:,.2f}"
+        return f"{math.trunc(num):,}"
     except (TypeError, ValueError):
-        return str(value or "0.00")
+        return str(value or "0")
+
+
+def amount_won(payout: Any, bet: Any) -> str:
+    """Net winning: payout amount minus the bet amount."""
+    try:
+        net = float(str(payout).replace(",", "")) - float(str(bet).replace(",", ""))
+    except (TypeError, ValueError):
+        net = 0
+    return money(net)
 
 
 FONT_A_WIDTH_DOTS = 12
@@ -307,6 +315,8 @@ def escpos_receipt(
     elif not is_test:
         output += emit(f"{side} - {odds}", bold=True, double=True)
         output += emit(f"Amount: {amount}", bold=True)
+        if not is_refund:
+            output += emit(f"Amount Won: {amount_won(total_payout, amount)}", bold=True)
         output += emit(f"Odds: {multiplier}", bold=True)
         output += emit("Refund Amount:" if is_refund else "Payout Amount:", bold=True)
         output += emit(total_payout, bold=True, double=True)

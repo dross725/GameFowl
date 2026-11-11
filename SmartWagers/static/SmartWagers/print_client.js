@@ -43,8 +43,9 @@
     }
 
     /**
-     * Platforms that should fall back to the server companion queue when the
-     * Windows localhost agent is missing or unhealthy (auto mode).
+     * Chrome OS and mobile have no Windows print agent. Auto mode sends
+     * receipts to the server companion queue and does not probe
+     * 127.0.0.1:8765, which the browser reports as connection refused.
      * @param {string} [ua]
      */
     function prefersCompanionQueue(ua) {
@@ -78,10 +79,10 @@
         const mode = getPrintMode();
         if (mode === "local") return true;
         if (mode === "server") return false;
-        // Windows cashier PCs always prefer the localhost agent.
-        // Mobile + Chrome OS probe first, then fall through to the companion queue.
-        if (!prefersCompanionQueue()) return true;
-        return probeLocalAgent(false);
+        // Windows cashier PCs use the localhost agent. Chrome OS and mobile
+        // go straight to the companion queue.
+        if (prefersCompanionQueue()) return false;
+        return true;
     }
 
     async function postLocal(path, receipt, options) {
@@ -127,6 +128,90 @@
         }
     }
 
+    /** Wake the Chrome OS USB print extension after a successful enqueue. */
+    function notifyCompanionQueue(jobId) {
+        if (typeof window === "undefined" || typeof window.postMessage !== "function") {
+            return;
+        }
+        if (!isChromeOS()) return;
+        try {
+            window.postMessage(
+                {
+                    source: "smartwagers-print",
+                    type: "job-queued",
+                    job_id: jobId || null,
+                },
+                window.location.origin,
+            );
+        } catch (error) {
+            // Extension absence must not break betting.
+        }
+    }
+
+    function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function readJobStatus(jobId) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        try {
+            const response = await fetch(`/api/print-jobs/${jobId}/`, {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                credentials: "same-origin",
+                cache: "no-store",
+                signal: controller.signal,
+            });
+            let result = {};
+            try {
+                result = await response.json();
+            } catch (error) {
+                result = {};
+            }
+            if (!response.ok || !result.ok || !result.job) return null;
+            return result.job;
+        } catch (error) {
+            return null;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
+
+    async function waitForCompanion(jobId) {
+        const waiting = "Receipt is still waiting for SmartWagers Print on this Chromebook. Sign in as this teller, choose the printer, then click Claim jobs now.";
+        const deadline = Date.now() + 6000;
+        while (Date.now() < deadline) {
+            const job = await readJobStatus(jobId);
+            if (job && job.status === "printed") {
+                return {
+                    ok: true,
+                    message: "Receipt printed.",
+                    job_id: jobId,
+                    via: "server",
+                };
+            }
+            if (job && job.status === "failed") {
+                return {
+                    ok: false,
+                    message: job.error_text || "SmartWagers Print could not print this receipt.",
+                    job_id: jobId,
+                    via: "server",
+                };
+            }
+            await sleep(200);
+        }
+        return {
+            ok: false,
+            message: waiting,
+            job_id: jobId,
+            via: "server",
+        };
+    }
+
     async function postServerQueue(endpoint, receipt) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), SERVER_PRINT_TIMEOUT_MS);
@@ -156,12 +241,8 @@
                     via: "server",
                 };
             }
-            return {
-                ok: true,
-                message: result.message || "Receipt queued for print companion.",
-                job_id: result.job_id,
-                via: "server",
-            };
+            notifyCompanionQueue(result.job_id);
+            return waitForCompanion(result.job_id);
         } catch (error) {
             return {
                 ok: false,

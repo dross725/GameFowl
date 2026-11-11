@@ -336,27 +336,11 @@ class TestAdminActionGuards:
         assert response.status_code == 200
         data = json.loads(response.content)
         assert data.get('ok') is True
-        assert 'wrong_punch' in data
-        assert data['wrong_punch']['event_name'] == active_event.name
+        assert 'wrong_punch' not in data
         active_event.refresh_from_db()
         assert active_event.is_active is False
         assert active_event.actual_admin_cash_counted == 99950.25
         assert active_event.admin_cash_counted_by == admin_user
-
-    def test_end_event_includes_wrong_punch_winner(
-            self, admin_user, teller_user, teller_user2, default_settings, active_event):
-        services.record_wrong_punch(teller_user)
-        services.record_wrong_punch(teller_user)
-        services.record_wrong_punch(teller_user2)
-        client = Client()
-        client.force_login(admin_user)
-        services.register_admin_cash_count(100000, admin_user)
-        response = client.post('/administrator/end-event/')
-        assert response.status_code == 200
-        board = response.json()['wrong_punch']
-        assert board['has_contestants'] is True
-        assert board['best_count'] == 2
-        assert [w['username'] for w in board['winners']] == [teller_user.username]
 
     def test_end_event_requires_admin_cash_count(self, admin_user, active_event):
         client = Client()
@@ -1772,7 +1756,6 @@ class TestWrongPunchBetRejection:
         )
         assert response.status_code == 400
         assert response.json()['error'] == 'wrong_punch'
-        assert response.json()['count'] == 1
         assert not Wagers.objects.filter(cashier=str(teller_user), wager=2003).exists()
 
     def test_teller_rejects_amount_ending_in_6(
@@ -1787,7 +1770,6 @@ class TestWrongPunchBetRejection:
         )
         assert response.status_code == 400
         assert response.json()['error'] == 'wrong_punch'
-        assert response.json()['count'] == 1
 
     def test_teller_allows_trailing_3_when_disabled(
             self, teller_user, default_settings, teller_status_online, active_event):
@@ -1817,74 +1799,6 @@ class TestWrongPunchBetRejection:
         )
         assert response.status_code == 400
         assert response.json()['error'] == 'wrong_punch'
-        assert response.json()['count'] == 1
-
-    def test_record_wrong_punch_endpoint_increments(
-            self, teller_user, default_settings, teller_status_online, active_event):
-        client = Client()
-        client.force_login(teller_user)
-        response = client.post(
-            '/wrong_punch/',
-            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data['ok'] is True
-        assert data['count'] == 1
-        assert data['rank'] == 1
-
-        response = client.post(
-            '/wrong_punch/',
-            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
-        )
-        assert response.json()['count'] == 2
-
-    def test_record_wrong_punch_endpoint_respects_disabled_toggle(
-            self, teller_user, default_settings, teller_status_online, active_event):
-        default_settings.discard_trailing_3_6 = False
-        default_settings.save()
-        client = Client()
-        client.force_login(teller_user)
-        response = client.post(
-            '/wrong_punch/',
-            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data['ok'] is False
-        assert data['error'] == 'disabled'
-        assert services.get_wrong_punch_count(teller_user) == 0
-
-
-@pytest.mark.django_db
-class TestTellerReportWrongPunchCard:
-
-    def test_report_shows_clean_sheet(
-            self, teller_user, default_settings, teller_status_online, active_event):
-        client = Client()
-        client.force_login(teller_user)
-        response = client.get('/reports/')
-        assert response.status_code == 200
-        assert response.context['wrong_punch']['count'] == 0
-        assert response.context['wrong_punch']['rank'] is None
-        assert b'Angel' in response.content
-        assert b'Butterfingers Rank' in response.content
-
-    def test_report_shows_rank_after_wrong_punches(
-            self, teller_user, teller_user2, default_settings,
-            teller_status_online, active_event):
-        services.record_wrong_punch(teller_user)
-        services.record_wrong_punch(teller_user)
-        services.record_wrong_punch(teller_user2)
-        client = Client()
-        client.force_login(teller_user)
-        response = client.get('/reports/')
-        assert response.status_code == 200
-        punch = response.context['wrong_punch']
-        assert punch['count'] == 2
-        assert punch['rank'] == 1
-        assert punch['tellers_counted'] == 2
-        assert b'#1' in response.content
 
 
 # ---------------------------------------------------------------------------

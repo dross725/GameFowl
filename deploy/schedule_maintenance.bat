@@ -13,7 +13,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-schtasks /Create /F /TN "SmartWagers-SendPendingReports" /SC MINUTE /MO 5 /RL LIMITED /TR "\"%PYTHON_EXE%\" \"%PROJECT_DIR%\manage.py\" send_pending_event_reports"
+schtasks /Create /F /TN "SmartWagers-SendPendingReports" /SC DAILY /ST 03:00 /RL LIMITED /TR "\"%PYTHON_EXE%\" \"%PROJECT_DIR%\manage.py\" send_pending_event_reports"
 if errorlevel 1 (
     echo ERROR: Could not schedule commission email retry.
     if /I not "%~1"=="nopause" pause
@@ -21,7 +21,7 @@ if errorlevel 1 (
 )
 
 echo Scheduled SmartWagers-PostgresBackup daily at 02:00.
-echo Scheduled SmartWagers-SendPendingReports every 5 minutes.
+echo Scheduled SmartWagers-SendPendingReports daily at 03:00.
 echo Backups are validated and 14 dumps are retained.
 if /I not "%~1"=="nopause" pause
 exit /b 0

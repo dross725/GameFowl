@@ -183,7 +183,7 @@
 <div id="pa-wrapper">
   <div>
     <div id="pa-title">Print Agents</div>
-    <div id="pa-subtitle">Windows USB agent, Android / iOS Bluetooth companion, and Chromebook (ARC) companion.</div>
+    <div id="pa-subtitle">Windows USB agent, Android / iOS Bluetooth companion, Chromebook (ARC) companion, and Chrome OS USB extension.</div>
   </div>
 
   <div class="pa-panel">
@@ -309,6 +309,46 @@
       Chrome OS browsers auto-route to the server print queue when
       <span class="pa-code">127.0.0.1:8765</span> is not running. Force with
       <span class="pa-code">localStorage.setItem("smartwagersPrintMode", "server")</span>.
+    </p>
+  </div>
+
+  <div class="pa-panel">
+    <div class="pa-panel-title">Chromebook (no Play Store) — Chrome USB extension</div>
+    <div class="pa-status">
+      {% if chrome_extension_ready %}
+        <span class="pa-badge pa-badge-ok">Extension package ready</span>
+      {% elif chrome_extension_dir_exists %}
+        <span class="pa-badge pa-badge-warn">manifest.json missing</span>
+      {% else %}
+        <span class="pa-badge pa-badge-warn">chrome_print_extension missing</span>
+      {% endif %}
+    </div>
+    <p class="pa-text">
+      For Chromebooks <strong>without Google Play</strong> (including ChromeOS Flex), use the
+      Manifest V3 extension. Plug a <strong>58 mm USB</strong> ESC/POS printer into the Chromebook.
+      Chrome queues receipts to the server; the extension claims them and writes raw ESC/POS over USB.
+      Classic Bluetooth printers are not supported by this extension.
+    </p>
+    {% if chrome_extension_ready %}
+      <a class="pa-download-btn" href="{% url 'admin-print-agent-chrome-download' %}">Download Chrome Print Extension</a>
+      <p class="pa-note">File: <span class="pa-code">{{ chrome_extension_zip_name }}</span></p>
+    {% else %}
+      <a class="pa-download-btn is-disabled" href="#">Chrome extension unavailable</a>
+    {% endif %}
+    <ol class="pa-steps">
+      <li>Download and unzip <span class="pa-code">{{ chrome_extension_zip_name }}</span> (folder
+        <span class="pa-code">SmartWagers-ChromePrint</span>).</li>
+      <li><strong>Lab / unmanaged:</strong> open <span class="pa-code">chrome://extensions</span>,
+        enable Developer mode, <strong>Load unpacked</strong>, select that folder.</li>
+      <li><strong>Managed fleets:</strong> force-install via Google Admin
+        (Devices → Chrome → Apps &amp; extensions). No signing key is stored in the repository.</li>
+      <li>Open the extension popup → enter the SmartWagers LAN URL → sign in as the teller.</li>
+      <li>Plug the USB thermal printer → <strong>Choose printer</strong> → <strong>Test print</strong>.</li>
+      <li>Bet in Chrome as the same teller. If claim fails, remove the printer under
+        Settings → Printers so Chrome OS releases the USB interface.</li>
+    </ol>
+    <p class="pa-note">
+      See <span class="pa-code">chrome_print_extension/README.md</span> for details.
     </p>
   </div>
 </div>

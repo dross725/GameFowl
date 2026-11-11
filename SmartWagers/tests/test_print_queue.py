@@ -17,6 +17,13 @@ def teller_user(db):
     return user
 
 
+def test_money_shows_whole_pesos_without_rounding():
+    assert escpos_receipts.money('165.50') == '165'
+    assert escpos_receipts.money(200.99) == '200'
+    assert escpos_receipts.money(1000) == '1,000'
+    assert escpos_receipts.money('1,250.75') == '1,250'
+
+
 def test_escpos_wager_contains_title_and_barcode():
     payload = escpos_receipts.escpos_receipt({
         'receipt_type': 'wager',
@@ -52,6 +59,46 @@ def test_escpos_layout_uses_normalized_paper_width(configured, normalized):
     expected_spaces = (normalized // 24 - len('X')) // 2
     assert b'\x1dW' + width_bytes in payload
     assert b'\x1d!\x11\x1ba\x00' + (b' ' * expected_spaces) + b'X\n' in payload
+
+
+def test_payout_receipt_shows_amount_won_under_bet():
+    payload = escpos_receipts.escpos_receipt({
+        'receipt_type': 'payout',
+        'side': 'MERON',
+        'odds': 'Llamado',
+        'amount': '100.00',
+        'multiplier': '1.9000',
+        'Total_Payout': '190',
+        'fightnum': 3,
+        'cashier': 'teller1',
+    })
+    text = payload.decode('cp437', errors='replace')
+    amount_at = text.index('Amount: 100')
+    won_at = text.index('Amount Won: 90')
+    odds_at = text.index('Odds: 1.9000')
+    assert amount_at < won_at < odds_at
+    assert b'Payout Amount:' in payload
+
+    short_payout = escpos_receipts.escpos_receipt({
+        'receipt_type': 'payout',
+        'side': 'MERON',
+        'amount': '200.00',
+        'Total_Payout': '165',
+    })
+    assert b'Amount Won: -35' in short_payout
+
+
+def test_refund_receipt_omits_amount_won():
+    payload = escpos_receipts.escpos_receipt({
+        'receipt_type': 'draw_refund',
+        'side': 'DRAW',
+        'odds': 'FULL REFUND',
+        'amount': '100.00',
+        'multiplier': '1.00',
+        'Total_Payout': '100.00',
+    })
+    assert b'Amount Won:' not in payload
+    assert b'Refund Amount:' in payload
 
 
 def test_escpos_remit_prints_fight_number_on_both_copies():
@@ -157,3 +204,84 @@ def test_print_device_login_and_pending_flow(client, teller_user):
     )
     assert ack.status_code == 200
     assert PrintJob.objects.get(pk=job_id).status == PrintJob.STATUS_PRINTED
+
+
+@pytest.mark.django_db
+def test_print_device_login_rejects_unknown_platform(client, teller_user):
+    login_resp = client.post(
+        '/api/print-devices/login/',
+        data={
+            'username': 'teller1',
+            'password': 'pass12345',
+            'device_id': 'device-bad-platform',
+            'platform': 'windows',
+        },
+        content_type='application/json',
+    )
+    assert login_resp.status_code == 400
+    assert login_resp.json()['error'] == 'invalid_platform'
+    assert not PrintDevice.objects.filter(device_id='device-bad-platform').exists()
+
+
+@pytest.mark.django_db
+def test_chromeos_print_device_login_and_pending_flow(client, teller_user):
+    login_resp = client.post(
+        '/api/print-devices/login/',
+        data={
+            'username': 'teller1',
+            'password': 'pass12345',
+            'device_id': 'chromebook-1',
+            'platform': 'chromeos',
+            'printer_name': 'USB printer (1234:5678)',
+            'printer_address': '1234:5678',
+        },
+        content_type='application/json',
+    )
+    assert login_resp.status_code == 200
+    body = login_resp.json()
+    assert body['ok'] is True
+    assert body['platform'] == 'chromeos'
+    token = body['token']
+    device = PrintDevice.objects.get(device_id='chromebook-1', user=teller_user)
+    assert device.platform == PrintDevice.PLATFORM_CHROMEOS
+
+    client.force_login(teller_user)
+    enqueue_resp = client.post(
+        '/api/print-jobs/',
+        data={
+            'endpoint': 'wager',
+            'receipt': {
+                'receipt_type': 'wager',
+                'transaction_id': '11',
+                'side': 'WALA',
+                'amount': 40,
+                'fightnum': 5,
+                'cashier': 'teller1',
+                'date': '2026-09-10',
+            },
+        },
+        content_type='application/json',
+    )
+    assert enqueue_resp.status_code == 200
+    job_id = enqueue_resp.json()['job_id']
+
+    pending = client.get(
+        '/api/print-jobs/pending/',
+        HTTP_AUTHORIZATION=f'Bearer {token}',
+    )
+    assert pending.status_code == 200
+    jobs = pending.json()['jobs']
+    assert len(jobs) == 1
+    assert jobs[0]['id'] == job_id
+    assert base64.b64decode(jobs[0]['escpos_base64'])
+
+    ack = client.post(
+        f'/api/print-jobs/{job_id}/ack/',
+        data={'status': 'printed'},
+        content_type='application/json',
+        HTTP_AUTHORIZATION=f'Bearer {token}',
+    )
+    assert ack.status_code == 200
+    job = PrintJob.objects.get(pk=job_id)
+    assert job.status == PrintJob.STATUS_PRINTED
+    assert job.device_id == device.pk

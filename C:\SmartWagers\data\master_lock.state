@@ -3,10 +3,10 @@
     "action": "heartbeat",
     "enabled": false,
     "extension_count": 0,
-    "last_seen": "2026-10-29T11:20:13Z",
+    "last_seen": "2026-11-04T05:36:53Z",
     "schema_version": 1,
-    "updated_at": "2026-10-29T11:20:13Z",
+    "updated_at": "2026-11-04T05:36:53Z",
     "valid_until": null
   },
-  "sig": "82cebcdcac179481a3cedcf6b6187c0a7c22b234a4d9ae2a216f140d5a97ae1f"
+  "sig": "7c2622d0420c16fe2a093976f4909c61e5e82d0f6c947ec1f8b88bc53116a59c"
 }

@@ -25,7 +25,7 @@ Do not copy secrets into a release folder or email them.
 - `http://localhost:8080/health/ready/` returns `ok: true`.
 - PostgreSQL and Memurai services are running.
 - `C:\SmartWagers\backups\last_backup.json` shows a validated backup from the last day.
-- Commission email retry is scheduled as `SmartWagers-SendPendingReports`.
+- Commission email retry is scheduled once a day at 03:00 as `SmartWagers-SendPendingReports`.
 
 ## Onsite USB update
 

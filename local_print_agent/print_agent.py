@@ -100,6 +100,15 @@ def money(value):
         return str(value or "0")
 
 
+def amount_won(payout, bet):
+    """Net winning: payout amount minus the bet amount."""
+    try:
+        net = float(str(payout).replace(",", "")) - float(str(bet).replace(",", ""))
+    except (TypeError, ValueError):
+        net = 0
+    return money(net)
+
+
 FONT_A_WIDTH_DOTS = 12
 
 
@@ -343,6 +352,8 @@ def escpos_receipt(
     elif not is_test:
         output += emit(f"{side} - {odds}", bold=True, double=True)
         output += emit(f"Amount: {amount}", bold=True)
+        if not is_refund:
+            output += emit(f"Amount Won: {amount_won(total_payout, amount)}", bold=True)
         output += emit(f"Odds: {multiplier}", bold=True)
         output += emit("Refund Amount:" if is_refund else "Payout Amount:", bold=True)
         output += emit(total_payout, bold=True, double=True)
@@ -649,6 +660,8 @@ def print_windows_driver(
             elif not is_test:
                 draw_line(f"{side} - {odds}", highlight_font)
                 draw_line(f"Amount: {amount}", bold_font)
+                if not is_refund:
+                    draw_line(f"Amount Won: {amount_won(total_payout, amount)}", bold_font)
                 draw_line(f"Odds: {multiplier}", bold_font)
                 draw_line("Refund Amount:" if is_refund else "Payout Amount:", bold_font)
                 draw_line(total_payout, highlight_font)

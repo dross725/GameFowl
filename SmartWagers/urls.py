@@ -18,7 +18,6 @@ urlpatterns = [
     path("index", views.index, name="index"),
     path("administrator", views.Main_admin, name="admin-page"), #admin/<admin-name>
     path("user", views.Teller, name="user-page"),
-    path("wrong_punch/", views.record_wrong_punch_view, name="record-wrong-punch"),
     path("get_button_state_view/", views.get_button_state_view, name="get-button-state"),
     path("get_fight_status_view/", views.get_fight_status_view, name="get-fight-status"),
     path("get_pot_values/", views.get_pot_values, name="get-pot-values"),
@@ -66,6 +65,11 @@ urlpatterns = [
         "administrator/print-agent/android/",
         views.admin_print_agent_android_download,
         name="admin-print-agent-android-download",
+    ),
+    path(
+        "administrator/print-agent/chrome/",
+        views.admin_print_agent_chrome_download,
+        name="admin-print-agent-chrome-download",
     ),
     path("api/print-jobs/", print_queue.enqueue_print_job_view, name="api-print-jobs-enqueue"),
     path("api/print-jobs/pending/", print_queue.print_jobs_pending, name="api-print-jobs-pending"),

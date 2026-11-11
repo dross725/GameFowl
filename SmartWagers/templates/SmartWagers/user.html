@@ -14,7 +14,7 @@
         window.DISCARD_TRAILING_3_6 = {{ discard_trailing_3_6|yesno:"true,false" }};
         window.PAYOUTS_HELD = {{ payouts_held|yesno:"true,false" }};
     </script>
-<script src="{% static 'SmartWagers/print_client.js' %}?v=chromeos-1"></script>
+<script src="{% static 'SmartWagers/print_client.js' %}?v=chromeos-3"></script>
 <script src="{% static 'SmartWagers/administrator.js' %}?v=sidebar-soft-fade-1"></script>
     <script src="{% static 'SmartWagers/submit_wagers.js' %}?v=payout-hold-1"></script>
     <script src="{% static 'SmartWagers/user.js' %}?v=payout-hold-2"></script>
@@ -128,12 +128,7 @@
         <div class='modal-content'>
             <h2>Wrong Punch</h2>
             <br>
-            <p id='wrongpunch-message'>Wrong punch! Finger slipped on 3 or 6 before Enter. That one goes on the shame board — re-enter the bet.</p>
-            <br>
-            <p id='wrongpunch-score' style='display:none;font-size:1.15em;font-weight:700;'>
-                Wrong punches this event: <strong id='wrongpunch-count'>0</strong>
-            </p>
-            <p id='wrongpunch-rank' style='display:none;margin-top:8px;opacity:0.85;'></p>
+            <p id='wrongpunch-message'>Wrong punch! Finger slipped on 3 or 6 before Enter. Re-enter the bet.</p>
             <br>
             <button id='wrongpunch-close-button' onclick='closeWrongPunchModal()'>Close</button>
         </div>
