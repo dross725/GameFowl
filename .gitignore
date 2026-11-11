@@ -85,5 +85,6 @@ Thumbs.db
 
 # Accidental Windows absolute paths written as filenames under the project root
 /C:*/
+/C\:\\*
 
 db.sqlite3
